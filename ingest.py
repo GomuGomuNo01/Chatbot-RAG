@@ -1,76 +1,180 @@
 """
-ingest.py — Script d'indexation des PDFs
-Usage : python ingest.py
-        python ingest.py --categorie technique
-        python ingest.py --reset
+ingest.py — Script CLI d'indexation des documents
+─────────────────────────────────────────────────
+Usage :
+  python ingest.py                          # Indexe tout (incrémental)
+  python ingest.py --reset                  # Recrée l'index depuis zéro
+  python ingest.py --categorie technique    # Une seule catégorie
+  python ingest.py --file docs/rh/note.pdf  # Un seul fichier
 """
 
 import argparse
 import logging
 import sys
-from src.loader  import load_all_documents, load_category
+from pathlib import Path
+
+from src.loader import (
+    load_all_documents,
+    load_category,
+    load_file,
+    SUPPORTED_EXTENSIONS,
+)
 from src.indexer import (
     create_index,
     add_documents_to_index,
-    index_exists
+    filter_new_files,
+    save_manifest,
+    load_manifest,
+    index_exists,
+    _file_hash,
 )
+from config import CATEGORIES
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
-def main():
+# ──────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────
+
+def _collect_files(categorie: str | None = None) -> list:
+    """Collecte tous les fichiers supportés d'une ou plusieurs catégories."""
+    cats  = [categorie] if categorie else list(CATEGORIES.keys())
+    files = []
+    for cat in cats:
+        directory = Path(CATEGORIES[cat]["dir"])
+        for ext in SUPPORTED_EXTENSIONS:
+            files.extend(sorted(directory.glob(f"*{ext}")))
+    return files
+
+
+def _infer_categorie(file_path: Path) -> str:
+    """Déduit la catégorie depuis le dossier parent du fichier."""
+    parent = file_path.parent.name
+    if parent in CATEGORIES:
+        return parent
+    logger.warning(
+        f"Catégorie non reconnue pour '{parent}' "
+        "— fallback sur 'technique'."
+    )
+    return "technique"
+
+
+# ──────────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────────
+
+def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Indexation des PDFs pour le chatbot RAG"
+        description="Indexation des documents pour le chatbot RAG",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
     )
     parser.add_argument(
         "--categorie",
-        type=str,
-        choices=["technique", "rh", "juridique"],
+        choices=list(CATEGORIES.keys()),
         default=None,
-        help="Indexer une seule catégorie (défaut : toutes)"
+        metavar="CAT",
+        help="Indexer seulement cette catégorie (technique | rh | juridique)",
+    )
+    parser.add_argument(
+        "--file",
+        type=str,
+        default=None,
+        metavar="CHEMIN",
+        help=f"Indexer un seul fichier ({', '.join(SUPPORTED_EXTENSIONS)})",
     )
     parser.add_argument(
         "--reset",
         action="store_true",
-        help="Recrée l'index depuis zéro"
+        help="Supprimer l'index existant et tout recréer depuis zéro",
     )
     args = parser.parse_args()
 
-    logger.info("=" * 50)
-    logger.info("  INDEXATION DES DOCUMENTS")
-    logger.info("=" * 50)
+    logger.info("=" * 52)
+    logger.info("  INDEXATION — Chatbot RAG")
+    logger.info("=" * 52)
 
-    # Chargement des documents
-    if args.categorie:
-        documents = load_category(args.categorie)
-    else:
-        documents = load_all_documents()
+    documents = []
 
-    if not documents:
-        logger.error(
-            "Aucun document trouvé. "
-            "Ajoutez des PDFs dans docs/technique/, "
-            "docs/rh/, docs/juridique/"
-        )
-        sys.exit(1)
+    # ── Mode : un seul fichier ──────────────────────────────
+    if args.file:
+        file_path = Path(args.file)
+        if not file_path.exists():
+            logger.error(f"Fichier introuvable : {file_path}")
+            sys.exit(1)
+        if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            logger.error(
+                f"Format non supporté : {file_path.suffix} "
+                f"(acceptés : {', '.join(SUPPORTED_EXTENSIONS)})"
+            )
+            sys.exit(1)
 
-    # Création ou mise à jour de l'index
-    if not index_exists() or args.reset:
-        logger.info("Création d'un nouvel index FAISS...")
+        categorie = _infer_categorie(file_path)
+        documents = load_file(file_path, categorie)
+
+        if not documents:
+            logger.warning(f"Aucun contenu extrait de {file_path.name}.")
+            sys.exit(0)
+
+        if not index_exists() or args.reset:
+            create_index(documents)
+            manifest = {str(file_path.resolve()): _file_hash(file_path)}
+            save_manifest(manifest)
+        else:
+            manifest      = load_manifest()
+            manifest[str(file_path.resolve())] = _file_hash(file_path)
+            add_documents_to_index(documents, manifest)
+
+    # ── Mode : reconstruction complète ─────────────────────
+    elif args.reset or not index_exists():
+        if args.categorie:
+            documents = load_category(args.categorie)
+        else:
+            documents = load_all_documents()
+
+        if not documents:
+            logger.error(
+                "Aucun document trouvé. Ajoutez des fichiers dans "
+                "docs/technique/, docs/rh/, docs/juridique/ puis relancez."
+            )
+            sys.exit(1)
+
         create_index(documents)
-    else:
-        logger.info("Mise à jour de l'index existant...")
-        add_documents_to_index(documents)
 
-    logger.info("=" * 50)
-    logger.info(
-        f"  Indexation terminée : {len(documents)} chunks"
-    )
-    logger.info("=" * 50)
+        # Construire le manifeste initial
+        all_files = _collect_files(args.categorie)
+        manifest  = {str(f.resolve()): _file_hash(f) for f in all_files}
+        save_manifest(manifest)
+
+    # ── Mode : ré-indexation incrémentale (défaut) ─────────
+    else:
+        all_files           = _collect_files(args.categorie)
+        new_files, manifest = filter_new_files(all_files)
+
+        if not new_files:
+            logger.info("Tous les documents sont à jour. Rien à faire.")
+            return
+
+        logger.info(f"{len(new_files)} fichier(s) nouveau(x) ou modifié(s) détecté(s).")
+        for file_path in new_files:
+            cat  = _infer_categorie(file_path)
+            docs = load_file(file_path, cat)
+            documents.extend(docs)
+
+        if not documents:
+            logger.warning("Aucun contenu extrait des nouveaux fichiers.")
+            return
+
+        add_documents_to_index(documents, manifest)
+
+    logger.info("=" * 52)
+    logger.info(f"  Indexation terminée ✓  ({len(documents)} chunks traités)")
+    logger.info("=" * 52)
 
 
 if __name__ == "__main__":

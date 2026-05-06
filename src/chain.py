@@ -110,9 +110,12 @@ class RAGChain:
 
         # ---- Étape 2 : Vérifier si des docs pertinents existent ----
         if not documents:
+            filtre = f" dans la catégorie « {categorie} »" if categorie else ""
             answer = (
-                "Je n'ai pas trouve cette information "
-                "dans les documents disponibles."
+                f"Je n'ai pas trouvé d'information{filtre} "
+                "correspondant à votre question dans les documents disponibles. "
+                "Essayez de reformuler votre question, d'élargir le filtre de catégorie, "
+                "ou vérifiez que les documents sont bien indexés (python ingest.py)."
             )
             memory.add_exchange(question, answer)
             return {
@@ -163,4 +166,4 @@ def get_rag_chain() -> RAGChain:
     global _rag_chain_instance
     if _rag_chain_instance is None:
         _rag_chain_instance = RAGChain()
-    return cast(RAGChain,_rag_chain_instance)
+    return cast(RAGChain, _rag_chain_instance)

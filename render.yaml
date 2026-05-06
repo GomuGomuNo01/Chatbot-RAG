@@ -1,0 +1,37 @@
+# render.yaml — Configuration Render.com
+# Déployer : connectez ce repo sur render.com > New Web Service
+# https://render.com/docs/infrastructure-as-code
+
+services:
+  - type: web
+    name: chatbot-rag
+    runtime: python
+    plan: free          # free | starter | standard …
+
+    # ── Build ──────────────────────────────────────────────────
+    buildCommand: |
+      pip install -r requirements.txt
+      python -c "from src.embedder import get_embeddings; get_embeddings()"
+
+    # ── Démarrage ──────────────────────────────────────────────
+    # L'index FAISS doit être pré-généré et commité (voir README)
+    # OU utilisez un Persistent Disk Render et lancez ingest.py au démarrage.
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+
+    # ── Variables d'environnement ───────────────────────────────
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false         # À renseigner manuellement dans le dashboard Render
+
+      - key: PYTHON_VERSION
+        value: "3.11"
+
+    # ── Disk persistant (optionnel, plans payants) ─────────────
+    # Permet de stocker l'index FAISS sans le commiter dans Git.
+    # disk:
+    #   name: faiss-index
+    #   mountPath: /app/data
+    #   sizeGB: 1
+
+    # ── Health check ───────────────────────────────────────────
+    healthCheckPath: /api/health
