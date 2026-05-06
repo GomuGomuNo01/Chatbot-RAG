@@ -1,0 +1,31 @@
+# Environnement virtuel
+.venv/
+venv/
+env/
+
+# Variables d'environnement — NE JAMAIS COMMITTER
+.env
+
+# IDE PyCharm
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Index FAISS généré localement
+data/faiss_index/
+
+# PDFs (trop lourds pour Git)
+docs/
+
+# Modèle sentence-transformers (téléchargé automatiquement)
+models/
+
+# Logs
+*.log
+output/
