@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Assistant documentaire RAG — Technique, RH, Juridique">
+  <title>Assistant Documentaire</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+</head>
+<body>
+
+  <!-- Overlay pour fermer la sidebar sur mobile -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <div class="app">
+
+    <!-- ══════════════════════ SIDEBAR ══════════════════════ -->
+    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Filtres et documents">
+
+      <div class="sidebar-header">
+        <div class="brand">
+          <span class="brand-icon" aria-hidden="true">📚</span>
+          <span class="brand-name">DocAssist</span>
+        </div>
+      </div>
+
+      <!-- Filtre par catégorie -->
+      <div class="sidebar-section">
+        <h2 class="sidebar-section-title">Catégorie</h2>
+        <div class="category-list" role="radiogroup" aria-label="Filtrer par catégorie">
+
+          <label class="category-item category-item--active">
+            <input type="radio" name="category" value="" checked>
+            <span class="category-dot all" aria-hidden="true"></span>
+            <span>Tout</span>
+            <span class="category-count" id="count-all" aria-label="Total documents">0</span>
+          </label>
+
+          <label class="category-item">
+            <input type="radio" name="category" value="technique">
+            <span class="category-dot technique" aria-hidden="true"></span>
+            <span>Technique</span>
+            <span class="category-count" id="count-technique">0</span>
+          </label>
+
+          <label class="category-item">
+            <input type="radio" name="category" value="rh">
+            <span class="category-dot rh" aria-hidden="true"></span>
+            <span>Ressources Humaines</span>
+            <span class="category-count" id="count-rh">0</span>
+          </label>
+
+          <label class="category-item">
+            <input type="radio" name="category" value="juridique">
+            <span class="category-dot juridique" aria-hidden="true"></span>
+            <span>Juridique</span>
+            <span class="category-count" id="count-juridique">0</span>
+          </label>
+
+        </div>
+      </div>
+
+      <!-- Liste des documents indexés -->
+      <div class="sidebar-section">
+        <h2 class="sidebar-section-title">Documents indexés</h2>
+        <div class="document-list" id="documentList" aria-live="polite">
+          <p class="doc-list__empty">Chargement…</p>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ══════════════════════ MAIN ══════════════════════ -->
+    <main class="main" role="main">
+
+      <!-- Header -->
+      <header class="header">
+        <button class="menu-btn" id="menuBtn" aria-label="Ouvrir le menu" aria-expanded="false">
+          <span></span><span></span><span></span>
+        </button>
+
+        <div class="header-center">
+          <h1 class="header-title">Assistant Documentaire</h1>
+          <p class="header-subtitle">Recherche sémantique · Sources citées</p>
+        </div>
+
+        <div class="header-actions">
+          <div class="status-badge status-badge--warn" id="statusBadge" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="statusText">Connexion…</span>
+          </div>
+          <button class="new-chat-btn" id="newChatBtn" title="Nouvelle conversation (efface l'historique)" aria-label="Nouvelle conversation">
+            ✏️
+          </button>
+        </div>
+      </header>
+
+      <!-- Zone de chat -->
+      <div class="chat-container" id="chatContainer" role="log" aria-label="Conversation" aria-live="polite">
+
+        <!-- Écran de bienvenue -->
+        <section class="welcome" id="welcomeScreen" aria-label="Écran de bienvenue">
+          <div class="welcome-icon" aria-hidden="true">🤖</div>
+          <h2>Bonjour ! Comment puis-je vous aider ?</h2>
+          <p>
+            Posez vos questions sur la documentation <strong>technique</strong>,
+            les ressources <strong>RH</strong> ou les documents <strong>juridiques</strong>.
+            Je citerai toujours mes sources.
+          </p>
+          <div class="example-questions" aria-label="Questions exemples">
+            <button class="example-btn" data-question="Quelles sont les règles sur les congés payés ?">
+              👥 Congés payés
+            </button>
+            <button class="example-btn" data-question="Comment configurer Spring Boot ?">
+              ⚙️ Configurer Spring Boot
+            </button>
+            <button class="example-btn" data-question="Quelles sont les clauses essentielles d'un contrat CDI ?">
+              ⚖️ Clauses CDI
+            </button>
+          </div>
+        </section>
+
+        <!-- Conteneur des messages -->
+        <div id="messages" aria-label="Messages de la conversation"></div>
+
+        <!-- Indicateur de frappe -->
+        <div class="typing-indicator" id="typingIndicator" hidden aria-label="L'assistant rédige une réponse">
+          <div class="message__avatar message__avatar--bot" aria-hidden="true">🤖</div>
+          <div class="typing-bubble" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+
+      </div><!-- /chat-container -->
+
+      <!-- Zone de saisie -->
+      <div class="input-area">
+
+        <!-- Badge catégorie active -->
+        <div class="category-badge-active" id="categoryBadge" hidden>
+          <span id="categoryBadgeText"></span>
+          <button onclick="clearCategory()" aria-label="Effacer le filtre de catégorie">×</button>
+        </div>
+
+        <form class="input-form" id="inputForm" novalidate>
+          <textarea
+            class="input-field"
+            id="inputField"
+            placeholder="Posez votre question…"
+            rows="1"
+            maxlength="1000"
+            aria-label="Votre question"
+            autocomplete="off"
+            spellcheck="true"
+          ></textarea>
+          <button type="submit" class="send-btn" id="sendBtn" disabled aria-label="Envoyer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </form>
+
+        <div class="input-footer">
+          <span class="char-counter" id="charCounter" aria-live="polite">0/1000</span>
+          <span class="disclaimer">L'assistant peut faire des erreurs. Vérifiez toujours les sources.</span>
+        </div>
+
+      </div><!-- /input-area -->
+
+    </main><!-- /main -->
+
+  </div><!-- /app -->
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/chat.js"></script>
+  <script src="/static/js/app.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,29 @@
+# Environnement Python
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Secrets
+.env
+
+# Index FAISS (volumineux, régénéré au démarrage)
+data/faiss_index/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Git
+.git/
+.gitignore
+
+# Docs (optionnel — à retirer si vous voulez inclure les PDFs dans l'image)
+# docs/
+
+# Logs
+*.log

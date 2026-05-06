@@ -1,158 +1,202 @@
 """
-Loader : chargement et découpage des PDFs en chunks
+Loader : chargement et découpage des documents en chunks
+Formats supportés : PDF (.pdf), Word (.docx), Texte (.txt)
 """
 
 import logging
 from pathlib import Path
 from typing import List, Dict
 
-import pymupdf as fitz  # PyMuPDF
+import pymupdf as fitz
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tqdm import tqdm
 
-from config import (
-    CHUNK_SIZE,
-    CHUNK_OVERLAP,
-    CATEGORIES
-)
+from config import CHUNK_SIZE, CHUNK_OVERLAP, CATEGORIES
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+
 
 # ============================================================
-# EXTRACTION TEXTE DEPUIS UN PDF
+# EXTRACTEURS PAR FORMAT
 # ============================================================
 
 def extract_text_from_pdf(pdf_path: Path) -> List[Dict]:
     """
     Extrait le texte page par page depuis un PDF.
-
-    Returns:
-        List[Dict] avec pour chaque page :
-            - text      : contenu textuel
-            - page_num  : numéro de page (commence à 1)
-            - pdf_path  : chemin du fichier source
+    Retourne une liste de dicts {text, page_num, file_path}.
     """
     pages = []
-
     try:
         doc = fitz.open(str(pdf_path))
-
         for page_num in range(len(doc)):
-            page = doc[page_num]
-            text = page.get_text("text").strip()
-
-            # Ignorer les pages vides ou trop courtes
-            if len(text) < 50:
-                continue
-
-            pages.append({
-                "text":     text,
-                "page_num": page_num + 1,
-                "pdf_path": str(pdf_path)
-            })
-
+            text = doc[page_num].get_text("text").strip()
+            if len(text) >= 50:
+                pages.append({
+                    "text":      text,
+                    "page_num":  page_num + 1,
+                    "file_path": str(pdf_path),
+                })
         doc.close()
-        logger.info(f"  PDF lu : {pdf_path.name} — {len(pages)} pages utiles")
-
+        logger.info(f"  PDF : {pdf_path.name} — {len(pages)} page(s) utile(s)")
     except Exception as e:
-        logger.error(f"  Erreur lecture {pdf_path.name} : {e}")
+        logger.error(f"  Erreur lecture PDF {pdf_path.name} : {e}")
+    return pages
 
+
+def extract_text_from_docx(docx_path: Path) -> List[Dict]:
+    """
+    Extrait le texte depuis un fichier Word (.docx).
+    Le contenu entier est traité comme une seule page.
+    """
+    pages = []
+    try:
+        from docx import Document as DocxDocument
+        doc   = DocxDocument(str(docx_path))
+        paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        text  = "\n\n".join(paras)
+        if len(text) >= 50:
+            pages.append({
+                "text":      text,
+                "page_num":  1,
+                "file_path": str(docx_path),
+            })
+        logger.info(f"  DOCX : {docx_path.name} — {len(paras)} paragraphe(s)")
+    except ImportError:
+        logger.error(
+            f"  python-docx requis pour {docx_path.name}. "
+            "Installe-le : pip install python-docx"
+        )
+    except Exception as e:
+        logger.error(f"  Erreur lecture DOCX {docx_path.name} : {e}")
+    return pages
+
+
+def extract_text_from_txt(txt_path: Path) -> List[Dict]:
+    """
+    Extrait le texte depuis un fichier texte brut (.txt).
+    Découpe en blocs de 3 000 caractères pour simuler des pages.
+    """
+    pages = []
+    try:
+        raw        = txt_path.read_text(encoding="utf-8", errors="ignore").strip()
+        block_size = 3000
+        blocks     = [raw[i : i + block_size] for i in range(0, len(raw), block_size)]
+        for idx, block in enumerate(blocks, 1):
+            if len(block) >= 50:
+                pages.append({
+                    "text":      block,
+                    "page_num":  idx,
+                    "file_path": str(txt_path),
+                })
+        logger.info(f"  TXT : {txt_path.name} — {len(pages)} bloc(s)")
+    except Exception as e:
+        logger.error(f"  Erreur lecture TXT {txt_path.name} : {e}")
     return pages
 
 
 # ============================================================
-# DÉCOUPAGE EN CHUNKS
+# DISPATCHER MULTI-FORMAT
+# ============================================================
+
+_EXTRACTORS = {
+    ".pdf":  extract_text_from_pdf,
+    ".docx": extract_text_from_docx,
+    ".txt":  extract_text_from_txt,
+}
+
+
+def extract_text(file_path: Path) -> List[Dict]:
+    """Sélectionne automatiquement l'extracteur selon l'extension."""
+    extractor = _EXTRACTORS.get(file_path.suffix.lower())
+    if not extractor:
+        raise ValueError(
+            f"Format non supporté : {file_path.suffix} "
+            f"(acceptés : {', '.join(SUPPORTED_EXTENSIONS)})"
+        )
+    return extractor(file_path)
+
+
+# ============================================================
+# DÉCOUPAGE EN CHUNKS LANGCHAIN
 # ============================================================
 
 def pages_to_documents(
     pages: List[Dict],
     categorie: str,
-    nom_fichier: str
+    nom_fichier: str,
 ) -> List[Document]:
     """
-    Convertit les pages extraites en Documents LangChain
+    Convertit les pages/blocs extraits en Documents LangChain
     avec métadonnées complètes.
     """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ".", "!", "?", " ", ""]
+        separators=["\n\n", "\n", ".", "!", "?", " ", ""],
     )
-
     documents = []
-
     for page in pages:
-        chunks = splitter.split_text(page["text"])
-
-        for chunk_idx, chunk in enumerate(chunks):
+        for chunk_idx, chunk in enumerate(splitter.split_text(page["text"])):
             if len(chunk.strip()) < 30:
                 continue
-
-            doc = Document(
+            documents.append(Document(
                 page_content=chunk,
                 metadata={
                     "source":      nom_fichier,
                     "page":        page["page_num"],
                     "categorie":   categorie,
                     "chunk_index": chunk_idx,
-                    "pdf_path":    page["pdf_path"]
-                }
-            )
-            documents.append(doc)
-
+                    "file_path":   page["file_path"],
+                },
+            ))
     return documents
 
 
 # ============================================================
-# CHARGEMENT D'UN DOSSIER COMPLET
+# CHARGEMENT D'UN FICHIER UNIQUE
+# ============================================================
+
+def load_file(file_path: Path, categorie: str) -> List[Document]:
+    """
+    Charge et découpe un seul fichier (PDF, DOCX ou TXT).
+    Utilisé par ingest.py --file et par les tests.
+    """
+    pages = extract_text(file_path)
+    docs  = pages_to_documents(pages, categorie, file_path.name)
+    logger.info(f"  {file_path.name} → {len(docs)} chunk(s)")
+    return docs
+
+
+# ============================================================
+# CHARGEMENT D'UNE CATÉGORIE COMPLÈTE
 # ============================================================
 
 def load_category(categorie: str) -> List[Document]:
-    """
-    Charge tous les PDFs d'une catégorie.
-
-    Args:
-        categorie : "technique", "rh" ou "juridique"
-
-    Returns:
-        Liste de Documents LangChain avec métadonnées
-    """
+    """Charge tous les fichiers supportés d'une catégorie."""
     config = CATEGORIES.get(categorie)
     if not config:
         raise ValueError(f"Catégorie inconnue : {categorie}")
 
     directory = Path(config["dir"])
-    pdf_files  = list(directory.glob("*.pdf"))
+    files     = [
+        f for ext in SUPPORTED_EXTENSIONS
+        for f in sorted(directory.glob(f"*{ext}"))
+    ]
 
-    if not pdf_files:
+    if not files:
         logger.warning(
-            f"Aucun PDF trouvé dans {directory} "
-            f"pour la catégorie '{categorie}'"
+            f"Aucun document dans {directory} "
+            f"(formats : {', '.join(SUPPORTED_EXTENSIONS)})"
         )
         return []
 
-    logger.info(
-        f"Catégorie '{categorie}' : "
-        f"{len(pdf_files)} PDF(s) détecté(s)"
-    )
-
+    logger.info(f"Catégorie '{categorie}' : {len(files)} fichier(s)")
     all_documents = []
-
-    for pdf_path in tqdm(pdf_files, desc=f"  {categorie}"):
-        pages = extract_text_from_pdf(pdf_path)
-        docs  = pages_to_documents(
-            pages=pages,
-            categorie=categorie,
-            nom_fichier=pdf_path.name
-        )
-        all_documents.extend(docs)
-        logger.info(
-            f"    {pdf_path.name} → "
-            f"{len(docs)} chunks créés"
-        )
-
+    for file_path in tqdm(files, desc=f"  {categorie}"):
+        all_documents.extend(load_file(file_path, categorie))
     return all_documents
 
 
@@ -161,24 +205,12 @@ def load_category(categorie: str) -> List[Document]:
 # ============================================================
 
 def load_all_documents() -> List[Document]:
-    """
-    Charge et découpe tous les PDFs de toutes les catégories.
-
-    Returns:
-        Liste complète de Documents LangChain
-    """
+    """Charge et découpe tous les documents de toutes les catégories."""
     logger.info("=== CHARGEMENT DES DOCUMENTS ===")
     all_docs = []
-
-    for categorie in CATEGORIES.keys():
+    for categorie in CATEGORIES:
         docs = load_category(categorie)
         all_docs.extend(docs)
-        logger.info(
-            f"  '{categorie}' : {len(docs)} chunks"
-        )
-
-    logger.info(
-        f"Total : {len(all_docs)} chunks "
-        f"depuis {len(CATEGORIES)} catégories"
-    )
+        logger.info(f"  '{categorie}' : {len(docs)} chunks")
+    logger.info(f"Total : {len(all_docs)} chunks depuis {len(CATEGORIES)} catégorie(s)")
     return all_docs
