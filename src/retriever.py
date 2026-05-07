@@ -59,7 +59,7 @@ def search(
         if categorie and doc.metadata.get("categorie") != categorie:
             continue
 
-        doc.metadata["similarity_score"] = round(similarity, 3)
+        doc.metadata["similarity_score"] = round(float(similarity), 3)
         filtered.append(doc)
 
         if len(filtered) >= k:
@@ -93,10 +93,10 @@ def format_sources(documents: List[Document]) -> List[dict]:
         if key not in seen:
             seen.add(key)
             sources.append({
-                "fichier":   meta.get("source", "Inconnu"),
+                "fichier":   str(meta.get("source", "Inconnu")),
                 "page":      meta.get("page", "?"),
-                "categorie": meta.get("categorie", "Inconnu"),
-                "score":     meta.get("similarity_score", 0),
+                "categorie": str(meta.get("categorie", "Inconnu")),
+                "score":     float(meta.get("similarity_score", 0)),
                 "extrait":   doc.page_content[:150] + "..."
             })
 
