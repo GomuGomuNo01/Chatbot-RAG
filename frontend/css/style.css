@@ -1097,10 +1097,39 @@ a      { color: var(--clr-primary); }
   gap: 10px;
 }
 
+.modal__footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .modal__footer-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.btn--reindex {
+  background: transparent;
+  border: 1px solid var(--clr-border);
+  color: var(--clr-text-muted);
+  font-size: 12.5px;
+  padding: 7px 14px;
+  border-radius: var(--r);
+  transition: background var(--t), color var(--t), border-color var(--t);
+}
+
+.btn--reindex:hover:not(:disabled) {
+  background: #FEF9C3;
+  border-color: #FDE68A;
+  color: #854D0E;
+}
+
+.btn--reindex:disabled {
+  opacity: .5;
+  cursor: not-allowed;
 }
 
 /* ── Boutons génériques ── */
@@ -1256,6 +1285,47 @@ a      { color: var(--clr-primary); }
 .form-hint {
   font-size: 11px;
   color: var(--clr-text-faint);
+}
+
+/* ── Emoji picker ── */
+.emoji-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px;
+  background: var(--clr-bg);
+  border: 1.5px solid var(--clr-border);
+  border-radius: var(--r);
+  max-height: 148px;
+  overflow-y: auto;
+}
+
+.emoji-picker::-webkit-scrollbar       { width: 4px; }
+.emoji-picker::-webkit-scrollbar-thumb { background: var(--clr-border); border-radius: 4px; }
+
+.emoji-btn {
+  width: 34px; height: 34px;
+  font-size: 18px;
+  border: 2px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--t), border-color var(--t), transform var(--t);
+  line-height: 1;
+}
+
+.emoji-btn:hover {
+  background: var(--clr-surface);
+  transform: scale(1.15);
+}
+
+.emoji-btn--active {
+  background: var(--clr-primary-light);
+  border-color: var(--clr-primary);
+  transform: scale(1.1);
 }
 
 /* ── Drop zone ── */

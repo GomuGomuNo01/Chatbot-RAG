@@ -154,3 +154,10 @@ class UploadResponse(BaseModel):
     fichiers:     List[UploadedFile]
     total_chunks: int
     message:      str
+
+
+class ReindexResponse(BaseModel):
+    """Réponse du endpoint POST /api/documents/reindex"""
+    total_chunks: int
+    total_files:  int
+    message:      str

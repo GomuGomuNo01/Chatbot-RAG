@@ -86,11 +86,18 @@ const TRANSLATIONS = {
     'newcat.key':     'Identifiant (ex: marketing)',
     'newcat.key.hint':'Minuscules, chiffres, tirets uniquement',
     'newcat.label':   'Nom affiché',
-    'newcat.emoji':   'Emoji',
+    'newcat.emoji':   'Choisir un emoji',
     'newcat.color':   'Couleur',
     'newcat.create':  'Créer',
     'newcat.cancel':  'Retour',
     'newcat.success': '✅ Catégorie « {label} » créée.',
+
+    /* ── Re-indexation ── */
+    'reindex.btn':      '🔄 Relancer l\'indexation',
+    'reindex.running':  'Indexation en cours…',
+    'reindex.success':  '✅ Index recréé : {chunks} chunks depuis {files} fichier(s).',
+    'reindex.error':    '⚠️ Erreur d\'indexation.',
+    'reindex.confirm':  'Relancer une indexation complète de tous les documents présents ?',
 
     /* ── Sidebar bouton upload ── */
     'sidebar.upload': 'Ajouter des documents',
@@ -178,11 +185,18 @@ const TRANSLATIONS = {
     'newcat.key':     'Identifier (e.g. marketing)',
     'newcat.key.hint':'Lowercase, digits, hyphens only',
     'newcat.label':   'Display name',
-    'newcat.emoji':   'Emoji',
+    'newcat.emoji':   'Choose an emoji',
     'newcat.color':   'Color',
     'newcat.create':  'Create',
     'newcat.cancel':  'Back',
     'newcat.success': '✅ Category « {label} » created.',
+
+    /* ── Re-indexation ── */
+    'reindex.btn':      '🔄 Re-run indexation',
+    'reindex.running':  'Indexing…',
+    'reindex.success':  '✅ Index rebuilt: {chunks} chunks from {files} file(s).',
+    'reindex.error':    '⚠️ Indexation error.',
+    'reindex.confirm':  'Re-run full indexation of all documents?',
 
     /* ── Sidebar bouton upload ── */
     'sidebar.upload': 'Add documents',

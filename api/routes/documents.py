@@ -19,6 +19,7 @@ from api.schemas import (
     CreateCategoryRequest,
     UploadResponse,
     UploadedFile,
+    ReindexResponse,
 )
 from config import get_all_categories, register_custom_category, DOCS_DIR
 
@@ -161,11 +162,25 @@ def get_categories() -> CategoriesResponse:
 )
 def create_category(body: CreateCategoryRequest) -> CategoryInfo:
     cats = _get_categories()
+
+    # Vérifier doublon sur la clé
     if body.key in cats:
         raise HTTPException(
             status_code=409,
-            detail=f"La catégorie '{body.key}' existe déjà."
+            detail=f"Une catégorie existe déjà avec l'identifiant « {body.key} »."
         )
+
+    # Vérifier doublon sur le label (insensible à la casse)
+    label_lower = body.label.strip().lower()
+    for existing_key, existing_cfg in cats.items():
+        if existing_cfg["label"].strip().lower() == label_lower:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Une catégorie existe déjà avec ce nom : "
+                    f"« {existing_cfg['label']} » (identifiant : {existing_key})."
+                )
+            )
     try:
         register_custom_category(
             key     = body.key,
@@ -256,8 +271,22 @@ async def upload_documents(
             ))
             continue
 
-        # Sauvegarder sur disque
+        # Vérifier si le document existe déjà
         dest = cat_dir / filename
+        if dest.exists():
+            results.append(UploadedFile(
+                nom    = filename,
+                chunks = 0,
+                statut = "erreur",
+                detail = (
+                    f"Le document « {filename} » existe déjà dans la catégorie "
+                    f"« {cats[categorie]['label']} ». "
+                    "Renommez le fichier ou supprimez l'existant pour le remplacer."
+                ),
+            ))
+            continue
+
+        # Sauvegarder sur disque
         dest.write_bytes(content)
         logger.info(f"Fichier sauvegardé : {dest}")
 
@@ -320,4 +349,84 @@ async def upload_documents(
         fichiers     = results,
         total_chunks = total_chunks,
         message      = msg,
+    )
+
+
+# ============================================================
+# POST /api/documents/reindex
+# ============================================================
+
+@router.post(
+    "/documents/reindex",
+    response_model=ReindexResponse,
+    summary="Relance l'indexation complète de tous les documents",
+    description=(
+        "Recrée l'index FAISS depuis zéro en parcourant tous les dossiers docs/. "
+        "À utiliser si l'index semble incohérent ou après un ajout manuel de fichiers."
+    ),
+)
+async def reindex_all() -> ReindexResponse:
+    from src.loader import load_all_documents, SUPPORTED_EXTENSIONS as EXT
+    from src.indexer import (
+        create_index,
+        save_manifest,
+        _file_hash,
+    )
+    from src.retriever import reset_vectorstore
+    from pathlib import Path as P
+
+    cats = _get_categories()
+
+    # Collecter tous les fichiers physiquement présents
+    all_files: list = []
+    for cat_key, cat_cfg in cats.items():
+        directory = P(cat_cfg["dir"])
+        if not directory.exists():
+            continue
+        for f in directory.iterdir():
+            if f.suffix.lower() in EXT:
+                all_files.append((f, cat_key))
+
+    if not all_files:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Aucun document trouvé dans docs/. "
+                "Uploadez des fichiers d'abord via l'interface."
+            )
+        )
+
+    # Charger et découper tous les documents
+    from src.loader import load_file
+    all_docs = []
+    for file_path, cat_key in all_files:
+        try:
+            docs = load_file(file_path, cat_key)
+            all_docs.extend(docs)
+        except Exception as e:
+            logger.warning(f"Impossible de charger {file_path.name} : {e}")
+
+    if not all_docs:
+        raise HTTPException(
+            status_code=500,
+            detail="Aucun contenu extrait des documents. Vérifiez qu'ils ne sont pas vides."
+        )
+
+    try:
+        create_index(all_docs)
+        manifest = {str(f.resolve()): _file_hash(f) for f, _ in all_files}
+        save_manifest(manifest)
+        reset_vectorstore()
+        logger.info(f"Re-indexation complète : {len(all_docs)} chunks, {len(all_files)} fichiers.")
+    except Exception as e:
+        logger.error(f"Erreur re-indexation : {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'indexation : {e}")
+
+    return ReindexResponse(
+        total_chunks = len(all_docs),
+        total_files  = len(all_files),
+        message      = (
+            f"Index recréé avec succès : {len(all_docs)} chunks "
+            f"depuis {len(all_files)} fichier(s)."
+        ),
     )

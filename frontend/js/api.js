@@ -125,6 +125,17 @@ async function apiCreateCategory(data) {
  * @param {function(number):void} [onProgress]  — appelé avec % avancement upload
  * @returns {Promise<Object>} UploadResponse
  */
+/**
+ * Relance l'indexation complète de tous les documents présents dans docs/.
+ * @returns {Promise<Object>} ReindexResponse
+ */
+async function apiReindex() {
+  const res = await fetch(`${API_BASE}/documents/reindex`, { method: 'POST' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.detail || `Erreur re-indexation (${res.status})`);
+  return json;
+}
+
 async function apiUploadFiles(files, categorie, onProgress) {
   const form = new FormData();
   form.append('categorie', categorie);

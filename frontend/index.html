@@ -33,26 +33,37 @@
       <div class="modal__panel" id="panelNewCat" hidden>
         <p class="modal__step-label" data-i18n="newcat.title">Créer une catégorie</p>
         <div class="new-cat-form">
+
+          <!-- Nom + Couleur -->
           <div class="new-cat-form__row">
-            <div class="form-group">
-              <label class="form-label" data-i18n="newcat.emoji">Emoji</label>
-              <input class="form-input form-input--emoji" id="newCatEmoji" type="text" maxlength="2" value="📁">
-            </div>
             <div class="form-group" style="flex:1">
               <label class="form-label" data-i18n="newcat.label">Nom affiché</label>
-              <input class="form-input" id="newCatLabel" type="text" maxlength="80" placeholder="Ex: Documentation Marketing">
+              <input class="form-input" id="newCatLabel" type="text" maxlength="80"
+                placeholder="Ex: Documentation Marketing">
             </div>
             <div class="form-group">
               <label class="form-label" data-i18n="newcat.color">Couleur</label>
               <input class="form-input form-input--color" id="newCatColor" type="color" value="#6B7280">
             </div>
           </div>
+
+          <!-- Identifiant -->
           <div class="form-group">
             <label class="form-label" data-i18n="newcat.key">Identifiant</label>
             <input class="form-input" id="newCatKey" type="text" maxlength="32"
               pattern="[a-z0-9_-]+" placeholder="ex: marketing">
             <span class="form-hint" data-i18n="newcat.key.hint">Minuscules, chiffres, tirets uniquement</span>
           </div>
+
+          <!-- Emoji picker -->
+          <div class="form-group">
+            <label class="form-label" data-i18n="newcat.emoji">Choisir un emoji</label>
+            <div class="emoji-picker" id="emojiPicker" role="listbox" aria-label="Choisir un emoji">
+              <!-- Généré par JS -->
+            </div>
+            <input type="hidden" id="newCatEmoji" value="📁">
+          </div>
+
           <div class="new-cat-form__actions">
             <button class="btn btn--ghost" id="btnCancelNewCat" data-i18n="newcat.cancel">Retour</button>
             <button class="btn btn--primary" id="btnCreateCat" data-i18n="newcat.create">Créer</button>
@@ -76,9 +87,12 @@
       <!-- Footer -->
       <div class="modal__footer">
         <div class="upload-feedback" id="uploadFeedback" hidden></div>
-        <div class="modal__footer-actions">
-          <button class="btn btn--ghost" id="cancelUploadBtn" data-i18n="upload.cancel">Annuler</button>
-          <button class="btn btn--primary" id="submitUploadBtn" disabled data-i18n="upload.submit">Indexer maintenant</button>
+        <div class="modal__footer-row">
+          <button class="btn btn--reindex" id="reindexBtn" data-i18n="reindex.btn">🔄 Relancer l'indexation</button>
+          <div class="modal__footer-actions">
+            <button class="btn btn--ghost" id="cancelUploadBtn" data-i18n="upload.cancel">Annuler</button>
+            <button class="btn btn--primary" id="submitUploadBtn" disabled data-i18n="upload.submit">Indexer maintenant</button>
+          </div>
         </div>
       </div>
 

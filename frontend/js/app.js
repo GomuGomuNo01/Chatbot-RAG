@@ -352,8 +352,11 @@ class App {
     });
     dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
 
-    // Submit
+    // Submit upload
     submitBtn.addEventListener('click', () => this._handleUpload());
+
+    // Re-indexation manuelle
+    document.getElementById('reindexBtn').addEventListener('click', () => this._handleReindex());
   }
 
   async _openUploadModal() {
@@ -389,6 +392,44 @@ class App {
     document.getElementById('newCatLabel').value    = '';
     document.getElementById('newCatEmoji').value    = '📁';
     document.getElementById('newCatColor').value    = '#6B7280';
+    this._renderEmojiPicker();
+  }
+
+  // ── Emoji picker ─────────────────────────────────────────────────────────
+
+  _renderEmojiPicker() {
+    const EMOJIS = [
+      '📁','📂','🗂️','📋','📊','📈','📉','📌','📍','🔖','🏷️',
+      '📄','📃','📑','📝','📜','📰','🗒️','🗃️','🗄️',
+      '💼','🔑','🔒','🔐','🛡️',
+      '⚙️','🛠️','🔧','🔩','💡','🎯','🚀','🔬','🧪','📡',
+      '👥','🤝','💬','📞','📧','🎓',
+      '📚','📖','🏛️','⚖️','🔍',
+      '💻','📱','🖥️','🌐',
+      '⭐','🌟','🏆','✅','🟢','🔵','🟡','🟠','🔴',
+    ];
+
+    const picker  = document.getElementById('emojiPicker');
+    const hidden  = document.getElementById('newCatEmoji');
+    const current = hidden.value || '📁';
+
+    picker.innerHTML = EMOJIS.map(e => `
+      <button type="button" class="emoji-btn${e === current ? ' emoji-btn--active' : ''}"
+        data-emoji="${e}" role="option" aria-selected="${e === current}"
+        title="${e}">${e}</button>`
+    ).join('');
+
+    picker.querySelectorAll('.emoji-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        picker.querySelectorAll('.emoji-btn').forEach(b => {
+          b.classList.remove('emoji-btn--active');
+          b.setAttribute('aria-selected', 'false');
+        });
+        btn.classList.add('emoji-btn--active');
+        btn.setAttribute('aria-selected', 'true');
+        hidden.value = btn.dataset.emoji;
+      });
+    });
   }
 
   async _renderCategoryRadios() {
@@ -537,6 +578,37 @@ class App {
     el.className = `upload-feedback upload-feedback--${type}`;
     el.innerHTML = html;
     el.hidden    = false;
+  }
+
+  // ─── Re-indexation manuelle ───────────────────────────────────────────────
+
+  async _handleReindex() {
+    const btn = document.getElementById('reindexBtn');
+    const originalText = btn.textContent;
+
+    btn.disabled    = true;
+    btn.textContent = i18n.t('reindex.running');
+
+    // Masquer le feedback précédent
+    document.getElementById('uploadFeedback').hidden = true;
+
+    try {
+      const result = await apiReindex();
+      this._showFeedback(
+        i18n.t('reindex.success', {
+          chunks: result.total_chunks,
+          files:  result.total_files,
+        }),
+        'ok'
+      );
+      // Rafraîchir la liste de documents
+      await this._loadDocuments();
+    } catch (err) {
+      this._showFeedback(`${i18n.t('reindex.error')} ${err.message}`, 'error');
+    } finally {
+      btn.disabled    = false;
+      btn.textContent = originalText;
+    }
   }
 
   // ─── Nouvelle conversation ────────────────────────────────────────────────
