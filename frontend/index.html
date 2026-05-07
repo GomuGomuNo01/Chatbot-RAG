@@ -10,7 +10,6 @@
 </head>
 <body>
 
-  <!-- Overlay pour fermer la sidebar sur mobile -->
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
   <div class="app">
@@ -27,34 +26,34 @@
 
       <!-- Filtre par catégorie -->
       <div class="sidebar-section">
-        <h2 class="sidebar-section-title">Catégorie</h2>
+        <h2 class="sidebar-section-title" data-i18n="sidebar.category">Catégorie</h2>
         <div class="category-list" role="radiogroup" aria-label="Filtrer par catégorie">
 
           <label class="category-item category-item--active">
             <input type="radio" name="category" value="" checked>
             <span class="category-dot all" aria-hidden="true"></span>
-            <span>Tout</span>
-            <span class="category-count" id="count-all" aria-label="Total documents">0</span>
+            <span data-i18n="cat.all">Tout</span>
+            <span class="category-count" id="count-all">0</span>
           </label>
 
           <label class="category-item">
             <input type="radio" name="category" value="technique">
             <span class="category-dot technique" aria-hidden="true"></span>
-            <span>Technique</span>
+            <span data-i18n="cat.technique">Technique</span>
             <span class="category-count" id="count-technique">0</span>
           </label>
 
           <label class="category-item">
             <input type="radio" name="category" value="rh">
             <span class="category-dot rh" aria-hidden="true"></span>
-            <span>Ressources Humaines</span>
+            <span data-i18n="cat.rh">Ressources Humaines</span>
             <span class="category-count" id="count-rh">0</span>
           </label>
 
           <label class="category-item">
             <input type="radio" name="category" value="juridique">
             <span class="category-dot juridique" aria-hidden="true"></span>
-            <span>Juridique</span>
+            <span data-i18n="cat.juridique">Juridique</span>
             <span class="category-count" id="count-juridique">0</span>
           </label>
 
@@ -63,9 +62,9 @@
 
       <!-- Liste des documents indexés -->
       <div class="sidebar-section">
-        <h2 class="sidebar-section-title">Documents indexés</h2>
+        <h2 class="sidebar-section-title" data-i18n="sidebar.docs">Documents indexés</h2>
         <div class="document-list" id="documentList" aria-live="polite">
-          <p class="doc-list__empty">Chargement…</p>
+          <p class="doc-list__empty" data-i18n="docs.loading">Chargement…</p>
         </div>
       </div>
 
@@ -76,21 +75,32 @@
 
       <!-- Header -->
       <header class="header">
-        <button class="menu-btn" id="menuBtn" aria-label="Ouvrir le menu" aria-expanded="false">
+        <button class="menu-btn" id="menuBtn"
+          data-i18n-aria="btn.menu" aria-label="Ouvrir le menu" aria-expanded="false">
           <span></span><span></span><span></span>
         </button>
 
         <div class="header-center">
-          <h1 class="header-title">Assistant Documentaire</h1>
-          <p class="header-subtitle">Recherche sémantique · Sources citées</p>
+          <h1 class="header-title" data-i18n="header.title">Assistant Documentaire</h1>
+          <p class="header-subtitle" data-i18n="header.subtitle">Recherche sémantique · Sources citées</p>
         </div>
 
         <div class="header-actions">
+          <!-- Sélecteur de langue -->
+          <div class="lang-switcher" role="group" aria-label="Language">
+            <button class="lang-btn lang-btn--active" data-lang="fr" onclick="i18n.setLang('fr'); window._app && window._app._onLangChange()">FR</button>
+            <button class="lang-btn" data-lang="en" onclick="i18n.setLang('en'); window._app && window._app._onLangChange()">EN</button>
+          </div>
+
           <div class="status-badge status-badge--warn" id="statusBadge" role="status" aria-live="polite">
             <span class="status-dot" aria-hidden="true"></span>
-            <span id="statusText">Connexion…</span>
+            <span id="statusText" data-i18n="status.connecting">Connexion…</span>
           </div>
-          <button class="new-chat-btn" id="newChatBtn" title="Nouvelle conversation (efface l'historique)" aria-label="Nouvelle conversation">
+          <button class="new-chat-btn" id="newChatBtn"
+            data-i18n-title="btn.newchat.title"
+            data-i18n-aria="btn.newchat.aria"
+            title="Nouvelle conversation (efface l'historique)"
+            aria-label="Nouvelle conversation">
             ✏️
           </button>
         </div>
@@ -102,22 +112,22 @@
         <!-- Écran de bienvenue -->
         <section class="welcome" id="welcomeScreen" aria-label="Écran de bienvenue">
           <div class="welcome-icon" aria-hidden="true">🤖</div>
-          <h2>Bonjour ! Comment puis-je vous aider ?</h2>
-          <p>
+          <h2 data-i18n="welcome.title">Bonjour ! Comment puis-je vous aider ?</h2>
+          <p id="welcomeDesc">
             Posez vos questions sur la documentation <strong>technique</strong>,
             les ressources <strong>RH</strong> ou les documents <strong>juridiques</strong>.
             Je citerai toujours mes sources.
           </p>
           <div class="example-questions" aria-label="Questions exemples">
-            <button class="example-btn" data-question="Quelles sont les règles sur les congés payés ?">
-              👥 Congés payés
-            </button>
-            <button class="example-btn" data-question="Comment configurer Spring Boot ?">
-              ⚙️ Configurer Spring Boot
-            </button>
-            <button class="example-btn" data-question="Quelles sont les clauses essentielles d'un contrat CDI ?">
-              ⚖️ Clauses CDI
-            </button>
+            <button class="example-btn" data-i18n-q="welcome.q1_val"
+              data-question="Quelles sont les règles sur les congés payés ?"
+              data-i18n="welcome.q1">👥 Congés payés</button>
+            <button class="example-btn" data-i18n-q="welcome.q2_val"
+              data-question="Comment configurer Spring Boot ?"
+              data-i18n="welcome.q2">⚙️ Configurer Spring Boot</button>
+            <button class="example-btn" data-i18n-q="welcome.q3_val"
+              data-question="Quelles sont les clauses essentielles d'un contrat CDI ?"
+              data-i18n="welcome.q3">⚖️ Clauses CDI</button>
           </div>
         </section>
 
@@ -132,12 +142,11 @@
           </div>
         </div>
 
-      </div><!-- /chat-container -->
+      </div>
 
       <!-- Zone de saisie -->
       <div class="input-area">
 
-        <!-- Badge catégorie active -->
         <div class="category-badge-active" id="categoryBadge" hidden>
           <span id="categoryBadgeText"></span>
           <button onclick="clearCategory()" aria-label="Effacer le filtre de catégorie">×</button>
@@ -147,6 +156,8 @@
           <textarea
             class="input-field"
             id="inputField"
+            data-i18n-ph="input.placeholder"
+            data-i18n-aria="input.aria"
             placeholder="Posez votre question…"
             rows="1"
             maxlength="1000"
@@ -154,8 +165,10 @@
             autocomplete="off"
             spellcheck="true"
           ></textarea>
-          <button type="submit" class="send-btn" id="sendBtn" disabled aria-label="Envoyer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <button type="submit" class="send-btn" id="sendBtn" disabled
+            data-i18n-aria="btn.send.aria" aria-label="Envoyer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <line x1="22" y1="2" x2="11" y2="13"></line>
               <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
             </svg>
@@ -164,16 +177,17 @@
 
         <div class="input-footer">
           <span class="char-counter" id="charCounter" aria-live="polite">0/1000</span>
-          <span class="disclaimer">L'assistant peut faire des erreurs. Vérifiez toujours les sources.</span>
+          <span class="disclaimer" data-i18n="input.disclaimer">L'assistant peut faire des erreurs. Vérifiez toujours les sources.</span>
         </div>
 
-      </div><!-- /input-area -->
+      </div>
 
-    </main><!-- /main -->
+    </main>
 
-  </div><!-- /app -->
+  </div>
 
   <script src="js/config.js"></script>
+  <script src="js/i18n.js"></script>
   <script src="js/api.js"></script>
   <script src="js/chat.js"></script>
   <script src="js/app.js"></script>

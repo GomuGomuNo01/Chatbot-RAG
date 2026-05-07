@@ -2,11 +2,20 @@
  * chat.js — Interface de chat : bulles, streaming, sources, Markdown
  */
 
-const CATEGORY_META = {
-  technique:  { label: 'Technique',  color: '#3B82F6', bg: '#EFF6FF', emoji: '⚙️'  },
-  rh:         { label: 'RH',         color: '#10B981', bg: '#ECFDF5', emoji: '👥'  },
-  juridique:  { label: 'Juridique',  color: '#8B5CF6', bg: '#F5F3FF', emoji: '⚖️'  },
+const CATEGORY_BASE = {
+  technique: { color: '#3B82F6', bg: '#EFF6FF', emoji: '⚙️' },
+  rh:        { color: '#10B981', bg: '#ECFDF5', emoji: '👥' },
+  juridique: { color: '#8B5CF6', bg: '#F5F3FF', emoji: '⚖️' },
 };
+
+/** Retourne CATEGORY_META traduit dans la langue active. */
+function getCategoryMeta(cat) {
+  const base  = CATEGORY_BASE[cat] || { color: '#6B7280', bg: '#F9FAFB', emoji: '📄' };
+  const label = typeof i18n !== 'undefined'
+    ? i18n.t(`meta.${cat}.label`)
+    : (CATEGORY_BASE[cat] ? cat : cat);
+  return { ...base, label };
+}
 
 class ChatUI {
   constructor() {
@@ -116,7 +125,7 @@ class ChatUI {
 
   _renderSources(sources) {
     const cards = sources.map((s, i) => {
-      const meta   = CATEGORY_META[s.categorie] || { label: s.categorie, color: '#6B7280', bg: '#F9FAFB', emoji: '📄' };
+      const meta   = getCategoryMeta(s.categorie);
       const score  = Math.round(s.score * 100);
       const nom    = s.fichier.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
       const page   = typeof s.page === 'number' ? `p. ${s.page}` : s.page;
@@ -138,7 +147,7 @@ class ChatUI {
             </div>
           </div>
           ${extrait ? `
-          <button class="source-card__toggle">Voir l'extrait ▼</button>
+          <button class="source-card__toggle">${i18n.t('sources.show')}</button>
           <div class="source-card__excerpt"><blockquote>${extrait}</blockquote></div>` : ''}
         </div>`;
     }).join('');
@@ -154,7 +163,7 @@ class ChatUI {
       btn.addEventListener('click', () => {
         const excerpt = btn.closest('.source-card').querySelector('.source-card__excerpt');
         const open    = excerpt.classList.toggle('source-card__excerpt--open');
-        btn.textContent = open ? "Masquer l'extrait ▲" : "Voir l'extrait ▼";
+        btn.textContent = open ? i18n.t('sources.hide') : i18n.t('sources.show');
       });
     });
   }
