@@ -9,7 +9,7 @@ from config import (
     GROQ_LLM_MODEL,
     EMBEDDING_MODEL,
     API_VERSION,
-    CATEGORIES
+    get_all_categories,
 )
 
 router = APIRouter()
@@ -25,7 +25,7 @@ def health_check() -> HealthResponse:
     return HealthResponse(
         status           = "ok",
         index_disponible = index_exists(),
-        nb_categories    = len(CATEGORIES),
+        nb_categories    = len(get_all_categories()),
         modele_llm       = GROQ_LLM_MODEL,
         modele_embedding = EMBEDDING_MODEL,
         version          = API_VERSION

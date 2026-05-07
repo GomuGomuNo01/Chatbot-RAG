@@ -77,10 +77,9 @@ def format_context_from_docs(documents: list) -> str:
         score     = meta.get("similarity_score", 0)
 
         header = (
-            f"╔══ Extrait {i}/{len(documents)} "
-            f"[{categorie}] {fichier} — page {page} "
-            f"(pertinence : {int(score * 100)}%) ══╗"
+            f"### Extrait {i}/{len(documents)} "
+            f"[{categorie} · {fichier} · p.{page} · {int(score * 100)}%]"
         )
         parts.append(f"{header}\n{doc.page_content.strip()}")
 
-    return "\n\n".join(parts)
+    return "\n\n---\n\n".join(parts)

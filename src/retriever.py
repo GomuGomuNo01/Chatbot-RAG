@@ -21,6 +21,13 @@ def get_vectorstore() -> FAISS:
         _vectorstore_instance = load_index()
     return cast(FAISS, _vectorstore_instance)
 
+def reset_vectorstore() -> None:
+    """Invalide le singleton pour forcer le rechargement au prochain appel.
+    À appeler après un upload ou une ré-indexation."""
+    global _vectorstore_instance
+    _vectorstore_instance = None
+    logger.info("Vectorstore réinitialisé — sera rechargé au prochain appel.")
+
 def search(
     query: str,
     categorie: Optional[str] = None,
@@ -29,28 +36,31 @@ def search(
     """
     Recherche les chunks les plus pertinents pour une question.
 
+    Stratégie :
+    - Récupère k*3 candidats avec score FAISS
+    - Filtre par seuil de similarité et catégorie
+    - Applique une déduplication par page (max 2 chunks par page/document)
+      pour maximiser la diversité des sources
+    - Retourne au plus k chunks triés par pertinence décroissante
+
     Args:
         query     : question de l'utilisateur
         categorie : filtre optionnel ("technique", "rh", "juridique")
         k         : nombre de résultats à retourner
-
-    Returns:
-        Liste de Documents triés par pertinence décroissante
     """
     vectorstore = get_vectorstore()
 
-    # Recherche avec score de similarité
     results_with_scores = vectorstore.similarity_search_with_score(
         query=query,
-        k=k * 2  # On récupère plus pour filtrer ensuite
+        k=k * 3
     )
 
-    # Filtrer par seuil de similarité et catégorie
-    filtered = []
-    for doc, score in results_with_scores:
+    filtered: List[Document] = []
+    # page_hits : nb de chunks déjà retenus par clé (source, page)
+    page_hits: dict = {}
 
-        # FAISS retourne une distance L2 — plus c'est bas, plus c'est proche
-        # On convertit en score de similarité 0-1
+    for doc, score in results_with_scores:
+        # FAISS distance L2 → similarité normalisée 0-1
         similarity = 1 / (1 + score)
 
         if similarity < SIMILARITY_THRESHOLD:
@@ -59,19 +69,23 @@ def search(
         if categorie and doc.metadata.get("categorie") != categorie:
             continue
 
+        # Déduplication douce : max 2 chunks par page d'un même fichier
+        page_key = (
+            doc.metadata.get("source", ""),
+            doc.metadata.get("page", "")
+        )
+        if page_hits.get(page_key, 0) >= 2:
+            continue
+
         doc.metadata["similarity_score"] = round(float(similarity), 3)
         filtered.append(doc)
+        page_hits[page_key] = page_hits.get(page_key, 0) + 1
 
         if len(filtered) >= k:
             break
 
-    logger.info(
-        f"Recherche '{query[:50]}...' "
-        f"→ {len(filtered)} chunks pertinents trouvés"
-        if len(query) > 50 else
-        f"Recherche '{query}' "
-        f"→ {len(filtered)} chunks pertinents trouvés"
-    )
+    q_display = query[:50] + "..." if len(query) > 50 else query
+    logger.info(f"Recherche '{q_display}' → {len(filtered)} chunks pertinents trouvés")
 
     return filtered
 

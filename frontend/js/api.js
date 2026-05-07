@@ -91,3 +91,66 @@ async function apiClearSession(sessionId) {
   }
   return res.json();
 }
+
+/**
+ * Récupère toutes les catégories disponibles (hardcodées + personnalisées).
+ * @returns {Promise<Object>} CategoriesResponse
+ */
+async function apiGetCategories() {
+  const res = await fetch(`${API_BASE}/categories`);
+  if (!res.ok) throw new Error(`Impossible de charger les catégories (${res.status})`);
+  return res.json();
+}
+
+/**
+ * Crée une nouvelle catégorie personnalisée.
+ * @param {{ key, label, emoji, couleur }} data
+ * @returns {Promise<Object>} CategoryInfo
+ */
+async function apiCreateCategory(data) {
+  const res = await fetch(`${API_BASE}/categories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.detail || `Erreur création catégorie (${res.status})`);
+  return json;
+}
+
+/**
+ * Upload des fichiers dans une catégorie et les indexe.
+ * @param {FileList|File[]} files
+ * @param {string} categorie
+ * @param {function(number):void} [onProgress]  — appelé avec % avancement upload
+ * @returns {Promise<Object>} UploadResponse
+ */
+async function apiUploadFiles(files, categorie, onProgress) {
+  const form = new FormData();
+  form.append('categorie', categorie);
+  for (const file of files) {
+    form.append('files', file);
+  }
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/documents/upload`);
+
+    if (onProgress) {
+      xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      });
+    }
+
+    xhr.onload = () => {
+      const json = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(json);
+      } else {
+        reject(new Error(json.detail || `Erreur upload (${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Erreur réseau lors de l\'upload'));
+    xhr.send(form);
+  });
+}

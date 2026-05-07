@@ -90,3 +90,67 @@ class ErrorResponse(BaseModel):
     error:   str
     detail:  Optional[str] = None
     code:    int
+
+
+# ============================================================
+# UPLOAD DE DOCUMENTS
+# ============================================================
+
+class CategoryInfo(BaseModel):
+    """Informations complètes sur une catégorie."""
+    key:      str
+    label:    str
+    emoji:    str
+    couleur:  str
+    nb_docs:  int = 0
+
+
+class CategoriesResponse(BaseModel):
+    """Réponse du endpoint GET /api/categories"""
+    categories: List[CategoryInfo]
+    total:      int
+
+
+class CreateCategoryRequest(BaseModel):
+    """Corps de la requête POST /api/categories"""
+    key: str = Field(
+        ...,
+        min_length=2,
+        max_length=32,
+        pattern=r'^[a-z0-9_-]+$',
+        description="Identifiant technique (minuscules, chiffres, - ou _)",
+        examples=["marketing"]
+    )
+    label: str = Field(
+        ...,
+        min_length=2,
+        max_length=80,
+        description="Nom affiché",
+        examples=["Documentation Marketing"]
+    )
+    emoji: str = Field(
+        default="📁",
+        max_length=8,
+        description="Emoji représentant la catégorie"
+    )
+    couleur: str = Field(
+        default="#6B7280",
+        pattern=r'^#[0-9A-Fa-f]{6}$',
+        description="Couleur hexadécimale"
+    )
+
+
+class UploadedFile(BaseModel):
+    """Résultat du traitement d'un fichier uploadé."""
+    nom:    str
+    chunks: int
+    statut: str   # "ok" | "erreur"
+    detail: Optional[str] = None
+
+
+class UploadResponse(BaseModel):
+    """Réponse du endpoint POST /api/documents/upload"""
+    categorie:    str
+    fichiers:     List[UploadedFile]
+    total_chunks: int
+    message:      str

@@ -12,6 +12,91 @@
 
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
+  <!-- ═══════════════════ MODAL UPLOAD ═══════════════════ -->
+  <div class="modal-backdrop" id="uploadModal" hidden aria-modal="true" role="dialog" aria-labelledby="modalTitle">
+    <div class="modal">
+
+      <!-- Header -->
+      <div class="modal__header">
+        <h2 class="modal__title" id="modalTitle" data-i18n="upload.title">Ajouter des documents</h2>
+        <button class="modal__close" id="modalCloseBtn" aria-label="Fermer">×</button>
+      </div>
+
+      <!-- Panneau : choisir catégorie -->
+      <div class="modal__panel" id="panelCategory">
+        <p class="modal__step-label" data-i18n="upload.step1">1. Choisir une catégorie</p>
+        <div class="cat-radio-group" id="catRadioGroup" role="radiogroup"></div>
+        <button class="btn-new-cat" id="btnNewCat" data-i18n="newcat.option">＋ Nouvelle catégorie</button>
+      </div>
+
+      <!-- Panneau : créer catégorie -->
+      <div class="modal__panel" id="panelNewCat" hidden>
+        <p class="modal__step-label" data-i18n="newcat.title">Créer une catégorie</p>
+        <div class="new-cat-form">
+          <div class="new-cat-form__row">
+            <div class="form-group">
+              <label class="form-label" data-i18n="newcat.emoji">Emoji</label>
+              <input class="form-input form-input--emoji" id="newCatEmoji" type="text" maxlength="2" value="📁">
+            </div>
+            <div class="form-group" style="flex:1">
+              <label class="form-label" data-i18n="newcat.label">Nom affiché</label>
+              <input class="form-input" id="newCatLabel" type="text" maxlength="80" placeholder="Ex: Documentation Marketing">
+            </div>
+            <div class="form-group">
+              <label class="form-label" data-i18n="newcat.color">Couleur</label>
+              <input class="form-input form-input--color" id="newCatColor" type="color" value="#6B7280">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" data-i18n="newcat.key">Identifiant</label>
+            <input class="form-input" id="newCatKey" type="text" maxlength="32"
+              pattern="[a-z0-9_-]+" placeholder="ex: marketing">
+            <span class="form-hint" data-i18n="newcat.key.hint">Minuscules, chiffres, tirets uniquement</span>
+          </div>
+          <div class="new-cat-form__actions">
+            <button class="btn btn--ghost" id="btnCancelNewCat" data-i18n="newcat.cancel">Retour</button>
+            <button class="btn btn--primary" id="btnCreateCat" data-i18n="newcat.create">Créer</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panneau : drop zone -->
+      <div class="modal__panel" id="panelFiles">
+        <p class="modal__step-label" data-i18n="upload.step2">2. Sélectionner les fichiers</p>
+        <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Zone de dépôt de fichiers">
+          <div class="drop-zone__icon">📂</div>
+          <p class="drop-zone__title" data-i18n="upload.drop.title">Glissez vos fichiers ici</p>
+          <p class="drop-zone__hint" data-i18n="upload.drop.hint">PDF, DOCX, TXT · 50 Mo max</p>
+          <button class="btn btn--ghost btn--sm" id="browseBtn" type="button" data-i18n="upload.browse">Parcourir</button>
+          <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt" hidden>
+        </div>
+        <ul class="file-list" id="fileList"></ul>
+      </div>
+
+      <!-- Footer -->
+      <div class="modal__footer">
+        <div class="upload-feedback" id="uploadFeedback" hidden></div>
+        <div class="modal__footer-actions">
+          <button class="btn btn--ghost" id="cancelUploadBtn" data-i18n="upload.cancel">Annuler</button>
+          <button class="btn btn--primary" id="submitUploadBtn" disabled data-i18n="upload.submit">Indexer maintenant</button>
+        </div>
+      </div>
+
+      <!-- Overlay de progression -->
+      <div class="upload-overlay" id="uploadOverlay" hidden>
+        <div class="upload-overlay__inner">
+          <div class="upload-spinner"></div>
+          <p class="upload-overlay__text" data-i18n="upload.indexing">Indexation en cours…</p>
+          <div class="upload-progress-bar">
+            <div class="upload-progress-bar__fill" id="uploadProgressFill" style="width:0%"></div>
+          </div>
+          <p class="upload-overlay__pct" id="uploadProgressPct">0%</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <div class="app">
 
     <!-- ══════════════════════ SIDEBAR ══════════════════════ -->
@@ -27,7 +112,7 @@
       <!-- Filtre par catégorie -->
       <div class="sidebar-section">
         <h2 class="sidebar-section-title" data-i18n="sidebar.category">Catégorie</h2>
-        <div class="category-list" role="radiogroup" aria-label="Filtrer par catégorie">
+        <div class="category-list" id="categoryList" role="radiogroup" aria-label="Filtrer par catégorie">
 
           <label class="category-item category-item--active">
             <input type="radio" name="category" value="" checked>
@@ -66,6 +151,14 @@
         <div class="document-list" id="documentList" aria-live="polite">
           <p class="doc-list__empty" data-i18n="docs.loading">Chargement…</p>
         </div>
+      </div>
+
+      <!-- Bouton upload -->
+      <div class="sidebar-upload">
+        <button class="upload-trigger-btn" id="openUploadBtn" aria-label="Ajouter des documents">
+          <span class="upload-trigger-btn__icon" aria-hidden="true">＋</span>
+          <span data-i18n="sidebar.upload">Ajouter des documents</span>
+        </button>
       </div>
 
     </aside>

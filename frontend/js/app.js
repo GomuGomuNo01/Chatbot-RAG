@@ -10,23 +10,27 @@ class App {
     this.isLoading        = false;
     this.documents        = [];
     this._healthData      = null;
+
+    // Upload state
+    this._uploadFiles       = [];
+    this._uploadCategory    = null;
+    this._customCategories  = {};   // key → {label, emoji, couleur}
   }
 
   async init() {
-    // Appliquer la langue sauvegardée avant tout rendu
     i18n.applyTranslations();
     this._bindEvents();
+    this._bindUploadModal();
     await Promise.all([
       this._checkHealth(),
       this._loadDocuments(),
+      this._loadCategories(),
     ]);
   }
 
   // ─── Langue ───────────────────────────────────────────────────────────────
 
-  /** Appelé par le sélecteur de langue après i18n.setLang(). */
   _onLangChange() {
-    // Re-appliquer les chaînes dynamiques
     this._renderDocumentList();
     this._updateCategoryBadge();
     if (this._healthData !== null) this._renderHealthBadge(this._healthData);
@@ -43,7 +47,7 @@ class App {
       .replace(/{b3}(.+?){\/b3}/g, '<strong>$1</strong>');
   }
 
-  // ─── Événements ───────────────────────────────────────────────────────────
+  // ─── Événements principaux ────────────────────────────────────────────────
 
   _bindEvents() {
     document.getElementById('inputForm').addEventListener('submit', e => {
@@ -195,7 +199,7 @@ class App {
 
     badge.className      = `status-badge status-badge--${isOk ? 'ok' : 'warn'}`;
     statusEl.textContent = isOk
-      ? `${i18n.lang === 'en' ? 'Ready' : 'Prêt'} · ${data.nb_categories} ${i18n.lang === 'en' ? 'categorie(s)' : 'catégorie(s)'}`
+      ? `${i18n.lang === 'en' ? 'Ready' : 'Prêt'} · ${data.nb_categories} ${i18n.lang === 'en' ? 'cat.' : 'cat.'}`
       : i18n.t('status.noindex');
 
     if (!data.index_disponible) {
@@ -247,19 +251,292 @@ class App {
     });
   }
 
-  // ─── Catégorie active ─────────────────────────────────────────────────────
+  // ─── Catégories ───────────────────────────────────────────────────────────
+
+  async _loadCategories() {
+    try {
+      const data = await apiGetCategories();
+      this._allCategories = data.categories || [];
+      // Stocker les catégories custom (non natives)
+      const native = new Set(['technique', 'rh', 'juridique']);
+      this._allCategories.forEach(c => {
+        if (!native.has(c.key)) this._customCategories[c.key] = c;
+      });
+      this._renderDynamicCategoryItems();
+    } catch {
+      // Silencieux — les catégories par défaut sont dans le HTML
+    }
+  }
+
+  /** Injecte dans la sidebar les catégories personnalisées non présentes en dur. */
+  _renderDynamicCategoryItems() {
+    const native = new Set(['technique', 'rh', 'juridique']);
+    const list   = document.getElementById('categoryList');
+    if (!list) return;
+
+    // Supprimer les éléments custom déjà injectés (pour éviter doublons)
+    list.querySelectorAll('.category-item--custom').forEach(el => el.remove());
+
+    Object.values(this._customCategories).forEach(cat => {
+      if (native.has(cat.key)) return;
+      const label = document.createElement('label');
+      label.className = 'category-item category-item--custom';
+      label.innerHTML = `
+        <input type="radio" name="category" value="${this._esc(cat.key)}">
+        <span class="category-dot" style="background:${this._esc(cat.couleur)}" aria-hidden="true"></span>
+        <span>${this._esc(cat.emoji)} ${this._esc(cat.label)}</span>
+        <span class="category-count" id="count-${this._esc(cat.key)}">0</span>`;
+      label.querySelector('input').addEventListener('change', e => {
+        this.selectedCategory = e.target.value || null;
+        this._updateCategoryBadge();
+        this._highlightActiveCategory(label);
+      });
+      list.appendChild(label);
+    });
+  }
 
   _updateCategoryBadge() {
     const badge   = document.getElementById('categoryBadge');
     const badgeEl = document.getElementById('categoryBadgeText');
     if (!this.selectedCategory) { badge.hidden = true; return; }
-    badgeEl.textContent = i18n.t(`badge.${this.selectedCategory}`);
+
+    // Chercher dans i18n d'abord, puis dans les catégories custom
+    let label = i18n.t(`badge.${this.selectedCategory}`);
+    if (label === `badge.${this.selectedCategory}`) {
+      const cat = this._customCategories[this.selectedCategory];
+      label = cat ? `${cat.emoji} ${cat.label}` : this.selectedCategory;
+    }
+    badgeEl.textContent = label;
     badge.hidden = false;
   }
 
   _highlightActiveCategory(activeLabel) {
     document.querySelectorAll('.category-item').forEach(el => el.classList.remove('category-item--active'));
     if (activeLabel) activeLabel.classList.add('category-item--active');
+  }
+
+  // ─── Modale d'upload ──────────────────────────────────────────────────────
+
+  _bindUploadModal() {
+    const modal     = document.getElementById('uploadModal');
+    const openBtn   = document.getElementById('openUploadBtn');
+    const closeBtn  = document.getElementById('modalCloseBtn');
+    const cancelBtn = document.getElementById('cancelUploadBtn');
+    const submitBtn = document.getElementById('submitUploadBtn');
+
+    // Ouvrir
+    openBtn.addEventListener('click', () => this._openUploadModal());
+
+    // Fermer
+    [closeBtn, cancelBtn].forEach(btn => btn.addEventListener('click', () => this._closeUploadModal()));
+    modal.addEventListener('click', e => { if (e.target === modal) this._closeUploadModal(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) this._closeUploadModal(); });
+
+    // Créer catégorie
+    document.getElementById('btnNewCat').addEventListener('click', () => this._showPanelNewCat());
+    document.getElementById('btnCancelNewCat').addEventListener('click', () => this._showPanelCategory());
+    document.getElementById('btnCreateCat').addEventListener('click', () => this._handleCreateCategory());
+
+    // Sélection fichiers
+    const dropZone  = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    document.getElementById('browseBtn').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => this._addFiles(fileInput.files));
+
+    dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drop-zone--over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drop-zone--over'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('drop-zone--over');
+      this._addFiles(e.dataTransfer.files);
+    });
+    dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+
+    // Submit
+    submitBtn.addEventListener('click', () => this._handleUpload());
+  }
+
+  async _openUploadModal() {
+    this._uploadFiles    = [];
+    this._uploadCategory = null;
+    document.getElementById('fileList').innerHTML      = '';
+    document.getElementById('uploadFeedback').hidden   = true;
+    document.getElementById('uploadOverlay').hidden    = true;
+    document.getElementById('submitUploadBtn').disabled = true;
+
+    this._showPanelCategory();
+    await this._renderCategoryRadios();
+    document.getElementById('uploadModal').hidden = false;
+    document.body.classList.add('modal-open');
+  }
+
+  _closeUploadModal() {
+    document.getElementById('uploadModal').hidden = true;
+    document.body.classList.remove('modal-open');
+  }
+
+  _showPanelCategory() {
+    document.getElementById('panelCategory').hidden = false;
+    document.getElementById('panelNewCat').hidden   = true;
+    document.getElementById('panelFiles').hidden    = false;
+  }
+
+  _showPanelNewCat() {
+    document.getElementById('panelCategory').hidden = true;
+    document.getElementById('panelNewCat').hidden   = false;
+    document.getElementById('panelFiles').hidden    = true;
+    document.getElementById('newCatKey').value      = '';
+    document.getElementById('newCatLabel').value    = '';
+    document.getElementById('newCatEmoji').value    = '📁';
+    document.getElementById('newCatColor').value    = '#6B7280';
+  }
+
+  async _renderCategoryRadios() {
+    const group = document.getElementById('catRadioGroup');
+    // Recharger les catégories à jour
+    try {
+      const data = await apiGetCategories();
+      this._allCategories = data.categories || [];
+      const native = new Set(['technique', 'rh', 'juridique']);
+      this._allCategories.forEach(c => {
+        if (!native.has(c.key)) this._customCategories[c.key] = c;
+      });
+      this._renderDynamicCategoryItems();
+    } catch { /* silencieux */ }
+
+    const cats    = this._allCategories || [];
+    group.innerHTML = cats.map(cat => `
+      <label class="cat-radio">
+        <input type="radio" name="uploadCat" value="${this._esc(cat.key)}">
+        <span class="cat-radio__dot" style="background:${this._esc(cat.couleur)}"></span>
+        <span class="cat-radio__emoji">${this._esc(cat.emoji)}</span>
+        <span class="cat-radio__label">${this._esc(cat.label)}</span>
+        <span class="cat-radio__count">${cat.nb_docs} doc${cat.nb_docs !== 1 ? 's' : ''}</span>
+      </label>`).join('');
+
+    group.querySelectorAll('input[name="uploadCat"]').forEach(radio => {
+      radio.addEventListener('change', e => {
+        this._uploadCategory = e.target.value;
+        this._refreshSubmitBtn();
+      });
+    });
+  }
+
+  async _handleCreateCategory() {
+    const key    = document.getElementById('newCatKey').value.trim().toLowerCase();
+    const label  = document.getElementById('newCatLabel').value.trim();
+    const emoji  = document.getElementById('newCatEmoji').value.trim() || '📁';
+    const couleur = document.getElementById('newCatColor').value;
+
+    if (!key || !label) {
+      this._showFeedback(i18n.lang === 'en' ? '⚠️ Please fill in all fields.' : '⚠️ Remplissez tous les champs.', 'warn');
+      return;
+    }
+    if (!/^[a-z0-9_-]+$/.test(key)) {
+      this._showFeedback(i18n.t('newcat.key.hint'), 'warn');
+      return;
+    }
+
+    document.getElementById('btnCreateCat').disabled = true;
+    try {
+      await apiCreateCategory({ key, label, emoji, couleur });
+      this._customCategories[key] = { key, label, emoji, couleur };
+      this._showFeedback(i18n.t('newcat.success', { label }), 'ok');
+      this._showPanelCategory();
+      await this._renderCategoryRadios();
+    } catch (err) {
+      this._showFeedback(`⚠️ ${err.message}`, 'warn');
+    } finally {
+      document.getElementById('btnCreateCat').disabled = false;
+    }
+  }
+
+  _addFiles(fileList) {
+    const allowed = new Set(['.pdf', '.docx', '.txt']);
+    for (const file of fileList) {
+      const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+      if (!allowed.has(ext)) continue;
+      if (this._uploadFiles.some(f => f.name === file.name)) continue;
+      this._uploadFiles.push(file);
+    }
+    this._renderFileList();
+    this._refreshSubmitBtn();
+  }
+
+  _renderFileList() {
+    const ul = document.getElementById('fileList');
+    ul.innerHTML = this._uploadFiles.map((f, i) => `
+      <li class="file-item">
+        <span class="file-item__icon">${this._fileIcon(f.name)}</span>
+        <span class="file-item__name" title="${this._esc(f.name)}">${this._esc(f.name)}</span>
+        <span class="file-item__size">${this._humanSize(f.size)}</span>
+        <button class="file-item__remove" data-idx="${i}" aria-label="Supprimer ${this._esc(f.name)}">×</button>
+      </li>`).join('');
+
+    ul.querySelectorAll('.file-item__remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._uploadFiles.splice(+btn.dataset.idx, 1);
+        this._renderFileList();
+        this._refreshSubmitBtn();
+      });
+    });
+  }
+
+  _refreshSubmitBtn() {
+    document.getElementById('submitUploadBtn').disabled =
+      this._uploadFiles.length === 0 || !this._uploadCategory;
+  }
+
+  async _handleUpload() {
+    if (!this._uploadCategory) { this._showFeedback(i18n.t('upload.err.nocat'), 'warn'); return; }
+    if (!this._uploadFiles.length) { this._showFeedback(i18n.t('upload.err.nofiles'), 'warn'); return; }
+
+    const overlay   = document.getElementById('uploadOverlay');
+    const fill      = document.getElementById('uploadProgressFill');
+    const pct       = document.getElementById('uploadProgressPct');
+    overlay.hidden  = false;
+    document.getElementById('submitUploadBtn').disabled = true;
+    document.getElementById('cancelUploadBtn').disabled = true;
+
+    try {
+      const result = await apiUploadFiles(this._uploadFiles, this._uploadCategory, progress => {
+        fill.style.width  = `${progress}%`;
+        pct.textContent   = `${progress}%`;
+      });
+
+      const nb_ok  = result.fichiers.filter(f => f.statut === 'ok').length;
+      const nb_err = result.fichiers.filter(f => f.statut === 'erreur').length;
+
+      overlay.hidden = true;
+      if (nb_err === 0) {
+        this._showFeedback(i18n.t('upload.success', { n: nb_ok }), 'ok');
+      } else {
+        this._showFeedback(i18n.t('upload.partial', { ok: nb_ok, err: nb_err }), 'warn');
+      }
+
+      // Rafraîchir la liste de documents et les compteurs
+      await this._loadDocuments();
+
+      this._uploadFiles    = [];
+      document.getElementById('fileList').innerHTML = '';
+      this._refreshSubmitBtn();
+
+      // Fermer après 2 s si tout s'est bien passé
+      if (nb_err === 0) setTimeout(() => this._closeUploadModal(), 2000);
+
+    } catch (err) {
+      overlay.hidden = true;
+      this._showFeedback(`⚠️ ${err.message}`, 'error');
+    } finally {
+      document.getElementById('cancelUploadBtn').disabled = false;
+    }
+  }
+
+  _showFeedback(html, type = 'ok') {
+    const el  = document.getElementById('uploadFeedback');
+    el.className = `upload-feedback upload-feedback--${type}`;
+    el.innerHTML = html;
+    el.hidden    = false;
   }
 
   // ─── Nouvelle conversation ────────────────────────────────────────────────
@@ -276,7 +553,7 @@ class App {
 
   _setLoading(val) {
     this.isLoading = val;
-    document.getElementById('sendBtn').disabled  = val;
+    document.getElementById('sendBtn').disabled    = val;
     document.getElementById('inputField').disabled = val;
   }
 
@@ -303,6 +580,17 @@ class App {
     return String(str)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  _fileIcon(name) {
+    const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+    return { '.pdf': '📕', '.docx': '📘', '.txt': '📄' }[ext] || '📎';
+  }
+
+  _humanSize(bytes) {
+    if (bytes < 1024) return `${bytes} o`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
   }
 }
 

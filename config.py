@@ -3,6 +3,7 @@ config.py — Configuration centralisée du projet
 Tous les paramètres modifiables sont ici.
 """
 
+import json
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
@@ -25,12 +26,16 @@ DOCS_JURIDIQUE_DIR  = DOCS_DIR / "juridique"
 # Index FAISS persisté
 FAISS_INDEX_DIR = BASE_DIR / "data" / "faiss_index"
 
+# Métadonnées des catégories personnalisées (créées via l'API)
+CUSTOM_CATEGORIES_FILE = BASE_DIR / "data" / "custom_categories.json"
+
 # Création automatique des dossiers nécessaires
 for _dir in [
     DOCS_TECHNIQUE_DIR,
     DOCS_RH_DIR,
     DOCS_JURIDIQUE_DIR,
-    FAISS_INDEX_DIR
+    FAISS_INDEX_DIR,
+    BASE_DIR / "data",
 ]:
     _dir.mkdir(parents=True, exist_ok=True)
 
@@ -93,6 +98,57 @@ CATEGORIES = {
     }
 }
 
+# Palette par défaut pour les catégories personnalisées
+_CUSTOM_EMOJIS  = ["📁", "🗂️", "📋", "🔖", "📊", "🗃️", "📌", "🏷️"]
+_CUSTOM_COLORS  = ["#E85D04", "#7209B7", "#0077B6", "#2D6A4F", "#9B2226", "#AE2012"]
+
+
+def _load_custom_categories() -> dict:
+    """Charge les catégories personnalisées depuis le fichier JSON."""
+    if CUSTOM_CATEGORIES_FILE.exists():
+        try:
+            data = json.loads(CUSTOM_CATEGORIES_FILE.read_text(encoding="utf-8"))
+            return {k: {**v, "dir": DOCS_DIR / k} for k, v in data.items()}
+        except Exception:
+            pass
+    return {}
+
+
+def get_all_categories() -> dict:
+    """
+    Retourne toutes les catégories : hardcodées + personnalisées.
+    À utiliser à la place de CATEGORIES quand le contexte de requête l'exige.
+    """
+    merged = dict(CATEGORIES)
+    merged.update(_load_custom_categories())
+    return merged
+
+
+def register_custom_category(key: str, label: str, emoji: str, couleur: str) -> None:
+    """
+    Persiste une nouvelle catégorie personnalisée sur disque.
+    Crée aussi le répertoire docs/{key}/.
+    """
+    cat_dir = DOCS_DIR / key
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
+    # Lire le fichier existant
+    existing: dict = {}
+    if CUSTOM_CATEGORIES_FILE.exists():
+        try:
+            existing = json.loads(CUSTOM_CATEGORIES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # Ne pas écraser les 3 catégories natives
+    if key in CATEGORIES:
+        raise ValueError(f"La catégorie '{key}' est réservée.")
+
+    existing[key] = {"label": label, "emoji": emoji, "couleur": couleur}
+    CUSTOM_CATEGORIES_FILE.write_text(
+        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
 # ============================================================
 # API FastAPI
 # ============================================================
@@ -111,29 +167,40 @@ API_DESCRIPTION = (
 # PROMPT SYSTÈME
 # ============================================================
 
-SYSTEM_PROMPT = """Tu es DocAssist, un assistant documentaire expert et rigoureux. \
-Tu aides les collaborateurs à trouver, comprendre et synthétiser l'information \
-contenue dans la documentation interne.
+SYSTEM_PROMPT = """Tu es DocAssist, un assistant documentaire expert. \
+Tu exploites la documentation interne (technique, RH, juridique) pour aider \
+les collaborateurs à trouver, comprendre et synthétiser des informations précises.
 
-## Règles absolues
-- Réponds **uniquement** à partir des extraits documentaires fournis dans le contexte.
-- Ne jamais inventer, extrapoler ou compléter avec des connaissances générales.
-- Ne mentionne **pas** les numéros de sources dans ta réponse (elles sont affichées séparément).
-- **Langue** : détecte automatiquement la langue de la question et réponds dans cette même langue. \
-  Si la question est en français → réponds en français. \
-  Si la question est en anglais → réponds en anglais.
+## Règles fondamentales
+
+1. **Sources exclusives** — Réponds uniquement à partir des extraits fournis dans le contexte. \
+Ne jamais inventer, supposer ou compléter avec des connaissances non présentes dans les extraits.
+2. **Exhaustivité** — Si plusieurs extraits apportent des éléments complémentaires, \
+synthétise-les tous. Ne laisse pas d'information pertinente de côté.
+3. **Honnêteté** — Si l'information est absente, partielle ou ambiguë dans les extraits, \
+dis-le explicitement : *« Les documents disponibles ne précisent pas… »*
+4. **Pas de référence aux sources** — Ne cite pas les numéros d'extraits (ex. [1], [2], \
+Extrait 3…) — elles sont affichées séparément dans l'interface.
+5. **Langue** — Réponds impérativement dans la même langue que la question.
 
 ## Format de réponse
-Utilise le markdown pour structurer ta réponse :
-- **Procédure / étapes** → liste numérotée `1. 2. 3.`
-- **Énumération / points clés** → liste à puces `- item`
-- **Terme technique ou valeur importante** → **gras**
-- **Commande / code / configuration** → bloc de code avec backticks
-- **Réponse longue** → commence par un résumé d'une phrase, puis développe
 
-## Qualité attendue
-- Sois précis, complet et structuré — pas de phrase vague.
-- Si plusieurs extraits apportent des informations complémentaires, synthétise-les.
-- Si l'information est partielle ou incertaine dans le contexte, dis-le explicitement.
-- Préfère 3 points clairs à un paragraphe dense et indigeste.
+Choisis le format adapté à la complexité de la réponse :
+
+| Situation | Format |
+|-----------|--------|
+| Procédure / étapes ordonnées | Liste numérotée `1. 2. 3.` |
+| Points clés / énumération | Liste à puces `- item` |
+| Comparaison de 3+ éléments | Tableau Markdown |
+| Valeur importante / terme clé | **gras** |
+| Commande / code / chemin de fichier | \`bloc de code\` |
+| Réponse > 3 points | Phrase de synthèse en tête, puis développement |
+| Réponse ≤ 2 lignes | Réponse directe, sans structure superflue |
+
+## Exigences qualité
+
+- **Précis et actionnable** : préfère *« Exécutez la commande X »* à *« X peut être exécuté »*
+- **Structuré** : 3 points clairs valent mieux qu'un paragraphe dense
+- **Complet** : si une procédure comporte des prérequis ou des mises en garde, mentionne-les
+- **Synthétique** : commence par l'essentiel, détaille ensuite
 """

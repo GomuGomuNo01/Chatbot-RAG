@@ -48,8 +48,9 @@ const TRANSLATIONS = {
     'badge.juridique': '⚖️ Juridique',
 
     /* ── Sources ── */
-    'sources.show': 'Voir l\'extrait ▼',
-    'sources.hide': 'Masquer l\'extrait ▲',
+    'sources.title': 'Sources ({n})',
+    'sources.show':  'Voir l\'extrait',
+    'sources.hide':  'Masquer l\'extrait',
 
     /* ── Erreurs / Notices ── */
     'notice.noindex':  '⚠️ Index FAISS non trouvé. Lance <code>python ingest.py</code> pour indexer les documents.',
@@ -62,6 +63,37 @@ const TRANSLATIONS = {
     'meta.technique.label': 'Technique',
     'meta.rh.label':        'RH',
     'meta.juridique.label': 'Juridique',
+
+    /* ── Upload ── */
+    'upload.btn':         'Ajouter des documents',
+    'upload.title':       'Ajouter des documents',
+    'upload.step1':       '1. Choisir une catégorie',
+    'upload.step2':       '2. Sélectionner les fichiers',
+    'upload.drop.title':  'Glissez vos fichiers ici',
+    'upload.drop.hint':   'PDF, DOCX, TXT · 50 Mo max par fichier',
+    'upload.browse':      'Parcourir',
+    'upload.submit':      'Indexer maintenant',
+    'upload.cancel':      'Annuler',
+    'upload.indexing':    'Indexation en cours…',
+    'upload.success':     '✅ {n} fichier(s) indexé(s) avec succès.',
+    'upload.partial':     '⚠️ {ok} indexé(s), {err} erreur(s).',
+    'upload.err.nofiles': 'Sélectionnez au moins un fichier.',
+    'upload.err.nocat':   'Choisissez une catégorie.',
+
+    /* ── Nouvelle catégorie ── */
+    'newcat.option':  '＋ Nouvelle catégorie',
+    'newcat.title':   'Créer une catégorie',
+    'newcat.key':     'Identifiant (ex: marketing)',
+    'newcat.key.hint':'Minuscules, chiffres, tirets uniquement',
+    'newcat.label':   'Nom affiché',
+    'newcat.emoji':   'Emoji',
+    'newcat.color':   'Couleur',
+    'newcat.create':  'Créer',
+    'newcat.cancel':  'Retour',
+    'newcat.success': '✅ Catégorie « {label} » créée.',
+
+    /* ── Sidebar bouton upload ── */
+    'sidebar.upload': 'Ajouter des documents',
   },
 
   en: {
@@ -108,8 +140,9 @@ const TRANSLATIONS = {
     'badge.juridique': '⚖️ Legal',
 
     /* ── Sources ── */
-    'sources.show': 'Show excerpt ▼',
-    'sources.hide': 'Hide excerpt ▲',
+    'sources.title': 'Sources ({n})',
+    'sources.show':  'Show excerpt',
+    'sources.hide':  'Hide excerpt',
 
     /* ── Erreurs / Notices ── */
     'notice.noindex':  '⚠️ FAISS index not found. Run <code>python ingest.py</code> to index documents.',
@@ -122,6 +155,37 @@ const TRANSLATIONS = {
     'meta.technique.label': 'Technical',
     'meta.rh.label':        'HR',
     'meta.juridique.label': 'Legal',
+
+    /* ── Upload ── */
+    'upload.btn':         'Add documents',
+    'upload.title':       'Add documents',
+    'upload.step1':       '1. Choose a category',
+    'upload.step2':       '2. Select files',
+    'upload.drop.title':  'Drop your files here',
+    'upload.drop.hint':   'PDF, DOCX, TXT · 50 MB max per file',
+    'upload.browse':      'Browse',
+    'upload.submit':      'Index now',
+    'upload.cancel':      'Cancel',
+    'upload.indexing':    'Indexing…',
+    'upload.success':     '✅ {n} file(s) indexed successfully.',
+    'upload.partial':     '⚠️ {ok} indexed, {err} error(s).',
+    'upload.err.nofiles': 'Please select at least one file.',
+    'upload.err.nocat':   'Please choose a category.',
+
+    /* ── Nouvelle catégorie ── */
+    'newcat.option':  '＋ New category',
+    'newcat.title':   'Create a category',
+    'newcat.key':     'Identifier (e.g. marketing)',
+    'newcat.key.hint':'Lowercase, digits, hyphens only',
+    'newcat.label':   'Display name',
+    'newcat.emoji':   'Emoji',
+    'newcat.color':   'Color',
+    'newcat.create':  'Create',
+    'newcat.cancel':  'Back',
+    'newcat.success': '✅ Category « {label} » created.',
+
+    /* ── Sidebar bouton upload ── */
+    'sidebar.upload': 'Add documents',
   },
 };
 

@@ -59,8 +59,8 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
 
     # Valider la catégorie si fournie
-    from config import CATEGORIES
-    if request.categorie and request.categorie not in CATEGORIES:
+    from config import get_all_categories
+    if request.categorie and request.categorie not in get_all_categories():
         raise HTTPException(
             status_code=422,
             detail=(
@@ -115,8 +115,8 @@ async def chat_stream(request: ChatRequest):
             status_code=503,
             detail="L'index FAISS n'est pas disponible. Lance python ingest.py d'abord."
         )
-    from config import CATEGORIES
-    if request.categorie and request.categorie not in CATEGORIES:
+    from config import get_all_categories
+    if request.categorie and request.categorie not in get_all_categories():
         raise HTTPException(
             status_code=422,
             detail=f"Catégorie invalide : {request.categorie}."

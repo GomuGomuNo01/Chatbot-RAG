@@ -1,61 +1,89 @@
 """
-Route GET /api/documents — Liste des documents indexés
+Routes Documents :
+  GET  /api/documents          — liste des documents indexés
+  GET  /api/categories         — liste toutes les catégories
+  POST /api/categories         — crée une catégorie personnalisée
+  POST /api/documents/upload   — upload + indexation de fichiers
 """
 
 import logging
 from pathlib import Path, PureWindowsPath, PurePosixPath
-from fastapi import APIRouter, HTTPException
-from api.schemas import DocumentsResponse, DocumentInfo
-from config import CATEGORIES
+from typing import List
+
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from api.schemas import (
+    DocumentsResponse,
+    DocumentInfo,
+    CategoryInfo,
+    CategoriesResponse,
+    CreateCategoryRequest,
+    UploadResponse,
+    UploadedFile,
+)
+from config import get_all_categories, register_custom_category, DOCS_DIR
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 Mo
+
+
+# ============================================================
+# Utilitaires
+# ============================================================
+
+def _get_categories() -> dict:
+    """Récupère toutes les catégories à jour (hardcodées + custom)."""
+    return get_all_categories()
+
 
 def _parse_manifest_path(path_str: str) -> tuple[str, str | None]:
-    """
-    Extrait (nom_fichier, categorie) depuis un chemin absolu Windows ou POSIX.
-    Le manifest stocke les chemins absolus de la machine où l'index a été généré.
-    """
+    """Extrait (nom_fichier, categorie) depuis un chemin absolu."""
+    cats = _get_categories()
     for P in (PureWindowsPath, PurePosixPath):
         try:
-            p = P(path_str)
-            cat = p.parent.name  # "technique", "rh", "juridique"
-            return p.name, cat if cat in CATEGORIES else None
+            p   = P(path_str)
+            cat = p.parent.name
+            return p.name, cat if cat in cats else None
         except Exception:
             continue
     return Path(path_str).name, None
 
 
+# ============================================================
+# GET /api/documents
+# ============================================================
+
 @router.get(
     "/documents",
     response_model=DocumentsResponse,
     summary="Liste des documents indexés",
-    description="Retourne tous les documents disponibles par catégorie."
 )
 def get_documents() -> DocumentsResponse:
+    cats      = _get_categories()
     documents = []
 
-    # ── Priorité 1 : scanner le dossier docs/ (développement local) ──
-    for cat_key, cat_config in CATEGORIES.items():
+    # Priorité 1 : scanner le dossier docs/
+    for cat_key, cat_config in cats.items():
         directory = Path(cat_config["dir"])
         if not directory.exists():
             continue
-        for f in directory.iterdir():
-            if f.suffix.lower() in {".pdf", ".docx", ".txt"}:
+        for f in sorted(directory.iterdir()):
+            if f.suffix.lower() in SUPPORTED_EXTENSIONS:
                 documents.append(DocumentInfo(
                     nom       = f.name,
                     categorie = cat_key,
                     label     = cat_config["label"],
-                    emoji     = cat_config["emoji"]
+                    emoji     = cat_config["emoji"],
                 ))
 
-    # ── Fallback : lire le manifeste FAISS (production / Render) ──
+    # Fallback : lire le manifeste FAISS (production)
     if not documents:
         try:
             from src.indexer import load_manifest
             manifest = load_manifest()
-            seen = set()
+            seen     = set()
             for path_str in manifest:
                 nom, cat = _parse_manifest_path(path_str)
                 if nom and cat and nom not in seen:
@@ -63,8 +91,8 @@ def get_documents() -> DocumentsResponse:
                     documents.append(DocumentInfo(
                         nom       = nom,
                         categorie = cat,
-                        label     = CATEGORIES[cat]["label"],
-                        emoji     = CATEGORIES[cat]["emoji"]
+                        label     = cats[cat]["label"],
+                        emoji     = cats[cat]["emoji"],
                     ))
         except Exception as e:
             logger.warning(f"Impossible de lire le manifeste : {e}")
@@ -78,5 +106,209 @@ def get_documents() -> DocumentsResponse:
     return DocumentsResponse(
         documents  = documents,
         total      = len(documents),
-        categories = list(CATEGORIES.keys())
+        categories = list(cats.keys()),
+    )
+
+
+# ============================================================
+# GET /api/categories
+# ============================================================
+
+@router.get(
+    "/categories",
+    response_model=CategoriesResponse,
+    summary="Liste toutes les catégories disponibles",
+)
+def get_categories() -> CategoriesResponse:
+    cats   = _get_categories()
+    result = []
+    for key, cfg in cats.items():
+        directory = Path(cfg["dir"])
+        nb_docs   = 0
+        if directory.exists():
+            nb_docs = sum(
+                1 for f in directory.iterdir()
+                if f.suffix.lower() in SUPPORTED_EXTENSIONS
+            )
+        result.append(CategoryInfo(
+            key     = key,
+            label   = cfg["label"],
+            emoji   = cfg["emoji"],
+            couleur = cfg["couleur"],
+            nb_docs = nb_docs,
+        ))
+    return CategoriesResponse(categories=result, total=len(result))
+
+
+# ============================================================
+# POST /api/categories
+# ============================================================
+
+@router.post(
+    "/categories",
+    response_model=CategoryInfo,
+    status_code=201,
+    summary="Crée une nouvelle catégorie de documents",
+)
+def create_category(body: CreateCategoryRequest) -> CategoryInfo:
+    cats = _get_categories()
+    if body.key in cats:
+        raise HTTPException(
+            status_code=409,
+            detail=f"La catégorie '{body.key}' existe déjà."
+        )
+    try:
+        register_custom_category(
+            key     = body.key,
+            label   = body.label,
+            emoji   = body.emoji,
+            couleur = body.couleur,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return CategoryInfo(
+        key     = body.key,
+        label   = body.label,
+        emoji   = body.emoji,
+        couleur = body.couleur,
+        nb_docs = 0,
+    )
+
+
+# ============================================================
+# POST /api/documents/upload
+# ============================================================
+
+@router.post(
+    "/documents/upload",
+    response_model=UploadResponse,
+    summary="Upload et indexation de documents",
+    description=(
+        "Envoie un ou plusieurs fichiers (PDF, DOCX, TXT) dans une catégorie "
+        "existante et les indexe immédiatement dans FAISS."
+    ),
+)
+async def upload_documents(
+    categorie: str = Form(..., description="Clé de catégorie cible"),
+    files:     List[UploadFile] = File(..., description="Fichiers à uploader"),
+) -> UploadResponse:
+
+    cats = _get_categories()
+    if categorie not in cats:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Catégorie inconnue : '{categorie}'. "
+                   f"Créez-la d'abord via POST /api/categories."
+        )
+    if not files:
+        raise HTTPException(status_code=422, detail="Aucun fichier fourni.")
+
+    cat_dir = Path(cats[categorie]["dir"])
+    cat_dir.mkdir(parents=True, exist_ok=True)
+
+    from src.loader import load_file
+    from src.indexer import (
+        add_documents_to_index,
+        create_index,
+        index_exists,
+        load_manifest,
+        save_manifest,
+        _file_hash,
+    )
+    from src.retriever import reset_vectorstore
+
+    results:      List[UploadedFile] = []
+    all_docs:     list               = []
+    manifest      = load_manifest()
+
+    for upload in files:
+        filename = Path(upload.filename or "fichier").name
+        ext      = Path(filename).suffix.lower()
+
+        # Validation extension
+        if ext not in SUPPORTED_EXTENSIONS:
+            results.append(UploadedFile(
+                nom    = filename,
+                chunks = 0,
+                statut = "erreur",
+                detail = f"Format non supporté ({ext}). Acceptés : {', '.join(SUPPORTED_EXTENSIONS)}",
+            ))
+            continue
+
+        # Lire contenu
+        content = await upload.read()
+        if len(content) > MAX_FILE_SIZE:
+            results.append(UploadedFile(
+                nom    = filename,
+                chunks = 0,
+                statut = "erreur",
+                detail = f"Fichier trop volumineux ({len(content) // (1024*1024)} Mo > 50 Mo).",
+            ))
+            continue
+
+        # Sauvegarder sur disque
+        dest = cat_dir / filename
+        dest.write_bytes(content)
+        logger.info(f"Fichier sauvegardé : {dest}")
+
+        # Charger et découper
+        try:
+            docs = load_file(dest, categorie)
+        except Exception as e:
+            results.append(UploadedFile(
+                nom    = filename,
+                chunks = 0,
+                statut = "erreur",
+                detail = f"Erreur d'extraction : {e}",
+            ))
+            continue
+
+        if not docs:
+            results.append(UploadedFile(
+                nom    = filename,
+                chunks = 0,
+                statut = "erreur",
+                detail = "Aucun contenu extrait (fichier vide ou illisible).",
+            ))
+            continue
+
+        all_docs.extend(docs)
+        manifest[str(dest.resolve())] = _file_hash(dest)
+        results.append(UploadedFile(
+            nom    = filename,
+            chunks = len(docs),
+            statut = "ok",
+        ))
+        logger.info(f"{filename} → {len(docs)} chunks")
+
+    # Indexation des nouveaux chunks
+    total_chunks = sum(r.chunks for r in results if r.statut == "ok")
+    if all_docs:
+        try:
+            if index_exists():
+                add_documents_to_index(all_docs, manifest)
+            else:
+                create_index(all_docs)
+                save_manifest(manifest)
+            reset_vectorstore()
+            logger.info(f"Indexation terminée : {total_chunks} chunks ajoutés.")
+        except Exception as e:
+            logger.error(f"Erreur d'indexation : {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Fichiers sauvegardés mais indexation échouée : {e}"
+            )
+
+    nb_ok  = sum(1 for r in results if r.statut == "ok")
+    nb_err = len(results) - nb_ok
+    msg    = f"{nb_ok} fichier(s) indexé(s) avec succès"
+    if nb_err:
+        msg += f", {nb_err} erreur(s)."
+
+    return UploadResponse(
+        categorie    = categorie,
+        fichiers     = results,
+        total_chunks = total_chunks,
+        message      = msg,
     )
