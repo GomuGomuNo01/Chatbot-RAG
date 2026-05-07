@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pathlib import Path
 from api.routes import chat, documents, health
 from config import (
@@ -94,15 +93,12 @@ app.include_router(
 )
 
 # ---- Servir le frontend statique ----
+# Monté en dernier pour que les routes /api/* restent prioritaires.
+# html=True : sert index.html pour / et tout chemin sans fichier correspondant.
 frontend_dir = Path(__file__).parent.parent / "frontend"
 if frontend_dir.exists():
     app.mount(
-        "/static",
-        StaticFiles(directory=str(frontend_dir)),
+        "/",
+        StaticFiles(directory=str(frontend_dir), html=True),
         name="static"
     )
-
-    @app.get("/", include_in_schema=False)
-    def serve_frontend():
-        """Sert le fichier index.html du frontend."""
-        return FileResponse(str(frontend_dir / "index.html"))

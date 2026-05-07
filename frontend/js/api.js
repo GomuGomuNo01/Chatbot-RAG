@@ -1,9 +1,8 @@
 /**
  * api.js — Client HTTP vers le backend FastAPI
+ * API_BASE est défini dans config.js (chargé avant ce fichier).
  * Toutes les fonctions retournent des Promises et propagent les erreurs.
  */
-
-const API_BASE = '/api';
 
 /**
  * Envoie une question au pipeline RAG.
