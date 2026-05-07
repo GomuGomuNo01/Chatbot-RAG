@@ -6,7 +6,7 @@
  *            Ex : https://chatbot-rag-xxxx.onrender.com
  */
 
-const RENDER_URL = '';   // ← coller ici l'URL Render après déploiement
+const RENDER_URL = 'https://chatbot-rag-xodz.onrender.com';   // ← coller ici l'URL Render après déploiement
 
 const API_BASE = (() => {
   const { hostname } = window.location;
