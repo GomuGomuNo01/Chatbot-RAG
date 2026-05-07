@@ -24,14 +24,20 @@ class _InferenceClientEmbeddings(Embeddings):
         self._client = InferenceClient(model=model, token=token)
 
     def _embed(self, text: str) -> List[float]:
+        import math
         result = self._client.feature_extraction(text)
         if hasattr(result, "tolist"):
             vec = result.tolist()
         else:
             vec = list(result)
-        # Aplatir si le modèle renvoie [[vec]] au lieu de [vec]
+        # L'API renvoie [seq_len × dim] → mean pooling pour obtenir l'embedding de phrase
         if vec and isinstance(vec[0], list):
-            vec = vec[0]
+            dim = len(vec[0])
+            vec = [sum(row[j] for row in vec) / len(vec) for j in range(dim)]
+        # L2-normalisation pour correspondre à normalize_embeddings=True du modèle local
+        norm = math.sqrt(sum(x * x for x in vec))
+        if norm > 0:
+            vec = [x / norm for x in vec]
         return vec
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
