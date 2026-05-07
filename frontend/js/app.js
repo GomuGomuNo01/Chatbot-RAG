@@ -235,11 +235,31 @@ class App {
       <div class="doc-group">
         <div class="doc-group__label">${docs[0].emoji} ${i18n.t('cat.' + cat) || docs[0].label}</div>
         ${docs.map(d => `
-          <div class="doc-item" title="${this._esc(d.nom)}">
-            <span class="doc-item__icon">📄</span>
+          <div class="doc-item" title="${this._esc(d.nom)}" data-cat="${this._esc(d.categorie)}" data-file="${this._esc(d.nom)}">
+            <span class="doc-item__icon">${this._fileIcon(d.nom)}</span>
             <span class="doc-item__name">${this._esc(d.nom.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '))}</span>
+            <span class="doc-item__actions">
+              <button class="doc-item__btn doc-item__btn--reindex" title="Ré-indexer ce document" aria-label="Ré-indexer ${this._esc(d.nom)}">🔄</button>
+              <button class="doc-item__btn doc-item__btn--delete" title="Supprimer ce document" aria-label="Supprimer ${this._esc(d.nom)}">🗑️</button>
+            </span>
           </div>`).join('')}
       </div>`).join('');
+
+    // Bind des boutons d'action
+    list.querySelectorAll('.doc-item__btn--delete').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const item = btn.closest('.doc-item');
+        this._deleteDocument(item.dataset.cat, item.dataset.file);
+      });
+    });
+    list.querySelectorAll('.doc-item__btn--reindex').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const item = btn.closest('.doc-item');
+        this._reindexDocument(item.dataset.cat, item.dataset.file, btn);
+      });
+    });
   }
 
   _updateCategoryCounters() {
@@ -285,11 +305,17 @@ class App {
         <input type="radio" name="category" value="${this._esc(cat.key)}">
         <span class="category-dot" style="background:${this._esc(cat.couleur)}" aria-hidden="true"></span>
         <span>${this._esc(cat.emoji)} ${this._esc(cat.label)}</span>
-        <span class="category-count" id="count-${this._esc(cat.key)}">0</span>`;
+        <span class="category-count" id="count-${this._esc(cat.key)}">0</span>
+        <button class="cat-delete-btn" title="Supprimer cette catégorie" aria-label="Supprimer ${this._esc(cat.label)}">🗑️</button>`;
       label.querySelector('input').addEventListener('change', e => {
         this.selectedCategory = e.target.value || null;
         this._updateCategoryBadge();
         this._highlightActiveCategory(label);
+      });
+      label.querySelector('.cat-delete-btn').addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._deleteCategory(cat.key, cat.label);
       });
       list.appendChild(label);
     });
@@ -609,6 +635,79 @@ class App {
       btn.disabled    = false;
       btn.textContent = originalText;
     }
+  }
+
+  // ─── Suppression / Ré-indexation de documents ────────────────────────────
+
+  async _deleteDocument(categorie, filename) {
+    if (!confirm(i18n.t('delete.doc.confirm', { name: filename }))) return;
+
+    // Feedback inline dans la sidebar
+    const item = document.querySelector(`.doc-item[data-cat="${categorie}"][data-file="${CSS.escape(filename)}"]`);
+    if (item) item.style.opacity = '0.4';
+
+    try {
+      await apiDeleteDocument(categorie, filename);
+      this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
+      await this._loadDocuments();
+      await this._checkHealth();
+    } catch (err) {
+      if (item) item.style.opacity = '1';
+      this._showToast(`${i18n.t('delete.doc.error')} ${err.message}`, 'error');
+    }
+  }
+
+  async _deleteCategory(key, label) {
+    if (!confirm(i18n.t('delete.cat.confirm', { label }))) return;
+    try {
+      const result = await apiDeleteCategory(key);
+      // Si la catégorie supprimée était sélectionnée, remettre à "Tout"
+      if (this.selectedCategory === key) {
+        this.selectedCategory = null;
+        this._updateCategoryBadge();
+        document.querySelector('input[name="category"][value=""]').checked = true;
+      }
+      delete this._customCategories[key];
+      this._renderDynamicCategoryItems();
+      this._showToast(i18n.t('delete.cat.success', { label, n: result.docs_deleted }), 'ok');
+      await this._loadDocuments();
+      await this._checkHealth();
+    } catch (err) {
+      this._showToast(`${i18n.t('delete.cat.error')} ${err.message}`, 'error');
+    }
+  }
+
+  async _reindexDocument(categorie, filename, btnEl) {
+    const originalText = btnEl ? btnEl.textContent : '';
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳'; }
+
+    try {
+      const result = await apiReindexFile(categorie, filename);
+      this._showToast(
+        i18n.t('reindex.file.success', { name: filename, chunks: result.chunks }),
+        'ok'
+      );
+      await this._checkHealth();
+    } catch (err) {
+      this._showToast(`${i18n.t('reindex.file.error')} ${err.message}`, 'error');
+    } finally {
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = originalText; }
+    }
+  }
+
+  /** Toast non-bloquant (remplace les alert) */
+  _showToast(message, type = 'ok') {
+    let toast = document.getElementById('appToast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'appToast';
+      document.body.appendChild(toast);
+    }
+    toast.className = `app-toast app-toast--${type}`;
+    toast.textContent = message;
+    toast.hidden = false;
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
   }
 
   // ─── Nouvelle conversation ────────────────────────────────────────────────

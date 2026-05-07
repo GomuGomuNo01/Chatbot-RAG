@@ -101,6 +101,23 @@ const TRANSLATIONS = {
 
     /* ── Sidebar bouton upload ── */
     'sidebar.upload': 'Ajouter des documents',
+
+    /* ── Suppression document ── */
+    'delete.doc.confirm':  'Supprimer « {name} » ? Cette action est irréversible.',
+    'delete.doc.running':  'Suppression en cours…',
+    'delete.doc.success':  '✅ « {name} » supprimé. Index reconstruit.',
+    'delete.doc.error':    '⚠️ Erreur lors de la suppression.',
+
+    /* ── Suppression catégorie ── */
+    'delete.cat.confirm':  'Supprimer la catégorie « {label} » et tous ses documents ? Action irréversible.',
+    'delete.cat.running':  'Suppression en cours…',
+    'delete.cat.success':  '✅ Catégorie « {label} » supprimée ({n} document(s)).',
+    'delete.cat.error':    '⚠️ Erreur lors de la suppression de la catégorie.',
+
+    /* ── Ré-indexation d'un fichier ── */
+    'reindex.file.running': '🔄 Ré-indexation en cours…',
+    'reindex.file.success': '✅ « {name} » ré-indexé : {chunks} chunks.',
+    'reindex.file.error':   '⚠️ Erreur de ré-indexation.',
   },
 
   en: {
@@ -200,6 +217,23 @@ const TRANSLATIONS = {
 
     /* ── Sidebar bouton upload ── */
     'sidebar.upload': 'Add documents',
+
+    /* ── Delete document ── */
+    'delete.doc.confirm':  'Delete « {name} »? This action is irreversible.',
+    'delete.doc.running':  'Deleting…',
+    'delete.doc.success':  '✅ « {name} » deleted. Index rebuilt.',
+    'delete.doc.error':    '⚠️ Error while deleting.',
+
+    /* ── Delete category ── */
+    'delete.cat.confirm':  'Delete category « {label} » and all its documents? Irreversible action.',
+    'delete.cat.running':  'Deleting…',
+    'delete.cat.success':  '✅ Category « {label} » deleted ({n} document(s)).',
+    'delete.cat.error':    '⚠️ Error while deleting category.',
+
+    /* ── Reindex single file ── */
+    'reindex.file.running': '🔄 Re-indexing…',
+    'reindex.file.success': '✅ « {name} » re-indexed: {chunks} chunks.',
+    'reindex.file.error':   '⚠️ Re-indexation error.',
   },
 };
 

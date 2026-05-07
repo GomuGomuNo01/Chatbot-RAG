@@ -20,8 +20,14 @@ from api.schemas import (
     UploadResponse,
     UploadedFile,
     ReindexResponse,
+    DeleteDocumentResponse,
+    DeleteCategoryResponse,
+    ReindexFileResponse,
 )
-from config import get_all_categories, register_custom_category, DOCS_DIR, is_r2_enabled
+from config import (
+    get_all_categories, register_custom_category, delete_custom_category,
+    DOCS_DIR, CATEGORIES, is_r2_enabled,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -480,5 +486,281 @@ async def reindex_all() -> ReindexResponse:
         message      = (
             f"Index recréé avec succès : {len(all_docs)} chunks "
             f"depuis {len(all_files)} fichier(s)."
+        ),
+    )
+
+
+# ============================================================
+# DELETE /api/documents/{categorie}/{filename}
+# ============================================================
+
+@router.delete(
+    "/documents/{categorie}/{filename}",
+    response_model=DeleteDocumentResponse,
+    summary="Supprime un document et reconstruit l'index FAISS",
+)
+async def delete_document(categorie: str, filename: str) -> DeleteDocumentResponse:
+    from src.loader import load_file, SUPPORTED_EXTENSIONS as EXT
+    from src.indexer import create_index, save_manifest, _file_hash, index_exists
+    from src.retriever import reset_vectorstore
+    from pathlib import Path as P
+
+    cats = _get_categories()
+    if categorie not in cats:
+        raise HTTPException(status_code=404, detail=f"Catégorie inconnue : '{categorie}'.")
+
+    cat_dir  = P(cats[categorie]["dir"])
+    dest     = cat_dir / filename
+
+    # ── Supprimer localement ─────────────────────────────────
+    if dest.exists():
+        dest.unlink()
+        logger.info(f"Fichier supprimé localement : {dest}")
+
+    # ── Supprimer de R2 ──────────────────────────────────────
+    if is_r2_enabled():
+        try:
+            from src.storage import delete_file_r2
+            delete_file_r2(categorie, filename)
+        except Exception as e:
+            logger.warning(f"R2 delete {filename} ignoré : {e}")
+
+    # ── Reconstruire l'index depuis les fichiers restants ────
+    all_files: list = []
+    for cat_key, cat_cfg in cats.items():
+        directory = P(cat_cfg["dir"])
+        if not directory.exists():
+            continue
+        for f in directory.iterdir():
+            if f.suffix.lower() in EXT:
+                all_files.append((f, cat_key))
+
+    # Si plus aucun fichier, vider l'index
+    if not all_files:
+        from src.indexer import INDEX_PATH, MANIFEST_FILE
+        for idx_file in ["index.faiss", "index.pkl"]:
+            p = INDEX_PATH / idx_file
+            if p.exists():
+                p.unlink()
+        if MANIFEST_FILE.exists():
+            MANIFEST_FILE.write_text("{}", encoding="utf-8")
+        reset_vectorstore()
+        logger.info("Index FAISS vidé — aucun document restant.")
+        return DeleteDocumentResponse(
+            nom=filename, categorie=categorie,
+            message="Document supprimé. Index vidé (aucun document restant).",
+        )
+
+    all_docs = []
+    for file_path, cat_key in all_files:
+        try:
+            all_docs.extend(load_file(file_path, cat_key))
+        except Exception as e:
+            logger.warning(f"Impossible de charger {file_path.name} : {e}")
+
+    if all_docs:
+        try:
+            create_index(all_docs)
+            manifest = {str(f.resolve()): _file_hash(f) for f, _ in all_files}
+            save_manifest(manifest)
+            reset_vectorstore()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Document supprimé mais erreur index : {e}")
+
+    return DeleteDocumentResponse(
+        nom=filename,
+        categorie=categorie,
+        message=f"Document « {filename} » supprimé et index reconstruit ({len(all_docs)} chunks).",
+    )
+
+
+# ============================================================
+# DELETE /api/categories/{key}
+# ============================================================
+
+@router.delete(
+    "/categories/{key}",
+    response_model=DeleteCategoryResponse,
+    summary="Supprime une catégorie personnalisée et tous ses documents",
+)
+async def delete_category(key: str) -> DeleteCategoryResponse:
+    from src.loader import load_file, SUPPORTED_EXTENSIONS as EXT
+    from src.indexer import create_index, save_manifest, _file_hash
+    from src.retriever import reset_vectorstore
+    from pathlib import Path as P
+    import shutil
+
+    # Refuser la suppression des catégories natives
+    if key in CATEGORIES:
+        raise HTTPException(
+            status_code=403,
+            detail=f"La catégorie '{key}' est native et ne peut pas être supprimée.",
+        )
+
+    cats = _get_categories()
+    if key not in cats:
+        raise HTTPException(status_code=404, detail=f"Catégorie '{key}' introuvable.")
+
+    cat_label = cats[key]["label"]
+    cat_dir   = P(cats[key]["dir"])
+    docs_deleted = 0
+
+    # ── Supprimer les fichiers localement ────────────────────
+    if cat_dir.exists():
+        for f in list(cat_dir.iterdir()):
+            if f.suffix.lower() in SUPPORTED_EXTENSIONS:
+                docs_deleted += 1
+                f.unlink()
+                logger.info(f"Fichier supprimé : {f}")
+        try:
+            cat_dir.rmdir()
+        except OSError:
+            pass  # dossier non vide (fichiers non supportés), on laisse
+
+    # ── Supprimer de R2 ──────────────────────────────────────
+    if is_r2_enabled():
+        try:
+            from src.storage import delete_prefix_r2
+            nb_r2 = delete_prefix_r2(key)
+            if nb_r2:
+                logger.info(f"R2 : {nb_r2} fichier(s) de la catégorie '{key}' supprimés")
+        except Exception as e:
+            logger.warning(f"R2 delete catégorie {key} partiel : {e}")
+
+    # ── Supprimer du registre custom ─────────────────────────
+    try:
+        delete_custom_category(key)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # ── Reconstruire l'index depuis les catégories restantes ─
+    remaining_cats = _get_categories()  # recharger après suppression
+    all_files: list = []
+    for cat_key, cat_cfg in remaining_cats.items():
+        directory = P(cat_cfg["dir"])
+        if not directory.exists():
+            continue
+        for f in directory.iterdir():
+            if f.suffix.lower() in SUPPORTED_EXTENSIONS:
+                all_files.append((f, cat_key))
+
+    if not all_files:
+        from src.indexer import INDEX_PATH, MANIFEST_FILE
+        for idx_file in ["index.faiss", "index.pkl"]:
+            p = INDEX_PATH / idx_file
+            if p.exists():
+                p.unlink()
+        if MANIFEST_FILE.exists():
+            MANIFEST_FILE.write_text("{}", encoding="utf-8")
+        reset_vectorstore()
+    else:
+        all_docs = []
+        for file_path, cat_key in all_files:
+            try:
+                all_docs.extend(load_file(file_path, cat_key))
+            except Exception as e:
+                logger.warning(f"Impossible de charger {file_path.name} : {e}")
+        if all_docs:
+            try:
+                create_index(all_docs)
+                manifest = {str(f.resolve()): _file_hash(f) for f, _ in all_files}
+                save_manifest(manifest)
+                reset_vectorstore()
+            except Exception as e:
+                logger.error(f"Erreur reconstruction index après suppression catégorie : {e}")
+
+    return DeleteCategoryResponse(
+        key=key,
+        label=cat_label,
+        docs_deleted=docs_deleted,
+        message=(
+            f"Catégorie « {cat_label} » supprimée "
+            f"avec {docs_deleted} document(s). Index reconstruit."
+        ),
+    )
+
+
+# ============================================================
+# POST /api/documents/{categorie}/{filename}/reindex
+# ============================================================
+
+@router.post(
+    "/documents/{categorie}/{filename}/reindex",
+    response_model=ReindexFileResponse,
+    summary="Ré-indexe un document spécifique (reconstruction complète de l'index)",
+)
+async def reindex_file(categorie: str, filename: str) -> ReindexFileResponse:
+    from src.loader import load_file, SUPPORTED_EXTENSIONS as EXT
+    from src.indexer import create_index, save_manifest, _file_hash
+    from src.retriever import reset_vectorstore
+    from pathlib import Path as P
+
+    cats = _get_categories()
+    if categorie not in cats:
+        raise HTTPException(status_code=404, detail=f"Catégorie inconnue : '{categorie}'.")
+
+    cat_dir = P(cats[categorie]["dir"])
+    dest    = cat_dir / filename
+
+    # ── Télécharger depuis R2 si absent localement ───────────
+    if not dest.exists() and is_r2_enabled():
+        try:
+            from src.storage import download_file_r2, file_exists_r2
+            if file_exists_r2(categorie, filename):
+                cat_dir.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(download_file_r2(categorie, filename))
+                logger.info(f"R2 → local : {categorie}/{filename} téléchargé pour ré-indexation")
+        except Exception as e:
+            logger.warning(f"R2 download {filename} ignoré : {e}")
+
+    if not dest.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Document « {filename} » introuvable dans la catégorie « {cats[categorie]['label']} ».",
+        )
+
+    # ── Reconstruction complète de l'index ───────────────────
+    # FAISS ne supporte pas la suppression partielle, on reconstruit tout.
+    all_files: list = []
+    for cat_key, cat_cfg in cats.items():
+        directory = P(cat_cfg["dir"])
+        if not directory.exists():
+            continue
+        for f in directory.iterdir():
+            if f.suffix.lower() in EXT:
+                all_files.append((f, cat_key))
+
+    all_docs = []
+    file_chunks = 0
+    for file_path, cat_key in all_files:
+        try:
+            docs = load_file(file_path, cat_key)
+            all_docs.extend(docs)
+            if file_path.name == filename and cat_key == categorie:
+                file_chunks = len(docs)
+        except Exception as e:
+            logger.warning(f"Impossible de charger {file_path.name} : {e}")
+
+    if not all_docs:
+        raise HTTPException(status_code=500, detail="Aucun contenu extrait. Vérifiez le fichier.")
+
+    try:
+        create_index(all_docs)
+        manifest = {str(f.resolve()): _file_hash(f) for f, _ in all_files}
+        save_manifest(manifest)
+        reset_vectorstore()
+        logger.info(f"Ré-indexation de {filename} : {file_chunks} chunks, index total {len(all_docs)} chunks.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur d'indexation : {e}")
+
+    return ReindexFileResponse(
+        nom=filename,
+        categorie=categorie,
+        chunks=file_chunks,
+        total_chunks=len(all_docs),
+        total_files=len(all_files),
+        message=(
+            f"« {filename} » ré-indexé : {file_chunks} chunks. "
+            f"Index total : {len(all_docs)} chunks depuis {len(all_files)} fichier(s)."
         ),
     )

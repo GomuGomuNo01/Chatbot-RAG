@@ -161,3 +161,28 @@ class ReindexResponse(BaseModel):
     total_chunks: int
     total_files:  int
     message:      str
+
+
+class DeleteDocumentResponse(BaseModel):
+    """Réponse du endpoint DELETE /api/documents/{categorie}/{filename}"""
+    nom:       str
+    categorie: str
+    message:   str
+
+
+class DeleteCategoryResponse(BaseModel):
+    """Réponse du endpoint DELETE /api/categories/{key}"""
+    key:           str
+    label:         str
+    docs_deleted:  int
+    message:       str
+
+
+class ReindexFileResponse(BaseModel):
+    """Réponse du endpoint POST /api/documents/{categorie}/{filename}/reindex"""
+    nom:          str
+    categorie:    str
+    chunks:       int
+    total_chunks: int
+    total_files:  int
+    message:      str

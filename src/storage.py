@@ -112,6 +112,32 @@ def list_files_r2(categorie: Optional[str] = None) -> List[dict]:
         return []
 
 
+def delete_file_r2(categorie: str, filename: str) -> None:
+    """Supprime un fichier de R2. Silencieux si R2 non configuré ou fichier absent."""
+    if not is_r2_enabled():
+        return
+    key = _object_key(categorie, filename)
+    try:
+        _get_client().delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+        logger.info(f"R2 ✗ supprimé : {key}")
+    except Exception as e:
+        logger.warning(f"R2 delete_object {key} erreur : {e}")
+
+
+def delete_prefix_r2(categorie: str) -> int:
+    """
+    Supprime tous les fichiers d'une catégorie dans R2.
+    Retourne le nombre d'objets supprimés.
+    """
+    if not is_r2_enabled():
+        return 0
+    deleted = 0
+    for item in list_files_r2(categorie=categorie):
+        delete_file_r2(item["categorie"], item["filename"])
+        deleted += 1
+    return deleted
+
+
 def sync_r2_to_local(docs_dir) -> int:
     """
     Télécharge depuis R2 tous les fichiers absents du dossier docs/ local.

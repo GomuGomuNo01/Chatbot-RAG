@@ -124,6 +124,32 @@ def get_all_categories() -> dict:
     return merged
 
 
+def delete_custom_category(key: str) -> None:
+    """
+    Supprime une catégorie personnalisée du fichier JSON.
+    Ne touche pas au répertoire docs/{key}/ ni aux fichiers qu'il contient
+    (géré par la route API qui appelle cette fonction).
+    Lève ValueError si la catégorie est native ou introuvable.
+    """
+    if key in CATEGORIES:
+        raise ValueError(f"La catégorie '{key}' est native et ne peut pas être supprimée.")
+
+    existing: dict = {}
+    if CUSTOM_CATEGORIES_FILE.exists():
+        try:
+            existing = json.loads(CUSTOM_CATEGORIES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    if key not in existing:
+        raise ValueError(f"Catégorie personnalisée '{key}' introuvable.")
+
+    del existing[key]
+    CUSTOM_CATEGORIES_FILE.write_text(
+        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
 def register_custom_category(key: str, label: str, emoji: str, couleur: str) -> None:
     """
     Persiste une nouvelle catégorie personnalisée sur disque.

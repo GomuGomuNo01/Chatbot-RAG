@@ -136,6 +136,50 @@ async function apiReindex() {
   return json;
 }
 
+/**
+ * Supprime un document indexé et reconstruit l'index.
+ * @param {string} categorie
+ * @param {string} filename
+ * @returns {Promise<Object>} DeleteDocumentResponse
+ */
+async function apiDeleteDocument(categorie, filename) {
+  const res = await fetch(
+    `${API_BASE}/documents/${encodeURIComponent(categorie)}/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' }
+  );
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.detail || `Erreur suppression (${res.status})`);
+  return json;
+}
+
+/**
+ * Supprime une catégorie personnalisée et tous ses documents.
+ * @param {string} key
+ * @returns {Promise<Object>} DeleteCategoryResponse
+ */
+async function apiDeleteCategory(key) {
+  const res = await fetch(`${API_BASE}/categories/${encodeURIComponent(key)}`, { method: 'DELETE' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.detail || `Erreur suppression catégorie (${res.status})`);
+  return json;
+}
+
+/**
+ * Ré-indexe un document précis (reconstruction complète de l'index).
+ * @param {string} categorie
+ * @param {string} filename
+ * @returns {Promise<Object>} ReindexFileResponse
+ */
+async function apiReindexFile(categorie, filename) {
+  const res = await fetch(
+    `${API_BASE}/documents/${encodeURIComponent(categorie)}/${encodeURIComponent(filename)}/reindex`,
+    { method: 'POST' }
+  );
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.detail || `Erreur ré-indexation (${res.status})`);
+  return json;
+}
+
 async function apiUploadFiles(files, categorie, onProgress) {
   const form = new FormData();
   form.append('categorie', categorie);

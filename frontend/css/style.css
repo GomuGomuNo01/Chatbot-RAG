@@ -217,17 +217,90 @@ a      { color: var(--clr-primary); }
   border-radius: var(--r-sm);
   color: #64748B;
   font-size: 12.5px;
-  transition: color var(--t);
+  transition: color var(--t), background var(--t);
+  position: relative;
 }
 
-.doc-item:hover { color: #CBD5E1; }
+.doc-item:hover { color: #CBD5E1; background: rgba(255,255,255,.04); }
 .doc-item__icon { font-size: 12px; flex-shrink: 0; }
 .doc-item__name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-transform: capitalize;
+  flex: 1;
 }
+
+/* ── Boutons d'action sur les documents ── */
+.doc-item__actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--t);
+  flex-shrink: 0;
+}
+.doc-item:hover .doc-item__actions { opacity: 1; }
+
+.doc-item__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  transition: background var(--t);
+  color: inherit;
+}
+.doc-item__btn:disabled { opacity: .4; cursor: not-allowed; }
+.doc-item__btn--reindex:hover { background: rgba(59,130,246,.25); }
+.doc-item__btn--delete:hover  { background: rgba(239,68,68,.25); }
+
+/* ── Bouton suppression catégorie custom ── */
+.cat-delete-btn {
+  display: none;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #64748B;
+  transition: background var(--t), color var(--t);
+  flex-shrink: 0;
+}
+.category-item--custom:hover .cat-delete-btn { display: flex; }
+.cat-delete-btn:hover { background: rgba(239,68,68,.2); color: #F87171; }
+
+/* ── Toast de notification ── */
+.app-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  border-radius: var(--r);
+  font-size: 13.5px;
+  font-weight: 500;
+  z-index: 9999;
+  box-shadow: var(--shadow-lg);
+  max-width: 420px;
+  text-align: center;
+  animation: toast-in .2s ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.app-toast--ok    { background: #064E3B; color: #A7F3D0; border: 1px solid #065F46; }
+.app-toast--error { background: #7F1D1D; color: #FECACA; border: 1px solid #991B1B; }
+.app-toast--warn  { background: #78350F; color: #FDE68A; border: 1px solid #92400E; }
 
 /* ── Bouton upload sidebar ── */
 .sidebar-upload {
