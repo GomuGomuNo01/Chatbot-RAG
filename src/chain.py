@@ -49,16 +49,14 @@ def build_prompt() -> ChatPromptTemplate:
     """Construit le template de prompt RAG."""
     return ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
-        ("human", """
-Historique de conversation :
+        ("human", """\
 {history}
-
-Contexte documentaire :
+---
+## Extraits documentaires disponibles
 {context}
 
-Question : {question}
-
-Réponds en te basant uniquement sur le contexte fourni.
+---
+**Question :** {question}
 """)
     ])
 
@@ -152,6 +150,50 @@ class RAGChain:
             "sources":  sources,
             "question": question
         }
+
+    async def ask_stream(
+        self,
+        question: str,
+        memory: ConversationMemory,
+        categorie: Optional[str] = None
+    ):
+        """
+        Version streaming : génère les tokens un par un via SSE.
+        Yields des dicts : {"token": str} puis {"sources": list, "done": True}
+        """
+        logger.info(f"[STREAM] Question : {question[:80]}")
+
+        documents = search(query=question, categorie=categorie)
+
+        if not documents:
+            filtre = f" dans la catégorie « {categorie} »" if categorie else ""
+            answer = (
+                f"Je n'ai pas trouvé d'information{filtre} "
+                "correspondant à votre question dans les documents disponibles. "
+                "Essayez de reformuler votre question ou d'élargir le filtre de catégorie."
+            )
+            memory.add_exchange(question, answer)
+            yield {"token": answer}
+            yield {"sources": [], "question": question, "done": True}
+            return
+
+        context  = format_context_from_docs(documents)
+        history  = memory.format_for_prompt()
+        full_ans = ""
+
+        logger.info(f"[STREAM] Appel LLM avec {len(documents)} chunks…")
+        async for token in self.chain.astream({
+            "question": question,
+            "context":  context,
+            "history":  history,
+        }):
+            full_ans += token
+            yield {"token": token}
+
+        sources = format_sources(documents)
+        memory.add_exchange(question, full_ans)
+        logger.info("[STREAM] Réponse complète envoyée.")
+        yield {"sources": sources, "question": question, "done": True}
 
 
 # ============================================================

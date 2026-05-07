@@ -51,6 +51,30 @@ async function apiHealth() {
 }
 
 /**
+ * Démarre une requête chat en streaming (SSE via fetch).
+ * @param {string} question
+ * @param {string|null} categorie
+ * @param {string} sessionId
+ * @returns {Promise<ReadableStreamDefaultReader>}
+ */
+async function apiChatStream(question, categorie, sessionId) {
+  const body = { question, session_id: sessionId };
+  if (categorie) body.categorie = categorie;
+
+  const res = await fetch(`${API_BASE}/chat/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Erreur serveur (${res.status})`);
+  }
+  return res.body.getReader();
+}
+
+/**
  * Efface l'historique conversationnel d'une session côté serveur.
  * @param {string} sessionId
  * @returns {Promise<Object>}

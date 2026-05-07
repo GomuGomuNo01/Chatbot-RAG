@@ -101,27 +101,56 @@ class App {
     const question   = inputField.value.trim();
     if (!question || this.isLoading) return;
 
-    // Afficher la question utilisateur
     this.ui.addUserMessage(question);
     inputField.value = '';
     inputField.style.height = 'auto';
     document.getElementById('charCounter').textContent = '0/1000';
     document.getElementById('sendBtn').disabled = true;
 
-    // Indicateur de chargement
     this._setLoading(true);
     this.ui.showTyping();
 
     try {
-      const data = await apiChat(question, this.selectedCategory, this.sessionId);
+      const reader  = await apiChatStream(question, this.selectedCategory, this.sessionId);
+      const decoder = new TextDecoder();
+      let   buffer  = '';
+      let   botEl   = null;
+
       this.ui.hideTyping();
-      this.ui.addAssistantMessage(data.answer, data.sources || []);
+      botEl = this.ui.startStreamingMessage();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // conserver la ligne incomplète
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let event;
+          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (event.error) {
+            this.ui.appendToken(botEl, `\n\n⚠️ ${event.error}`);
+          } else if (event.token !== undefined) {
+            this.ui.appendToken(botEl, event.token);
+          }
+          if (event.done) {
+            this.ui.finalizeMessage(botEl, event.sources || []);
+          }
+        }
+      }
     } catch (err) {
       this.ui.hideTyping();
-      this.ui.addAssistantMessage(
-        `⚠️ Erreur : ${err.message}. Vérifiez que le serveur est démarré et l'index FAISS généré.`,
-        []
-      );
+      // Fallback non-streaming si le streaming échoue
+      try {
+        const data = await apiChat(question, this.selectedCategory, this.sessionId);
+        this.ui.addAssistantMessage(data.answer, data.sources || []);
+      } catch (err2) {
+        this.ui.addAssistantMessage(`⚠️ ${err2.message}`, []);
+      }
     } finally {
       this._setLoading(false);
     }

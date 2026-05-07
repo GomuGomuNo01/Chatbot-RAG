@@ -473,18 +473,71 @@ a      { color: var(--clr-primary); }
   border: 1px solid var(--clr-border);
 }
 
-.message__text p          { margin: 0 0 8px; }
+/* ── Contenu Markdown dans les bulles ── */
+.message__text p            { margin: 0 0 8px; }
 .message__text p:last-child { margin-bottom: 0; }
-.message__text ul         { padding-left: 20px; margin: 6px 0; }
-.message__text li         { margin-bottom: 4px; }
-.message__text strong     { font-weight: 600; }
-.message__text em         { font-style: italic; }
-.message__text code {
+.message__text strong       { font-weight: 600; }
+.message__text em           { font-style: italic; }
+
+.message__text .md-h1, .message__text .md-h2, .message__text .md-h3 {
+  font-weight: 700;
+  color: var(--clr-text);
+  margin: 14px 0 6px;
+}
+.message__text .md-h1 { font-size: 17px; }
+.message__text .md-h2 { font-size: 15px; border-bottom: 1px solid var(--clr-border); padding-bottom: 4px; }
+.message__text .md-h3 { font-size: 14px; color: var(--clr-primary); }
+
+.message__text .md-ul,
+.message__text .md-ol { padding-left: 22px; margin: 6px 0 10px; }
+.message__text .md-ul li,
+.message__text .md-ol li  { margin-bottom: 5px; line-height: 1.6; }
+
+.message__text .md-hr {
+  border: none;
+  border-top: 1px solid var(--clr-border);
+  margin: 12px 0;
+}
+
+/* Code inline */
+.message__text .inline-code {
   background: #F1F5F9;
-  padding: 1px 5px;
+  border: 1px solid #E2E8F0;
+  padding: 1px 6px;
   border-radius: 4px;
   font-size: 12.5px;
+  font-family: var(--font-mono);
   color: #0F172A;
+}
+
+/* Bloc de code */
+.message__text .code-block {
+  background: #0F172A;
+  color: #E2E8F0;
+  border-radius: var(--r);
+  padding: 14px 16px;
+  margin: 10px 0;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.7;
+  font-family: var(--font-mono);
+}
+.message__text .code-block code { background: none; border: none; padding: 0; color: inherit; font-size: inherit; }
+
+/* ── Streaming cursor ── */
+.cursor-blink {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--clr-primary);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  animation: blink 0.8s step-end infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
 }
 
 /* ─── SOURCES ──────────────────────────────────────────────────────────── */

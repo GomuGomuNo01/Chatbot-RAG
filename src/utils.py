@@ -62,20 +62,25 @@ def format_sources_for_display(sources: list) -> str:
 
 def format_context_from_docs(documents: list) -> str:
     """
-    Assemble les chunks récupérés en un seul bloc de contexte
-    pour le prompt LLM.
+    Assemble les chunks en un bloc de contexte structuré pour le prompt LLM.
+    Chaque extrait est clairement délimité avec ses métadonnées.
     """
     if not documents:
         return "Aucun contexte disponible."
 
     parts = []
-    for doc in documents:
-        meta    = doc.metadata
-        fichier = meta.get("source", "Inconnu")
-        page    = meta.get("page", "?")
-        parts.append(
-            f"[Source : {fichier} — Page {page}]\n"
-            f"{doc.page_content}"
-        )
+    for i, doc in enumerate(documents, 1):
+        meta      = doc.metadata
+        fichier   = Path(meta.get("source", "Inconnu")).name
+        page      = meta.get("page", "?")
+        categorie = meta.get("categorie", "").upper()
+        score     = meta.get("similarity_score", 0)
 
-    return "\n\n---\n\n".join(parts)
+        header = (
+            f"╔══ Extrait {i}/{len(documents)} "
+            f"[{categorie}] {fichier} — page {page} "
+            f"(pertinence : {int(score * 100)}%) ══╗"
+        )
+        parts.append(f"{header}\n{doc.page_content.strip()}")
+
+    return "\n\n".join(parts)

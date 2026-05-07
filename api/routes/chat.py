@@ -2,8 +2,10 @@
 Route POST /api/chat — Endpoint principal du chatbot
 """
 
+import json
 import logging
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -100,6 +102,47 @@ def chat(request: ChatRequest) -> ChatResponse:
             status_code=500,
             detail=f"Erreur interne : {str(e)}"
         )
+
+
+@router.post(
+    "/chat/stream",
+    summary="Réponse en streaming (SSE)",
+    description="Envoie les tokens au fur et à mesure via Server-Sent Events."
+)
+async def chat_stream(request: ChatRequest):
+    if not index_exists():
+        raise HTTPException(
+            status_code=503,
+            detail="L'index FAISS n'est pas disponible. Lance python ingest.py d'abord."
+        )
+    from config import CATEGORIES
+    if request.categorie and request.categorie not in CATEGORIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Catégorie invalide : {request.categorie}."
+        )
+
+    session_id = request.session_id or "default"
+    memory     = get_session(session_id)
+    rag        = get_rag_chain()
+
+    async def generate():
+        try:
+            async for event in rag.ask_stream(request.question, memory, request.categorie):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.error(f"[STREAM] Erreur : {e}", exc_info=True)
+            yield f"data: {json.dumps({'error': str(e), 'done': True})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":       "keep-alive",
+        }
+    )
 
 
 @router.post(
