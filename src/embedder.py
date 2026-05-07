@@ -1,44 +1,48 @@
 """
-Embedder : génération des embeddings avec sentence-transformers (local)
-Aucun appel API, aucun coût.
+Embedder : génération des embeddings.
+- Production (HF_TOKEN défini) : HuggingFace Inference API — aucun modèle en RAM.
+- Développement local (pas de HF_TOKEN) : sentence-transformers local (~400 MB RAM).
 """
 
 import logging
+import os
 from typing import List
-from langchain_huggingface import HuggingFaceEmbeddings
 from config import EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
 
-# Instance globale — chargée une seule fois en mémoire
 _embeddings_instance = None
 
+# Nom complet pour l'API HF (prefix requis)
+_HF_MODEL_ID = f"sentence-transformers/{EMBEDDING_MODEL}"
 
-def get_embeddings() -> HuggingFaceEmbeddings:
+
+def get_embeddings():
     """
-    Retourne l'instance du modèle d'embeddings.
-    Télécharge le modèle automatiquement au premier appel (~120 MB).
-    Les appels suivants réutilisent l'instance en mémoire.
+    Retourne l'instance d'embeddings adaptée à l'environnement.
+    HF_TOKEN présent → API (0 RAM locale). Absent → modèle local.
     """
     global _embeddings_instance
 
     if _embeddings_instance is None:
-        logger.info(
-            f"Chargement du modèle d'embeddings : {EMBEDDING_MODEL}"
-        )
-        logger.info(
-            "  (premier lancement : téléchargement ~120 MB)"
-        )
+        hf_token = os.getenv("HF_TOKEN", "")
 
-        _embeddings_instance = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={
-                "normalize_embeddings": True,
-                "batch_size": 32
-            }
-        )
-        logger.info("  Modèle d'embeddings chargé : OK")
+        if hf_token:
+            logger.info("Embeddings via HuggingFace Inference API (production)")
+            from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
+            _embeddings_instance = HuggingFaceInferenceAPIEmbeddings(
+                api_key=hf_token,
+                model_name=_HF_MODEL_ID,
+            )
+        else:
+            logger.info(f"Embeddings locaux : {EMBEDDING_MODEL}")
+            from langchain_huggingface import HuggingFaceEmbeddings
+            _embeddings_instance = HuggingFaceEmbeddings(
+                model_name=EMBEDDING_MODEL,
+                model_kwargs={"device": "cpu"},
+                encode_kwargs={"normalize_embeddings": True, "batch_size": 32},
+            )
+        logger.info("  Embeddings initialisés : OK")
 
     return _embeddings_instance
 

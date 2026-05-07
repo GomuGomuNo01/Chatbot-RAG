@@ -19,9 +19,9 @@ COPY --from=builder /install /usr/local
 # Copier le code source
 COPY . .
 
-# Pré-télécharger le modèle d'embeddings au build (évite le timeout au 1er démarrage)
-RUN python -c "from src.embedder import get_embeddings; get_embeddings()" \
-    || echo "⚠️  Pré-chargement embeddings ignoré (variable GROQ_API_KEY absente)"
+# En production (HF_TOKEN défini au runtime), les embeddings passent par l'API HF :
+# aucun modèle n'est chargé en RAM — le pré-téléchargement n'est pas nécessaire.
+# En développement local (sans HF_TOKEN), sentence-transformers est utilisé.
 
 # Port exposé (Render utilise $PORT)
 EXPOSE 8000
