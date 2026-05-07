@@ -21,7 +21,7 @@ from api.schemas import (
     UploadedFile,
     ReindexResponse,
 )
-from config import get_all_categories, register_custom_category, DOCS_DIR
+from config import get_all_categories, register_custom_category, DOCS_DIR, is_r2_enabled
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -84,10 +84,34 @@ def get_documents() -> DocumentsResponse:
                         emoji     = cat_config["emoji"],
                     ))
 
-    # ── 2. Compléter avec le manifeste FAISS ─────────────────────────────────
-    # Ajoute les fichiers présents dans l'index mais absents du disque
-    # (documents déjà indexés avant le déploiement, ou uploadés sur une
-    # instance Render différente).
+    # ── 2. Compléter depuis Cloudflare R2 (si configuré) ─────────────────────
+    # Source autoritaire sur Render : R2 contient tous les fichiers uploadés,
+    # même ceux perdus lors d'un redémarrage de l'instance.
+    if is_r2_enabled():
+        try:
+            from src.storage import list_files_r2
+            for item in list_files_r2():
+                cat      = item["categorie"]
+                filename = item["filename"]
+                if cat not in cats:
+                    continue
+                if Path(filename).suffix.lower() not in SUPPORTED_EXTENSIONS:
+                    continue
+                key = f"{cat}/{filename}"
+                if key not in seen:
+                    seen.add(key)
+                    documents.append(DocumentInfo(
+                        nom       = filename,
+                        categorie = cat,
+                        label     = cats[cat]["label"],
+                        emoji     = cats[cat]["emoji"],
+                    ))
+        except Exception as e:
+            logger.warning(f"Impossible de lister les fichiers R2 : {e}")
+
+    # ── 3. Compléter avec le manifeste FAISS ─────────────────────────────────
+    # Fallback : fichiers présents dans l'index mais absents du disque et de R2
+    # (documents pré-commités dans git avant le déploiement).
     try:
         from src.indexer import load_manifest
         manifest = load_manifest()
@@ -271,9 +295,17 @@ async def upload_documents(
             ))
             continue
 
-        # Vérifier si le document existe déjà
+        # Vérifier si le document existe déjà (disque local ou R2)
         dest = cat_dir / filename
-        if dest.exists():
+        r2_duplicate = False
+        if is_r2_enabled():
+            try:
+                from src.storage import file_exists_r2
+                r2_duplicate = file_exists_r2(categorie, filename)
+            except Exception as e:
+                logger.warning(f"Impossible de vérifier R2 pour {filename} : {e}")
+
+        if dest.exists() or r2_duplicate:
             results.append(UploadedFile(
                 nom    = filename,
                 chunks = 0,
@@ -286,9 +318,17 @@ async def upload_documents(
             ))
             continue
 
-        # Sauvegarder sur disque
+        # Sauvegarder sur disque (pour l'indexation immédiate)
         dest.write_bytes(content)
-        logger.info(f"Fichier sauvegardé : {dest}")
+        logger.info(f"Fichier sauvegardé localement : {dest}")
+
+        # Upload vers Cloudflare R2 (persistance permanente)
+        if is_r2_enabled():
+            try:
+                from src.storage import upload_file_r2
+                upload_file_r2(content, categorie, filename)
+            except Exception as e:
+                logger.warning(f"R2 upload {filename} échoué (non bloquant) : {e}")
 
         # Charger et découper
         try:
@@ -376,6 +416,18 @@ async def reindex_all() -> ReindexResponse:
     from pathlib import Path as P
 
     cats = _get_categories()
+
+    # ── Synchroniser R2 → local avant de ré-indexer ──────────────────────────
+    # Sur Render, le filesystem est éphémère : les fichiers uploadés dans une
+    # instance précédente ont disparu. On les récupère depuis R2.
+    if is_r2_enabled():
+        try:
+            from src.storage import sync_r2_to_local
+            downloaded = sync_r2_to_local(DOCS_DIR)
+            if downloaded:
+                logger.info(f"R2 → local : {downloaded} fichier(s) synchronisé(s) avant ré-indexation.")
+        except Exception as e:
+            logger.warning(f"Sync R2 → local ignorée : {e}")
 
     # Collecter tous les fichiers physiquement présents
     all_files: list = []

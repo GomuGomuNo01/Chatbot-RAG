@@ -85,7 +85,7 @@ def filter_new_files(file_paths: List[Path]) -> tuple:
 def create_index(documents: List[Document]) -> FAISS:
     """
     Crée un nouvel index FAISS depuis zéro et le sauvegarde sur disque.
-    Le manifeste est géré séparément par l'appelant.
+    Pousse ensuite l'index vers HuggingFace Hub si configuré.
     """
     if not documents:
         raise ValueError("Impossible de créer un index : aucun document fourni.")
@@ -95,6 +95,14 @@ def create_index(documents: List[Document]) -> FAISS:
     vectorstore = FAISS.from_documents(documents=documents, embedding=embeddings)
     vectorstore.save_local(str(INDEX_PATH))
     logger.info(f"Index FAISS sauvegardé : {INDEX_PATH}")
+
+    # Synchronisation vers HF Hub (non bloquant si non configuré)
+    try:
+        from src.hf_store import push_index_to_hub
+        push_index_to_hub()
+    except Exception as e:
+        logger.warning(f"HF Hub push ignoré : {e}")
+
     return vectorstore
 
 
@@ -105,16 +113,28 @@ def create_index(documents: List[Document]) -> FAISS:
 def load_index() -> FAISS:
     """
     Charge l'index FAISS depuis le disque.
+    Si absent localement, tente d'abord un pull depuis HuggingFace Hub.
 
     Raises:
-        FileNotFoundError : si l'index n'existe pas encore.
+        FileNotFoundError : si l'index reste introuvable après le pull.
     """
     index_file = INDEX_PATH / "index.faiss"
+
+    # Tentative de récupération depuis HF Hub si l'index est absent localement
+    if not index_file.exists():
+        logger.info("Index FAISS absent localement — tentative de pull depuis HF Hub…")
+        try:
+            from src.hf_store import pull_index_from_hub
+            pull_index_from_hub()
+        except Exception as e:
+            logger.warning(f"HF Hub pull ignoré : {e}")
+
     if not index_file.exists():
         raise FileNotFoundError(
             f"Index FAISS introuvable dans {INDEX_PATH}.\n"
             "Lance d'abord : python ingest.py"
         )
+
     logger.info(f"Chargement de l'index FAISS : {INDEX_PATH}")
     embeddings  = get_embeddings()
     vectorstore = FAISS.load_local(
@@ -136,7 +156,7 @@ def add_documents_to_index(
 ) -> FAISS:
     """
     Ajoute des documents à l'index existant sans tout recalculer.
-    Si new_manifest est fourni, le manifeste est mis à jour sur disque.
+    Pousse l'index mis à jour vers HuggingFace Hub si configuré.
     """
     logger.info(f"Ajout de {len(new_documents)} chunk(s) à l'index existant…")
     vectorstore = load_index()
@@ -147,6 +167,14 @@ def add_documents_to_index(
         save_manifest(new_manifest)
 
     logger.info("Index mis à jour et sauvegardé : OK")
+
+    # Synchronisation vers HF Hub (non bloquant si non configuré)
+    try:
+        from src.hf_store import push_index_to_hub
+        push_index_to_hub()
+    except Exception as e:
+        logger.warning(f"HF Hub push ignoré : {e}")
+
     return vectorstore
 
 

@@ -21,6 +21,10 @@ python-multipart==0.0.27
 pydantic==2.13.4
 pydantic-settings==2.14.0
 
+# Stockage externe
+boto3==1.38.0
+huggingface_hub>=0.24.0
+
 # Utilitaires
 python-dotenv==1.2.2
 tqdm==4.67.3

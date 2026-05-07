@@ -37,13 +37,29 @@ async def lifespan(app: FastAPI):
     # Pré-charger l'index et le modèle au démarrage
     try:
         from src.indexer import index_exists
+        from config import is_hf_enabled
+
+        if not index_exists() and is_hf_enabled():
+            # Index absent localement → tentative de pull depuis HF Hub
+            logger.info("Index FAISS absent — tentative de pull depuis HuggingFace Hub…")
+            try:
+                from src.hf_store import pull_index_from_hub
+                pulled = pull_index_from_hub()
+                if pulled:
+                    logger.info("Index FAISS récupéré depuis HF Hub : OK")
+                else:
+                    logger.warning("HF Hub : index absent (premier déploiement ?)")
+            except Exception as e:
+                logger.warning(f"HF Hub pull ignoré : {e}")
+
         if index_exists():
             from src.retriever import get_vectorstore
             get_vectorstore()
             logger.info("Index FAISS pre-charge : OK")
         else:
             logger.warning(
-                "Index FAISS absent — lance python ingest.py"
+                "Index FAISS absent — uploadez des documents via l'interface "
+                "ou lancez : python ingest.py"
             )
     except Exception as e:
         logger.error(f"Erreur pre-chargement : {e}")

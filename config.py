@@ -150,6 +150,33 @@ def register_custom_category(key: str, label: str, emoji: str, couleur: str) -> 
     )
 
 # ============================================================
+# STOCKAGE EXTERNE
+# ============================================================
+
+# Cloudflare R2 — stockage des fichiers sources (PDF, DOCX, TXT)
+# Laisser vide en local : le mode filesystem local est utilisé à la place.
+R2_ACCOUNT_ID        = os.getenv("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY_ID     = os.getenv("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET_NAME       = os.getenv("R2_BUCKET_NAME", "chatbot-rag-docs")
+
+# HuggingFace Hub — persistance de l'index FAISS entre les redémarrages
+# Créer un dépôt privé de type "dataset" sur huggingface.co
+HF_TOKEN   = os.getenv("HF_TOKEN", "")
+HF_REPO_ID = os.getenv("HF_REPO_ID", "")  # ex: "monpseudo/chatbot-rag-index"
+
+
+def is_r2_enabled() -> bool:
+    """R2 actif uniquement si toutes les variables sont renseignées."""
+    return bool(R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME)
+
+
+def is_hf_enabled() -> bool:
+    """HuggingFace Hub actif uniquement si token et repo sont renseignés."""
+    return bool(HF_TOKEN and HF_REPO_ID)
+
+
+# ============================================================
 # API FastAPI
 # ============================================================
 
@@ -193,7 +220,7 @@ Choisis le format adapté à la complexité de la réponse :
 | Points clés / énumération | Liste à puces `- item` |
 | Comparaison de 3+ éléments | Tableau Markdown |
 | Valeur importante / terme clé | **gras** |
-| Commande / code / chemin de fichier | \`bloc de code\` |
+| Commande / code / chemin de fichier | `bloc de code` |
 | Réponse > 3 points | Phrase de synthèse en tête, puis développement |
 | Réponse ≤ 2 lignes | Réponse directe, sans structure superflue |
 
