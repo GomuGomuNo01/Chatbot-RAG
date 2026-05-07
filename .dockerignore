@@ -10,8 +10,8 @@ __pycache__/
 # Secrets
 .env
 
-# Index FAISS (volumineux, régénéré au démarrage)
-data/faiss_index/
+# Index FAISS inclus dans l'image (Option A — index pré-généré committé dans Git)
+# data/faiss_index/
 
 # IDE
 .idea/
