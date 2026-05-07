@@ -1,257 +1,160 @@
 <div align="center">
 
-# 📚 DocAssist — Assistant Documentaire RAG
+<h1>📚 DocAssist</h1>
+<h3>Un assistant IA qui répond à vos questions en se basant uniquement sur vos documents internes</h3>
 
-**Posez des questions sur vos documents internes. Obtenez des réponses sourcées.**
+<br>
 
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![LangChain](https://img.shields.io/badge/LangChain-1.2-1C3C3C?logo=langchain&logoColor=white)](https://langchain.com)
-[![Groq · Llama 3.3](https://img.shields.io/badge/LLM-Groq%20·%20Llama%203.3%2070B-F55036?logo=meta&logoColor=white)](https://console.groq.com)
-[![FAISS](https://img.shields.io/badge/VectorDB-FAISS-0078D4?logo=meta&logoColor=white)](https://github.com/facebookresearch/faiss)
-[![Tests](https://img.shields.io/badge/Tests-pytest%2037%20✓-success?logo=pytest&logoColor=white)](tests/)
-[![License](https://img.shields.io/badge/Licence-MIT-22c55e)](LICENSE)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![LangChain](https://img.shields.io/badge/IA-LangChain-1C3C3C?logo=langchain&logoColor=white)](https://langchain.com)
+[![Groq · Llama 3.3](https://img.shields.io/badge/LLM-Groq%20·%20Llama%203.3-F55036?logo=meta&logoColor=white)](https://console.groq.com)
+[![37 tests](https://img.shields.io/badge/Tests-37%20✓-22c55e?logo=pytest&logoColor=white)](tests/)
+[![Licence MIT](https://img.shields.io/badge/Licence-MIT-6366f1)](LICENSE)
 
-🚀 **[Demo live](https://chatbot-rag-xodz.onrender.com)** · 📖 **[API Swagger](https://chatbot-rag-xodz.onrender.com/docs)** · 🌐 **[Frontend](https://gomugomuNo01.github.io/Chatbot-RAG/)**
+<br>
+
+### 🚀 [Voir la démo en ligne](https://chatbot-rag-xodz.onrender.com) &nbsp;·&nbsp; 📖 [Tester l'API](https://chatbot-rag-xodz.onrender.com/docs) &nbsp;·&nbsp; 🌐 [Interface web](https://gomugomuNo01.github.io/Chatbot-RAG/)
 
 </div>
 
 ---
 
-## Présentation
+## Le problème concret
 
-**DocAssist** est un assistant conversationnel d'entreprise basé sur l'architecture **RAG** *(Retrieval-Augmented Generation)*. Il permet aux collaborateurs d'interroger en langage naturel une base documentaire interne, et **cite systématiquement ses sources** — document et numéro de page — pour chaque réponse.
+Les collaborateurs perdent du temps à chercher une information dans des dizaines de fichiers PDF, Word ou règlements internes. Ils ne savent pas toujours dans quel document chercher, et même quand ils trouvent le bon fichier, ils doivent le parcourir entièrement.
 
-Le modèle ne répond qu'à partir des documents fournis : pas d'hallucination, pas d'invention.
-
-### Cas d'usage concret
-
-> Une entreprise met à disposition un assistant interne connecté à trois bases documentaires :
->
-> | Catégorie | Contenu | Exemple de question |
-> |---|---|---|
-> | ⚙️ **Technique** | Guides dev, API, frameworks | *"Comment configurer Spring Boot ?"* |
-> | 👥 **RH** | Règlement, politique congés, onboarding | *"Combien de jours de congés ai-je ?"* |
-> | ⚖️ **Juridique** | Contrats types, CGU, code du travail | *"Quelles sont les clauses d'un CDI ?"* |
+**DocAssist résout ça** : posez votre question en français, obtenez une réponse claire en quelques secondes, avec la source exacte (nom du document + page).
 
 ---
 
-## Fonctionnalités
+## Comment ça fonctionne — en termes simples
 
-| | Fonctionnalité | Détail |
-|---|---|---|
-| 🎯 | **Réponses 100% sourcées** | Chaque réponse cite le fichier et la page |
-| 📂 | **Multi-formats** | PDF · Word (.docx) · Texte brut (.txt) |
-| 🔍 | **Recherche sémantique** | Embeddings multilingues FR/EN, score de pertinence affiché |
-| 🧠 | **Mémoire conversationnelle** | Conserve les 5 derniers échanges du contexte |
-| ⚡ | **Indexation incrémentale** | Seuls les fichiers nouveaux ou modifiés sont recalculés |
-| 🤔 | **"Je ne sais pas"** | Réponse honnête si aucun document pertinent trouvé |
-| 📱 | **Interface responsive** | Sidebar, mobile, indicateur de frappe animé |
-| 💸 | **100% gratuit** | LLM via Groq (free tier) · Embeddings locaux (CPU) |
+Imaginez un assistant qui aurait lu et mémorisé tous vos documents d'entreprise. Quand vous lui posez une question, il cherche les passages les plus pertinents, les transmet à un modèle d'IA, et vous renvoie une réponse — en précisant toujours où il a trouvé l'information.
 
----
-
-## Architecture
+**Concrètement :**
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Utilisateur (navigateur)                  │
-│          Interface chat · Filtre catégorie · Sources         │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ HTTPS
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      FastAPI  /api/*                         │
-│         /chat   ·   /documents   ·   /health                 │
-└──────────┬────────────────────────────────┬─────────────────┘
-           │                                │
-           ▼                                ▼
-  ┌─────────────────┐              ┌─────────────────┐
-  │  Pipeline RAG   │              │   Groq Cloud    │
-  │   LangChain     │─────────────▶│  Llama 3.3 70B  │
-  └────────┬────────┘              └─────────────────┘
-           │
-     ┌─────┴──────┐
-     ▼            ▼
- ┌────────┐  ┌──────────────────────┐
- │ FAISS  │  │  sentence-transformers│
- │ Index  │  │  MiniLM-L12 (local)  │
- └────────┘  └──────────────────────┘
-     ▲
-     │  python ingest.py
-     │
- ┌───┴──────────────────────────────┐
- │   docs/  PDF · DOCX · TXT        │
- │   technique/ · rh/ · juridique/  │
- └──────────────────────────────────┘
+Vous posez une question
+        ↓
+L'IA cherche les passages pertinents dans vos documents
+        ↓
+Elle génère une réponse en se basant UNIQUEMENT sur ces passages
+        ↓
+Elle vous cite le document et la page source
 ```
 
+> Si la réponse n'est pas dans vos documents, l'IA le dit clairement plutôt que d'inventer.
+
 ---
 
-## Stack technique
+## Cas d'usage
 
-| Couche | Technologie | Rôle |
+> Une entreprise connecte DocAssist à trois bases documentaires internes :
+
+| Base | Exemples de documents | Question possible |
 |---|---|---|
-| **LLM** | Groq API — Llama 3.3 70B | Génération des réponses |
-| **Embeddings** | sentence-transformers MiniLM-L12 | Vectorisation locale, CPU, gratuit |
-| **Vector DB** | FAISS (Meta) | Recherche sémantique ultra-rapide |
-| **RAG** | LangChain 1.2 | Orchestration retrieval → prompt → LLM |
-| **Backend** | FastAPI + Pydantic v2 | API REST typée, docs Swagger auto |
-| **Parsing** | PyMuPDF + python-docx | Extraction PDF, Word |
-| **Frontend** | HTML5 / CSS3 / JS vanilla | Aucune dépendance, léger |
-| **Tests** | pytest (37 tests, 0 appel réseau) | Mocks LLM + fixtures dynamiques |
-| **Déploiement** | Render + GitHub Pages + Docker | Backend + frontend séparés ou unifiés |
+| ⚙️ **Technique** | Guides dev, documentation API | *"Comment configurer Spring Boot ?"* |
+| 👥 **Ressources humaines** | Règlement intérieur, politique congés | *"Combien de jours de congés ai-je droit ?"* |
+| ⚖️ **Juridique** | Contrats, Code du travail, CGU | *"Quelles sont les clauses d'un CDI ?"* |
 
 ---
 
-## Démarrage rapide
+## Compétences démontrées
 
-### Prérequis
+Ce projet couvre l'ensemble de la chaîne de développement d'une application IA en production.
 
-- Python 3.11+
-- Clé API Groq gratuite → [console.groq.com](https://console.groq.com)
+### Intelligence artificielle & traitement du langage
+- Implémentation d'une architecture **RAG** *(Retrieval-Augmented Generation)* de A à Z
+- Intégration d'un **LLM** via l'API Groq (Llama 3.3 70B) avec gestion du prompt engineering
+- Génération et indexation d'**embeddings vectoriels** multilingues en local (sans coût)
+- Recherche sémantique dans une base vectorielle **FAISS** avec scoring de pertinence
 
-### Installation
+### Développement backend
+- **API REST** complète avec FastAPI : endpoints chat, documents, health check
+- Modèles de données typés avec **Pydantic v2** (validation, sérialisation)
+- Gestion de sessions conversationnelles en mémoire
+- Chargement multi-formats : **PDF** (PyMuPDF), **Word** (.docx), **texte brut** (.txt)
+
+### Développement frontend
+- Interface de chat responsive en **HTML/CSS/JS vanilla** (sans framework)
+- Affichage des sources citées, score de pertinence, indicateur de frappe animé
+- Compatible desktop et mobile
+
+### Qualité logicielle
+- **37 tests unitaires** avec pytest — 0 appel réseau (LLM et base de données mockés)
+- Couverture des cas nominaux et cas limites (fichier vide, format non supporté, etc.)
+- Indexation incrémentale avec détection automatique des fichiers modifiés
+
+### DevOps & déploiement
+- **Dockerfile** multi-stage pour une image légère en production
+- Déploiement automatisé sur **Render** via `render.yaml`
+- **CI/CD GitHub Actions** pour le déploiement continu du frontend sur GitHub Pages
+- Gestion des environnements via `.env` (secrets exclus du dépôt)
+
+---
+
+## Fonctionnalités principales
+
+- **Réponses toujours sourcées** — nom du fichier + numéro de page à chaque réponse
+- **Filtrage par domaine** — restreindre la recherche à Technique, RH ou Juridique
+- **Mémoire de conversation** — l'assistant se souvient des 5 derniers échanges
+- **Honnêteté** — si l'information n'est pas dans les documents, l'IA le dit explicitement
+- **Indexation intelligente** — l'ajout d'un nouveau document ne recalcule que ce fichier
+- **Entièrement gratuit à faire tourner** — LLM via Groq (free tier), embeddings en local
+
+---
+
+## Technologies utilisées
+
+| Rôle | Outil | Pourquoi ce choix |
+|---|---|---|
+| Modèle de langage | **Groq + Llama 3.3 70B** | Gratuit, rapide, performant en français |
+| Recherche sémantique | **FAISS** (Meta) | Standard industriel, ultra-rapide |
+| Embeddings | **sentence-transformers** | Local, gratuit, multilingue FR/EN |
+| Orchestration IA | **LangChain** | Framework RAG de référence |
+| Backend | **FastAPI** | API moderne, documentation auto-générée |
+| Frontend | **HTML / CSS / JS** | Aucune dépendance, livrable immédiatement |
+| Tests | **pytest** | Standard Python, isolation complète |
+| Déploiement | **Render + GitHub Pages** | Hébergement gratuit en production |
+
+---
+
+## Lancer le projet en local
+
+<details>
+<summary>Instructions d'installation (cliquer pour dérouler)</summary>
+
+**Prérequis :** Python 3.11+ · Clé API Groq gratuite ([console.groq.com](https://console.groq.com))
 
 ```bash
-# Cloner
+# 1. Récupérer le code
 git clone https://github.com/GomuGomuNo01/Chatbot-RAG.git
 cd Chatbot-RAG
 
-# Environnement virtuel
+# 2. Créer l'environnement Python
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # macOS / Linux
 
-# Dépendances
+# 3. Installer les dépendances
 pip install -r requirements.txt
 
-# Clé API
+# 4. Configurer la clé API
 cp .env.example .env
-# Ouvrir .env et renseigner : GROQ_API_KEY=votre_cle
-```
+# Renseigner GROQ_API_KEY dans le fichier .env
 
-### Lancement en 3 étapes
-
-```bash
-# 1. Déposer vos documents
-#    docs/technique/   docs/rh/   docs/juridique/
-
-# 2. Indexer
+# 5. Déposer vos documents dans docs/technique/, docs/rh/, docs/juridique/
+#    puis indexer :
 python ingest.py
 
-# 3. Démarrer
+# 6. Démarrer
 uvicorn api.main:app --reload --port 8000
 ```
 
 → Ouvrir **http://localhost:8000**
 
----
-
-## Indexation des documents
-
-```bash
-python ingest.py                          # Tout indexer (incrémental)
-python ingest.py --reset                  # Reconstruire depuis zéro
-python ingest.py --categorie rh           # Une seule catégorie
-python ingest.py --file docs/rh/note.pdf  # Un seul fichier
-```
-
-L'indexation est **incrémentale par défaut** : un fichier `manifest.json` trace l'empreinte de chaque document. Seuls les fichiers nouveaux ou modifiés sont recalculés.
-
----
-
-## API REST
-
-### `POST /api/chat`
-
-```jsonc
-// Requête
-{
-  "question": "Combien de jours de congés payés ai-je ?",
-  "categorie": "rh",          // optionnel : technique | rh | juridique
-  "session_id": "abc-123"     // optionnel : mémoire conversationnelle
-}
-
-// Réponse
-{
-  "answer": "Selon la convention collective, vous bénéficiez de 25 jours...",
-  "sources": [
-    {
-      "fichier": "convention_collective.pdf",
-      "page": 12,
-      "categorie": "rh",
-      "score": 0.91,
-      "extrait": "Chaque salarié bénéficie de 25 jours ouvrés de congés..."
-    }
-  ],
-  "session_id": "abc-123",
-  "nb_sources": 1
-}
-```
-
-### `GET /api/documents` — Liste des fichiers indexés par catégorie
-
-### `GET /api/health` — Statut API, index FAISS et modèles chargés
-
-📖 Documentation interactive : **[/docs](https://chatbot-rag-xodz.onrender.com/docs)**
-
----
-
-## Tests
-
-```bash
-pytest                                       # 37 tests
-pytest --cov=src --cov-report=term-missing   # avec couverture
-pytest tests/test_loader.py -v               # module ciblé
-```
-
-Les tests tournent **entièrement hors-ligne** : le LLM et les embeddings sont mockés.
-
----
-
-## Déploiement
-
-### Render (backend + frontend intégré)
-
-1. Connecter le repo sur [render.com](https://render.com) → **New > Web Service**
-2. Render lit `render.yaml` automatiquement
-3. Ajouter `GROQ_API_KEY` dans **Environment**
-4. Deploy → service disponible en ~2 min
-
-> L'index FAISS est commité dans le repo (`data/faiss_index/`), Render n'a pas besoin de le reconstruire.
-
-### GitHub Pages (frontend seul)
-
-1. `Settings > Pages > Source` → **GitHub Actions**
-2. Renseigner l'URL Render dans [`frontend/js/config.js`](frontend/js/config.js) :
-   ```js
-   const RENDER_URL = 'https://votre-app.onrender.com';
-   ```
-3. Pousser sur `main` → le workflow déploie automatiquement
-
-### Docker
-
-```bash
-docker build -t docassist .
-docker run -e GROQ_API_KEY=votre_cle -p 8000:8000 docassist
-```
-
----
-
-## Configuration
-
-Tous les paramètres dans [`config.py`](config.py) :
-
-| Paramètre | Défaut | Description |
-|---|---|---|
-| `GROQ_LLM_MODEL` | `llama-3.3-70b-versatile` | Modèle Groq |
-| `EMBEDDING_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2` | Embeddings locaux |
-| `CHUNK_SIZE` | `1000` | Taille des chunks (caractères) |
-| `CHUNK_OVERLAP` | `200` | Chevauchement entre chunks |
-| `TOP_K_RESULTS` | `4` | Chunks retournés par requête |
-| `SIMILARITY_THRESHOLD` | `0.3` | Score minimal de pertinence |
-| `MEMORY_MAX_EXCHANGES` | `5` | Échanges conservés en mémoire |
+</details>
 
 ---
 
@@ -259,48 +162,20 @@ Tous les paramètres dans [`config.py`](config.py) :
 
 ```
 Chatbot-RAG/
-├── docs/                      ← Vos documents (PDF · DOCX · TXT)
-│   ├── technique/
-│   ├── rh/
-│   └── juridique/
-├── src/
-│   ├── loader.py              ← Extraction multi-formats + chunking
-│   ├── embedder.py            ← Embeddings MiniLM (local, CPU)
-│   ├── indexer.py             ← FAISS + manifeste incrémental
-│   ├── retriever.py           ← Recherche sémantique Top-K
-│   ├── chain.py               ← Pipeline RAG (LangChain + Groq)
-│   ├── memory.py              ← Historique conversationnel
-│   └── utils.py               ← Logger, formatage
-├── api/
-│   ├── main.py                ← App FastAPI
-│   ├── routes/                ← chat · documents · health
-│   └── schemas.py             ← Modèles Pydantic v2
-├── frontend/
-│   ├── index.html
-│   ├── css/style.css
-│   └── js/                    ← config · api · chat · app
-├── tests/
-│   ├── conftest.py            ← Fixtures PDF/TXT dynamiques
-│   ├── test_loader.py
-│   ├── test_retriever.py
-│   └── test_chain.py
-├── data/faiss_index/          ← Index FAISS pré-généré (commité)
-├── .github/workflows/         ← CI GitHub Pages
-├── ingest.py                  ← CLI d'indexation
-├── config.py                  ← Configuration centralisée
-├── Dockerfile
-├── render.yaml
-└── requirements.txt
+├── src/              ← Pipeline IA (chargement, indexation, recherche, génération)
+├── api/              ← API REST FastAPI (routes, schémas Pydantic)
+├── frontend/         ← Interface web (HTML · CSS · JS)
+├── tests/            ← 37 tests unitaires pytest
+├── docs/             ← Vos documents à indexer (PDF · DOCX · TXT)
+├── data/faiss_index/ ← Index vectoriel pré-généré
+├── ingest.py         ← Script d'indexation des documents
+├── config.py         ← Tous les paramètres centralisés
+├── Dockerfile        ← Image Docker de production
+└── render.yaml       ← Configuration de déploiement Render
 ```
 
 ---
 
-## Licence
-
-Distribué sous licence **MIT**. Voir [LICENSE](LICENSE).
-
----
-
 <div align="center">
-  <sub>Construit avec LangChain · FastAPI · Groq · FAISS · sentence-transformers</sub>
+  <sub>Projet personnel · Développé avec FastAPI · LangChain · Groq · FAISS · sentence-transformers</sub>
 </div>
