@@ -3,6 +3,7 @@ Chain : pipeline RAG complet avec LangChain + Groq
 """
 
 import logging
+import re
 from typing import Optional, cast
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
@@ -19,6 +20,43 @@ from config import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Mots fréquents anglais absents du français courant
+_EN_WORDS = {
+    'what','how','does','can','the','are','why','when','where','which','who',
+    'give','me','tell','explain','show','find','list','do','make','get','is',
+    'was','were','will','would','could','should','have','has','had','been',
+    'this','that','these','those','with','from','about','into','through',
+    'during','before','after','above','below','between','each','few','more',
+    'most','other','some','such','than','then','there','they','its','our',
+}
+_FR_WORDS = {
+    'quoi','comment','pourquoi','quand','où','qui','quel','quelle','quels',
+    'quelles','moi','expliquer','trouver','faire','les','des','une','que',
+    'qu','je','tu','il','nous','vous','ils','elles','est','sont','était',
+    'être','avoir','fait','peut','dois','doit','votre','notre','leur',
+    'leurs','cette','cet','ces','sur','dans','avec','pour','par','mais',
+    'donc','car','si','aussi','comme','plus','très','bien','tout','tous',
+}
+
+
+def _detect_lang(text: str) -> str:
+    """Détecte la langue dominante (fr/en) par fréquence de mots marqueurs."""
+    words = set(re.sub(r"[^\w\s]", "", text.lower()).split())
+    en = len(words & _EN_WORDS)
+    fr = len(words & _FR_WORDS)
+    return "en" if en > fr else "fr"
+
+
+def _lang_instruction(lang: str) -> str:
+    """Retourne une consigne de langue explicite à injecter dans le prompt."""
+    if lang == "en":
+        return (
+            "\n\n⚠️ LANGUAGE RULE (mandatory): The user wrote in **English**. "
+            "Your entire response MUST be in English only. "
+            "Do not use French under any circumstances."
+        )
+    return ""
 
 
 # ============================================================
@@ -56,7 +94,7 @@ def build_prompt() -> ChatPromptTemplate:
 {context}
 
 ---
-**Question :** {question}
+**Question :** {question}{lang_instruction}
 """)
     ])
 
@@ -123,18 +161,19 @@ class RAGChain:
             }
 
         # ---- Étape 3 : Construire le contexte ----
-        context = format_context_from_docs(documents)
-        history = memory.format_for_prompt()
+        context  = format_context_from_docs(documents)
+        history  = memory.format_for_prompt()
+        lang     = _detect_lang(question)
+        lang_ins = _lang_instruction(lang)
+        logger.info(f"Langue détectée : {lang}")
 
         # ---- Étape 4 : Appel LLM ----
-        logger.info(
-            f"Appel LLM avec {len(documents)} chunks "
-            f"de contexte..."
-        )
+        logger.info(f"Appel LLM avec {len(documents)} chunks de contexte…")
         answer = self.chain.invoke({
-            "question": question,
-            "context":  context,
-            "history":  history
+            "question":        question,
+            "context":         context,
+            "history":         history,
+            "lang_instruction": lang_ins,
         })
 
         # ---- Étape 5 : Formater les sources ----
@@ -179,13 +218,16 @@ class RAGChain:
 
         context  = format_context_from_docs(documents)
         history  = memory.format_for_prompt()
+        lang     = _detect_lang(question)
+        lang_ins = _lang_instruction(lang)
         full_ans = ""
+        logger.info(f"[STREAM] Langue détectée : {lang} — appel LLM avec {len(documents)} chunks…")
 
-        logger.info(f"[STREAM] Appel LLM avec {len(documents)} chunks…")
         async for token in self.chain.astream({
-            "question": question,
-            "context":  context,
-            "history":  history,
+            "question":         question,
+            "context":          context,
+            "history":          history,
+            "lang_instruction": lang_ins,
         }):
             full_ans += token
             yield {"token": token}
