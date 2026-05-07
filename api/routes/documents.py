@@ -63,39 +63,48 @@ def _parse_manifest_path(path_str: str) -> tuple[str, str | None]:
 def get_documents() -> DocumentsResponse:
     cats      = _get_categories()
     documents = []
+    # Clé de dédup : "categorie/nom_de_fichier"
+    seen: set[str] = set()
 
-    # Priorité 1 : scanner le dossier docs/
+    # ── 1. Scanner le dossier docs/ (fichiers physiquement présents) ──────────
     for cat_key, cat_config in cats.items():
         directory = Path(cat_config["dir"])
         if not directory.exists():
             continue
         for f in sorted(directory.iterdir()):
             if f.suffix.lower() in SUPPORTED_EXTENSIONS:
-                documents.append(DocumentInfo(
-                    nom       = f.name,
-                    categorie = cat_key,
-                    label     = cat_config["label"],
-                    emoji     = cat_config["emoji"],
-                ))
-
-    # Fallback : lire le manifeste FAISS (production)
-    if not documents:
-        try:
-            from src.indexer import load_manifest
-            manifest = load_manifest()
-            seen     = set()
-            for path_str in manifest:
-                nom, cat = _parse_manifest_path(path_str)
-                if nom and cat and nom not in seen:
-                    seen.add(nom)
+                key = f"{cat_key}/{f.name}"
+                if key not in seen:
+                    seen.add(key)
                     documents.append(DocumentInfo(
-                        nom       = nom,
-                        categorie = cat,
-                        label     = cats[cat]["label"],
-                        emoji     = cats[cat]["emoji"],
+                        nom       = f.name,
+                        categorie = cat_key,
+                        label     = cat_config["label"],
+                        emoji     = cat_config["emoji"],
                     ))
-        except Exception as e:
-            logger.warning(f"Impossible de lire le manifeste : {e}")
+
+    # ── 2. Compléter avec le manifeste FAISS ─────────────────────────────────
+    # Ajoute les fichiers présents dans l'index mais absents du disque
+    # (documents déjà indexés avant le déploiement, ou uploadés sur une
+    # instance Render différente).
+    try:
+        from src.indexer import load_manifest
+        manifest = load_manifest()
+        for path_str in manifest:
+            nom, cat = _parse_manifest_path(path_str)
+            if not nom or not cat:
+                continue
+            key = f"{cat}/{nom}"
+            if key not in seen:
+                seen.add(key)
+                documents.append(DocumentInfo(
+                    nom       = nom,
+                    categorie = cat,
+                    label     = cats[cat]["label"],
+                    emoji     = cats[cat]["emoji"],
+                ))
+    except Exception as e:
+        logger.warning(f"Impossible de lire le manifeste : {e}")
 
     if not documents:
         raise HTTPException(

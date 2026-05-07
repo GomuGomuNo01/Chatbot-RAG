@@ -24,17 +24,34 @@ class _InferenceClientEmbeddings(Embeddings):
         self._client = InferenceClient(model=model, token=token)
 
     def _embed(self, text: str) -> List[float]:
-        import math
-        result = self._client.feature_extraction(text)
+        import math, time
+        last_exc = None
+        for attempt in range(3):
+            try:
+                result = self._client.feature_extraction(text)
+                break
+            except Exception as exc:
+                last_exc = exc
+                wait = 2 ** attempt          # 1 s → 2 s → 4 s
+                logger.warning(
+                    f"HF API erreur (tentative {attempt + 1}/3) : {exc} — "
+                    f"nouvelle tentative dans {wait}s…"
+                )
+                time.sleep(wait)
+        else:
+            raise RuntimeError(
+                f"L'API HuggingFace a échoué 3 fois de suite : {last_exc}"
+            )
+
         if hasattr(result, "tolist"):
             vec = result.tolist()
         else:
             vec = list(result)
-        # L'API renvoie [seq_len × dim] → mean pooling pour obtenir l'embedding de phrase
+        # L'API peut renvoyer [seq_len × dim] → mean pooling
         if vec and isinstance(vec[0], list):
             dim = len(vec[0])
             vec = [sum(row[j] for row in vec) / len(vec) for j in range(dim)]
-        # L2-normalisation pour correspondre à normalize_embeddings=True du modèle local
+        # L2-normalisation pour correspondre à normalize_embeddings=True local
         norm = math.sqrt(sum(x * x for x in vec))
         if norm > 0:
             vec = [x / norm for x in vec]
