@@ -71,7 +71,7 @@ SIMILARITY_THRESHOLD = 0.15 # Score minimum (1/(1+L2_dist)) — 0.15 ≈ distanc
 # MÉMOIRE CONVERSATIONNELLE
 # ============================================================
 
-MEMORY_MAX_EXCHANGES = 5    # Nb d'échanges conservés en mémoire
+MEMORY_MAX_EXCHANGES = 7    # Nb d'échanges conservés en mémoire (étendu à 7)
 
 # ============================================================
 # CATÉGORIES DE DOCUMENTS

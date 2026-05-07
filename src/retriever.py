@@ -28,6 +28,45 @@ def reset_vectorstore() -> None:
     _vectorstore_instance = None
     logger.info("Vectorstore réinitialisé — sera rechargé au prochain appel.")
 
+def multi_search(
+    queries: List[str],
+    categorie: Optional[str] = None,
+    k: int = TOP_K_RESULTS,
+) -> List[Document]:
+    """
+    Recherche avec plusieurs formulations de la même question.
+    Fusionne les résultats et garde le meilleur score par chunk unique.
+    Retourne au plus k documents classés par score décroissant.
+
+    Utilisé pour maximiser le rappel quand la requête est ambiguë :
+    - requête originale + requête étendue (acronymes)
+    - requête originale + reformulation contextuelle
+    """
+    if not queries:
+        return []
+
+    seen_ids: dict[str, float] = {}   # page_key → meilleur score
+    doc_map: dict[str, Document] = {} # page_key → document
+
+    for query in queries:
+        results = search(query=query, categorie=categorie, k=k)
+        for doc in results:
+            key = (
+                f"{doc.metadata.get('source', '')}|"
+                f"{doc.metadata.get('page', '')}|"
+                f"{doc.page_content[:80]}"  # sous-clé pour distinguer chunks sur même page
+            )
+            score = float(doc.metadata.get("similarity_score", 0))
+            if key not in seen_ids or score > seen_ids[key]:
+                seen_ids[key] = score
+                doc.metadata["similarity_score"] = score
+                doc_map[key] = doc
+
+    merged = sorted(doc_map.values(), key=lambda d: d.metadata.get("similarity_score", 0), reverse=True)
+    logger.info(f"multi_search({len(queries)} requêtes) → {len(merged)} chunks uniques (top {k})")
+    return merged[:k]
+
+
 def search(
     query: str,
     categorie: Optional[str] = None,
