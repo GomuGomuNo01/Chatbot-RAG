@@ -127,6 +127,7 @@ async function apiCreateCategory(data) {
  */
 /**
  * Relance l'indexation complète de tous les documents présents dans docs/.
+ * Retourne immédiatement (background=true) — interrogez apiIndexStatus() pour suivre.
  * @returns {Promise<Object>} ReindexResponse
  */
 async function apiReindex() {
@@ -134,6 +135,16 @@ async function apiReindex() {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.detail || `Erreur re-indexation (${res.status})`);
   return json;
+}
+
+/**
+ * Interroge l'état de l'indexation en arrière-plan.
+ * @returns {Promise<Object>} IndexStatusResponse { running, chunks, files, done_at, error, message }
+ */
+async function apiIndexStatus() {
+  const res = await fetch(`${API_BASE}/index/status`);
+  if (!res.ok) throw new Error(`Impossible de récupérer le statut (${res.status})`);
+  return res.json();
 }
 
 /**

@@ -74,9 +74,11 @@ const TRANSLATIONS = {
     'upload.browse':      'Parcourir',
     'upload.submit':      'Indexer maintenant',
     'upload.cancel':      'Annuler',
+    'upload.sending':     'Envoi des fichiers…',
     'upload.indexing':    'Indexation en cours…',
     'upload.success':     '✅ {n} fichier(s) indexé(s) avec succès.',
     'upload.partial':     '⚠️ {ok} indexé(s), {err} erreur(s).',
+    'upload.bg.error':    'Erreur lors de l\'indexation :',
     'upload.err.nofiles': 'Sélectionnez au moins un fichier.',
     'upload.err.nocat':   'Choisissez une catégorie.',
 
@@ -190,9 +192,11 @@ const TRANSLATIONS = {
     'upload.browse':      'Browse',
     'upload.submit':      'Index now',
     'upload.cancel':      'Cancel',
+    'upload.sending':     'Uploading files…',
     'upload.indexing':    'Indexing…',
     'upload.success':     '✅ {n} file(s) indexed successfully.',
     'upload.partial':     '⚠️ {ok} indexed, {err} error(s).',
+    'upload.bg.error':    'Indexation error:',
     'upload.err.nofiles': 'Please select at least one file.',
     'upload.err.nocat':   'Please choose a category.',
 

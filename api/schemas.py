@@ -154,6 +154,7 @@ class UploadResponse(BaseModel):
     fichiers:     List[UploadedFile]
     total_chunks: int
     message:      str
+    background:   bool = False  # True = indexation différée en arrière-plan
 
 
 class ReindexResponse(BaseModel):
@@ -161,6 +162,17 @@ class ReindexResponse(BaseModel):
     total_chunks: int
     total_files:  int
     message:      str
+    background:   bool = False  # True = reconstruction différée en arrière-plan
+
+
+class IndexStatusResponse(BaseModel):
+    """Réponse du endpoint GET /api/index/status"""
+    running:  bool
+    chunks:   int          = 0
+    files:    int          = 0
+    done_at:  Optional[float] = None
+    error:    Optional[str]   = None
+    message:  str
 
 
 class DeleteDocumentResponse(BaseModel):

@@ -1,16 +1,23 @@
 """
 Routes Documents :
-  GET  /api/documents          — liste des documents indexés
-  GET  /api/categories         — liste toutes les catégories
-  POST /api/categories         — crée une catégorie personnalisée
-  POST /api/documents/upload   — upload + indexation de fichiers
+  GET  /api/documents              — liste des documents indexés
+  GET  /api/categories             — liste toutes les catégories
+  POST /api/categories             — crée une catégorie personnalisée
+  POST /api/documents/upload       — upload (rapide) + indexation en arrière-plan
+  POST /api/documents/reindex      — reconstruction complète de l'index (arrière-plan)
+  GET  /api/index/status           — état de l'indexation en cours
+  DELETE /api/documents/{cat}/{f}  — supprime un document + reconstruit l'index
+  DELETE /api/categories/{key}     — supprime une catégorie personnalisée
+  POST /api/documents/{cat}/{f}/reindex — ré-indexe un document précis
 """
 
 import logging
+import threading
+import time as _time
 from pathlib import Path, PureWindowsPath, PurePosixPath
 from typing import List
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, Form
 from api.schemas import (
     DocumentsResponse,
     DocumentInfo,
@@ -20,6 +27,7 @@ from api.schemas import (
     UploadResponse,
     UploadedFile,
     ReindexResponse,
+    IndexStatusResponse,
     DeleteDocumentResponse,
     DeleteCategoryResponse,
     ReindexFileResponse,
@@ -34,6 +42,155 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 Mo
+
+
+# ============================================================
+# Store de statut d'indexation (thread-safe, in-memory)
+# ============================================================
+
+_indexation_status: dict = {
+    "running":  False,
+    "chunks":   0,
+    "files":    0,
+    "done_at":  None,
+    "error":    None,
+}
+_status_lock = threading.Lock()
+
+
+def _set_running() -> None:
+    with _status_lock:
+        _indexation_status.update({
+            "running": True, "chunks": 0, "files": 0,
+            "done_at": None, "error": None,
+        })
+
+
+def _set_done(chunks: int, files: int = 0) -> None:
+    with _status_lock:
+        _indexation_status.update({
+            "running": False, "chunks": chunks, "files": files,
+            "done_at": _time.time(), "error": None,
+        })
+
+
+def _set_error(err: str) -> None:
+    with _status_lock:
+        _indexation_status.update({
+            "running": False, "chunks": 0, "files": 0,
+            "done_at": None, "error": err,
+        })
+
+
+# ============================================================
+# Tâches d'arrière-plan
+# ============================================================
+
+def _run_upload_indexation(
+    saved_files: list,      # [(Path, categorie_str), ...]
+    manifest_updates: dict, # {path_str: hash}
+) -> None:
+    """
+    Embed + indexe les fichiers déjà sauvegardés sur disque.
+    Appelée par BackgroundTasks après que l'upload HTTP a répondu 202.
+    """
+    _set_running()
+    try:
+        from src.loader import load_file
+        from src.indexer import (
+            add_documents_to_index, create_index,
+            index_exists, load_manifest, save_manifest,
+        )
+        from src.retriever import reset_vectorstore
+
+        all_docs = []
+        manifest = load_manifest()
+        manifest.update(manifest_updates)
+
+        for dest, categorie in saved_files:
+            try:
+                docs = load_file(dest, categorie)
+                all_docs.extend(docs)
+                logger.info(f"[BG-upload] {dest.name} → {len(docs)} chunks")
+            except Exception as e:
+                logger.warning(f"[BG-upload] Impossible de charger {dest.name} : {e}")
+
+        if all_docs:
+            if index_exists():
+                add_documents_to_index(all_docs, manifest)
+            else:
+                create_index(all_docs)
+                save_manifest(manifest)
+            reset_vectorstore()
+
+        _set_done(len(all_docs), len(saved_files))
+        logger.info(f"[BG-upload] Indexation terminée : {len(all_docs)} chunks.")
+
+    except Exception as e:
+        logger.error(f"[BG-upload] Erreur : {e}", exc_info=True)
+        _set_error(str(e))
+
+
+def _run_reindex_all_background() -> None:
+    """
+    Reconstruction complète de l'index FAISS depuis tous les docs/.
+    Appelée par BackgroundTasks après que la route reindex a répondu 202.
+    """
+    _set_running()
+    try:
+        from src.loader import load_file, SUPPORTED_EXTENSIONS as EXT
+        from src.indexer import create_index, save_manifest, _file_hash
+        from src.retriever import reset_vectorstore
+        from pathlib import Path as P
+
+        cats = get_all_categories()
+
+        # Synchroniser R2 → local avant de ré-indexer (Render = filesystem éphémère)
+        if is_r2_enabled():
+            try:
+                from src.storage import sync_r2_to_local
+                downloaded = sync_r2_to_local(DOCS_DIR)
+                if downloaded:
+                    logger.info(f"[BG-reindex] R2 → local : {downloaded} fichier(s)")
+            except Exception as e:
+                logger.warning(f"[BG-reindex] Sync R2 ignorée : {e}")
+
+        all_files: list = []
+        for cat_key, cat_cfg in cats.items():
+            directory = P(cat_cfg["dir"])
+            if not directory.exists():
+                continue
+            for f in directory.iterdir():
+                if f.suffix.lower() in EXT:
+                    all_files.append((f, cat_key))
+
+        if not all_files:
+            _set_error("Aucun document trouvé dans docs/.")
+            return
+
+        all_docs = []
+        for file_path, cat_key in all_files:
+            try:
+                docs = load_file(file_path, cat_key)
+                all_docs.extend(docs)
+            except Exception as e:
+                logger.warning(f"[BG-reindex] Impossible de charger {file_path.name} : {e}")
+
+        if not all_docs:
+            _set_error("Aucun contenu extrait des documents.")
+            return
+
+        create_index(all_docs)
+        manifest = {str(f.resolve()): _file_hash(f) for f, _ in all_files}
+        save_manifest(manifest)
+        reset_vectorstore()
+
+        _set_done(len(all_docs), len(all_files))
+        logger.info(f"[BG-reindex] Terminé : {len(all_docs)} chunks, {len(all_files)} fichiers.")
+
+    except Exception as e:
+        logger.error(f"[BG-reindex] Erreur : {e}", exc_info=True)
+        _set_error(str(e))
 
 
 # ============================================================
@@ -70,7 +227,6 @@ def _parse_manifest_path(path_str: str) -> tuple[str, str | None]:
 def get_documents() -> DocumentsResponse:
     cats      = _get_categories()
     documents = []
-    # Clé de dédup : "categorie/nom_de_fichier"
     seen: set[str] = set()
 
     # ── 1. Scanner le dossier docs/ (fichiers physiquement présents) ──────────
@@ -91,8 +247,6 @@ def get_documents() -> DocumentsResponse:
                     ))
 
     # ── 2. Compléter depuis Cloudflare R2 (si configuré) ─────────────────────
-    # Source autoritaire sur Render : R2 contient tous les fichiers uploadés,
-    # même ceux perdus lors d'un redémarrage de l'instance.
     if is_r2_enabled():
         try:
             from src.storage import list_files_r2
@@ -116,8 +270,6 @@ def get_documents() -> DocumentsResponse:
             logger.warning(f"Impossible de lister les fichiers R2 : {e}")
 
     # ── 3. Compléter avec le manifeste FAISS ─────────────────────────────────
-    # Fallback : fichiers présents dans l'index mais absents du disque et de R2
-    # (documents pré-commités dans git avant le déploiement).
     try:
         from src.indexer import load_manifest
         manifest = load_manifest()
@@ -193,14 +345,12 @@ def get_categories() -> CategoriesResponse:
 def create_category(body: CreateCategoryRequest) -> CategoryInfo:
     cats = _get_categories()
 
-    # Vérifier doublon sur la clé
     if body.key in cats:
         raise HTTPException(
             status_code=409,
             detail=f"Une catégorie existe déjà avec l'identifiant « {body.key} »."
         )
 
-    # Vérifier doublon sur le label (insensible à la casse)
     label_lower = body.label.strip().lower()
     for existing_key, existing_cfg in cats.items():
         if existing_cfg["label"].strip().lower() == label_lower:
@@ -231,22 +381,36 @@ def create_category(body: CreateCategoryRequest) -> CategoryInfo:
 
 
 # ============================================================
-# POST /api/documents/upload
+# POST /api/documents/upload  (non bloquant — répond en < 5 s)
 # ============================================================
 
 @router.post(
     "/documents/upload",
     response_model=UploadResponse,
-    summary="Upload et indexation de documents",
+    summary="Upload de documents (sauvegarde immédiate, indexation en arrière-plan)",
     description=(
-        "Envoie un ou plusieurs fichiers (PDF, DOCX, TXT) dans une catégorie "
-        "existante et les indexe immédiatement dans FAISS."
+        "Phase 1 (rapide, < 5 s) : valide, sauvegarde sur disque et pousse vers R2. "
+        "Retourne immédiatement avec background=true. "
+        "Phase 2 (arrière-plan) : extraction de texte + embeddings + FAISS. "
+        "Interrogez GET /api/index/status pour suivre la progression."
     ),
 )
 async def upload_documents(
+    background_tasks: BackgroundTasks,
     categorie: str = Form(..., description="Clé de catégorie cible"),
     files:     List[UploadFile] = File(..., description="Fichiers à uploader"),
 ) -> UploadResponse:
+
+    # Refuser si une indexation est déjà en cours
+    with _status_lock:
+        if _indexation_status["running"]:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Une indexation est déjà en cours. "
+                    "Attendez qu'elle se termine avant d'uploader de nouveaux fichiers."
+                ),
+            )
 
     cats = _get_categories()
     if categorie not in cats:
@@ -261,20 +425,11 @@ async def upload_documents(
     cat_dir = Path(cats[categorie]["dir"])
     cat_dir.mkdir(parents=True, exist_ok=True)
 
-    from src.loader import load_file
-    from src.indexer import (
-        add_documents_to_index,
-        create_index,
-        index_exists,
-        load_manifest,
-        save_manifest,
-        _file_hash,
-    )
-    from src.retriever import reset_vectorstore
+    from src.indexer import _file_hash
 
-    results:      List[UploadedFile] = []
-    all_docs:     list               = []
-    manifest      = load_manifest()
+    results:          List[UploadedFile] = []
+    saved_files:      list               = []   # [(Path, categorie), ...]
+    manifest_updates: dict               = {}   # {str(path): hash}
 
     for upload in files:
         filename = Path(upload.filename or "fichier").name
@@ -301,7 +456,7 @@ async def upload_documents(
             ))
             continue
 
-        # Vérifier si le document existe déjà (disque local ou R2)
+        # Vérifier doublon
         dest = cat_dir / filename
         r2_duplicate = False
         if is_r2_enabled():
@@ -324,169 +479,120 @@ async def upload_documents(
             ))
             continue
 
-        # Sauvegarder sur disque (pour l'indexation immédiate)
+        # ── Phase 1 : sauvegarder sur disque ──────────────────
         dest.write_bytes(content)
-        logger.info(f"Fichier sauvegardé localement : {dest}")
+        logger.info(f"[upload] Fichier sauvegardé : {dest}")
 
-        # Upload vers Cloudflare R2 (persistance permanente)
+        # ── Phase 1 : pousser vers R2 (fast — réseau serveur) ─
         if is_r2_enabled():
             try:
                 from src.storage import upload_file_r2
                 upload_file_r2(content, categorie, filename)
             except Exception as e:
-                logger.warning(f"R2 upload {filename} échoué (non bloquant) : {e}")
+                logger.warning(f"[upload] R2 upload {filename} échoué (non bloquant) : {e}")
 
-        # Charger et découper
-        try:
-            docs = load_file(dest, categorie)
-        except Exception as e:
-            results.append(UploadedFile(
-                nom    = filename,
-                chunks = 0,
-                statut = "erreur",
-                detail = f"Erreur d'extraction : {e}",
-            ))
-            continue
+        # Préparer pour la phase 2 (indexation en arrière-plan)
+        saved_files.append((dest, categorie))
+        manifest_updates[str(dest.resolve())] = _file_hash(dest)
 
-        if not docs:
-            results.append(UploadedFile(
-                nom    = filename,
-                chunks = 0,
-                statut = "erreur",
-                detail = "Aucun contenu extrait (fichier vide ou illisible).",
-            ))
-            continue
-
-        all_docs.extend(docs)
-        manifest[str(dest.resolve())] = _file_hash(dest)
         results.append(UploadedFile(
             nom    = filename,
-            chunks = len(docs),
+            chunks = 0,       # connu seulement après indexation
             statut = "ok",
         ))
-        logger.info(f"{filename} → {len(docs)} chunks")
+        logger.info(f"[upload] {filename} sauvegardé, en attente d'indexation.")
 
-    # Indexation des nouveaux chunks
-    total_chunks = sum(r.chunks for r in results if r.statut == "ok")
-    if all_docs:
-        try:
-            if index_exists():
-                add_documents_to_index(all_docs, manifest)
-            else:
-                create_index(all_docs)
-                save_manifest(manifest)
-            reset_vectorstore()
-            logger.info(f"Indexation terminée : {total_chunks} chunks ajoutés.")
-        except Exception as e:
-            logger.error(f"Erreur d'indexation : {e}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Fichiers sauvegardés mais indexation échouée : {e}"
-            )
-
+    # ── Phase 2 : déléguer l'indexation à un thread d'arrière-plan ────────────
     nb_ok  = sum(1 for r in results if r.statut == "ok")
     nb_err = len(results) - nb_ok
-    msg    = f"{nb_ok} fichier(s) indexé(s) avec succès"
-    if nb_err:
-        msg += f", {nb_err} erreur(s)."
+
+    if saved_files:
+        background_tasks.add_task(_run_upload_indexation, saved_files, manifest_updates)
+        logger.info(f"[upload] {len(saved_files)} fichier(s) en file d'indexation.")
+
+    if nb_ok > 0 and nb_err == 0:
+        msg = (
+            f"{nb_ok} fichier(s) sauvegardé(s). "
+            "Indexation en cours en arrière-plan — suivez l'avancement via /api/index/status."
+        )
+    elif nb_ok > 0:
+        msg = f"{nb_ok} fichier(s) sauvegardé(s), {nb_err} erreur(s). Indexation lancée."
+    else:
+        msg = f"{nb_err} erreur(s). Aucun fichier sauvegardé."
 
     return UploadResponse(
         categorie    = categorie,
         fichiers     = results,
-        total_chunks = total_chunks,
+        total_chunks = 0,
         message      = msg,
+        background   = nb_ok > 0,
     )
 
 
 # ============================================================
-# POST /api/documents/reindex
+# GET /api/index/status
+# ============================================================
+
+@router.get(
+    "/index/status",
+    response_model=IndexStatusResponse,
+    summary="État de l'indexation en arrière-plan",
+)
+def get_index_status() -> IndexStatusResponse:
+    with _status_lock:
+        s = dict(_indexation_status)
+
+    if s["running"]:
+        msg = "Indexation en cours… Veuillez patienter."
+    elif s["error"]:
+        msg = f"Erreur d'indexation : {s['error']}"
+    elif s["done_at"]:
+        msg = f"Indexation terminée — {s['chunks']} chunk(s) ajouté(s)."
+    else:
+        msg = "Aucune indexation récente."
+
+    return IndexStatusResponse(
+        running  = s["running"],
+        chunks   = s["chunks"],
+        files    = s["files"],
+        done_at  = s["done_at"],
+        error    = s["error"],
+        message  = msg,
+    )
+
+
+# ============================================================
+# POST /api/documents/reindex  (non bloquant)
 # ============================================================
 
 @router.post(
     "/documents/reindex",
     response_model=ReindexResponse,
-    summary="Relance l'indexation complète de tous les documents",
+    summary="Relance l'indexation complète de tous les documents (arrière-plan)",
     description=(
-        "Recrée l'index FAISS depuis zéro en parcourant tous les dossiers docs/. "
-        "À utiliser si l'index semble incohérent ou après un ajout manuel de fichiers."
+        "Lance la reconstruction de l'index FAISS en arrière-plan et retourne immédiatement. "
+        "Interrogez GET /api/index/status pour suivre la progression."
     ),
 )
-async def reindex_all() -> ReindexResponse:
-    from src.loader import load_all_documents, SUPPORTED_EXTENSIONS as EXT
-    from src.indexer import (
-        create_index,
-        save_manifest,
-        _file_hash,
-    )
-    from src.retriever import reset_vectorstore
-    from pathlib import Path as P
-
-    cats = _get_categories()
-
-    # ── Synchroniser R2 → local avant de ré-indexer ──────────────────────────
-    # Sur Render, le filesystem est éphémère : les fichiers uploadés dans une
-    # instance précédente ont disparu. On les récupère depuis R2.
-    if is_r2_enabled():
-        try:
-            from src.storage import sync_r2_to_local
-            downloaded = sync_r2_to_local(DOCS_DIR)
-            if downloaded:
-                logger.info(f"R2 → local : {downloaded} fichier(s) synchronisé(s) avant ré-indexation.")
-        except Exception as e:
-            logger.warning(f"Sync R2 → local ignorée : {e}")
-
-    # Collecter tous les fichiers physiquement présents
-    all_files: list = []
-    for cat_key, cat_cfg in cats.items():
-        directory = P(cat_cfg["dir"])
-        if not directory.exists():
-            continue
-        for f in directory.iterdir():
-            if f.suffix.lower() in EXT:
-                all_files.append((f, cat_key))
-
-    if not all_files:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                "Aucun document trouvé dans docs/. "
-                "Uploadez des fichiers d'abord via l'interface."
+async def reindex_all(background_tasks: BackgroundTasks) -> ReindexResponse:
+    with _status_lock:
+        if _indexation_status["running"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Une indexation est déjà en cours. Attendez qu'elle se termine.",
             )
-        )
 
-    # Charger et découper tous les documents
-    from src.loader import load_file
-    all_docs = []
-    for file_path, cat_key in all_files:
-        try:
-            docs = load_file(file_path, cat_key)
-            all_docs.extend(docs)
-        except Exception as e:
-            logger.warning(f"Impossible de charger {file_path.name} : {e}")
-
-    if not all_docs:
-        raise HTTPException(
-            status_code=500,
-            detail="Aucun contenu extrait des documents. Vérifiez qu'ils ne sont pas vides."
-        )
-
-    try:
-        create_index(all_docs)
-        manifest = {str(f.resolve()): _file_hash(f) for f, _ in all_files}
-        save_manifest(manifest)
-        reset_vectorstore()
-        logger.info(f"Re-indexation complète : {len(all_docs)} chunks, {len(all_files)} fichiers.")
-    except Exception as e:
-        logger.error(f"Erreur re-indexation : {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Erreur lors de l'indexation : {e}")
+    background_tasks.add_task(_run_reindex_all_background)
+    logger.info("[reindex] Reconstruction complète lancée en arrière-plan.")
 
     return ReindexResponse(
-        total_chunks = len(all_docs),
-        total_files  = len(all_files),
+        total_chunks = 0,
+        total_files  = 0,
         message      = (
-            f"Index recréé avec succès : {len(all_docs)} chunks "
-            f"depuis {len(all_files)} fichier(s)."
+            "Ré-indexation complète lancée en arrière-plan. "
+            "Suivez l'avancement via GET /api/index/status."
         ),
+        background   = True,
     )
 
 
@@ -535,7 +641,6 @@ async def delete_document(categorie: str, filename: str) -> DeleteDocumentRespon
             if f.suffix.lower() in EXT:
                 all_files.append((f, cat_key))
 
-    # Si plus aucun fichier, vider l'index
     if not all_files:
         from src.indexer import INDEX_PATH, MANIFEST_FILE
         for idx_file in ["index.faiss", "index.pkl"]:
@@ -590,7 +695,6 @@ async def delete_category(key: str) -> DeleteCategoryResponse:
     from pathlib import Path as P
     import shutil
 
-    # Refuser la suppression des catégories natives
     if key in CATEGORIES:
         raise HTTPException(
             status_code=403,
@@ -615,7 +719,7 @@ async def delete_category(key: str) -> DeleteCategoryResponse:
         try:
             cat_dir.rmdir()
         except OSError:
-            pass  # dossier non vide (fichiers non supportés), on laisse
+            pass
 
     # ── Supprimer de R2 ──────────────────────────────────────
     if is_r2_enabled():
@@ -623,7 +727,7 @@ async def delete_category(key: str) -> DeleteCategoryResponse:
             from src.storage import delete_prefix_r2
             nb_r2 = delete_prefix_r2(key)
             if nb_r2:
-                logger.info(f"R2 : {nb_r2} fichier(s) de la catégorie '{key}' supprimés")
+                logger.info(f"R2 : {nb_r2} fichier(s) de '{key}' supprimés")
         except Exception as e:
             logger.warning(f"R2 delete catégorie {key} partiel : {e}")
 
@@ -634,7 +738,7 @@ async def delete_category(key: str) -> DeleteCategoryResponse:
         raise HTTPException(status_code=400, detail=str(e))
 
     # ── Reconstruire l'index depuis les catégories restantes ─
-    remaining_cats = _get_categories()  # recharger après suppression
+    remaining_cats = _get_categories()
     all_files: list = []
     for cat_key, cat_cfg in remaining_cats.items():
         directory = P(cat_cfg["dir"])
@@ -720,7 +824,6 @@ async def reindex_file(categorie: str, filename: str) -> ReindexFileResponse:
         )
 
     # ── Reconstruction complète de l'index ───────────────────
-    # FAISS ne supporte pas la suppression partielle, on reconstruit tout.
     all_files: list = []
     for cat_key, cat_cfg in cats.items():
         directory = P(cat_cfg["dir"])

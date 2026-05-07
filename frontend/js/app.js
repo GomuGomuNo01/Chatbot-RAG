@@ -561,42 +561,95 @@ class App {
     const overlay   = document.getElementById('uploadOverlay');
     const fill      = document.getElementById('uploadProgressFill');
     const pct       = document.getElementById('uploadProgressPct');
+    const overlayTxt = overlay.querySelector('.upload-overlay__text');
+
     overlay.hidden  = false;
+    fill.style.width = '0%';
+    pct.textContent  = '0%';
+    if (overlayTxt) overlayTxt.textContent = i18n.t('upload.sending');
     document.getElementById('submitUploadBtn').disabled = true;
     document.getElementById('cancelUploadBtn').disabled = true;
 
     try {
+      // ── Phase 1 : envoi des fichiers (rapide) ──────────────
       const result = await apiUploadFiles(this._uploadFiles, this._uploadCategory, progress => {
-        fill.style.width  = `${progress}%`;
-        pct.textContent   = `${progress}%`;
+        fill.style.width = `${progress}%`;
+        pct.textContent  = `${progress}%`;
       });
 
       const nb_ok  = result.fichiers.filter(f => f.statut === 'ok').length;
       const nb_err = result.fichiers.filter(f => f.statut === 'erreur').length;
 
-      overlay.hidden = true;
-      if (nb_err === 0) {
-        this._showFeedback(i18n.t('upload.success', { n: nb_ok }), 'ok');
+      // ── Phase 2 : attente de l'indexation en arrière-plan ──
+      if (result.background && nb_ok > 0) {
+        fill.style.width = '100%';
+        pct.textContent  = '100%';
+        if (overlayTxt) overlayTxt.textContent = i18n.t('upload.indexing');
+
+        try {
+          await this._waitForIndexation();
+          overlay.hidden = true;
+          if (nb_err === 0) {
+            this._showFeedback(i18n.t('upload.success', { n: nb_ok }), 'ok');
+          } else {
+            this._showFeedback(i18n.t('upload.partial', { ok: nb_ok, err: nb_err }), 'warn');
+          }
+        } catch (bgErr) {
+          overlay.hidden = true;
+          this._showFeedback(`⚠️ ${i18n.t('upload.bg.error')} ${bgErr.message}`, 'error');
+        }
       } else {
-        this._showFeedback(i18n.t('upload.partial', { ok: nb_ok, err: nb_err }), 'warn');
+        // Pas d'indexation (tous en erreur)
+        overlay.hidden = true;
+        if (nb_ok === 0) {
+          this._showFeedback(i18n.t('upload.partial', { ok: 0, err: nb_err }), 'warn');
+        } else {
+          this._showFeedback(i18n.t('upload.partial', { ok: nb_ok, err: nb_err }), 'warn');
+        }
       }
 
-      // Rafraîchir la liste de documents et les compteurs
       await this._loadDocuments();
-
-      this._uploadFiles    = [];
+      this._uploadFiles = [];
       document.getElementById('fileList').innerHTML = '';
       this._refreshSubmitBtn();
 
-      // Fermer après 2 s si tout s'est bien passé
-      if (nb_err === 0) setTimeout(() => this._closeUploadModal(), 2000);
+      if (nb_ok > 0 && nb_err === 0) setTimeout(() => this._closeUploadModal(), 2000);
 
     } catch (err) {
       overlay.hidden = true;
       this._showFeedback(`⚠️ ${err.message}`, 'error');
     } finally {
       document.getElementById('cancelUploadBtn').disabled = false;
+      if (overlayTxt) overlayTxt.textContent = i18n.t('upload.indexing');
     }
+  }
+
+  /**
+   * Interroge /api/index/status toutes les 3 s jusqu'à la fin de l'indexation.
+   * Résout avec le statut final, rejette si erreur d'indexation.
+   * Timeout automatique après 8 minutes (sécurité).
+   */
+  _waitForIndexation(timeoutMs = 480000) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      const poll = setInterval(async () => {
+        if (Date.now() - start > timeoutMs) {
+          clearInterval(poll);
+          resolve({ chunks: 0, files: 0 });   // timeout → on considère terminé
+          return;
+        }
+        try {
+          const status = await apiIndexStatus();
+          if (!status.running) {
+            clearInterval(poll);
+            if (status.error) reject(new Error(status.error));
+            else resolve(status);
+          }
+        } catch {
+          /* erreur réseau transitoire — on continue à poller */
+        }
+      }, 3000);
+    });
   }
 
   _showFeedback(html, type = 'ok') {
@@ -614,20 +667,25 @@ class App {
 
     btn.disabled    = true;
     btn.textContent = i18n.t('reindex.running');
-
-    // Masquer le feedback précédent
     document.getElementById('uploadFeedback').hidden = true;
 
     try {
       const result = await apiReindex();
-      this._showFeedback(
-        i18n.t('reindex.success', {
-          chunks: result.total_chunks,
-          files:  result.total_files,
-        }),
-        'ok'
-      );
-      // Rafraîchir la liste de documents
+
+      if (result.background) {
+        // Attendre la fin de l'indexation en arrière-plan
+        const status = await this._waitForIndexation();
+        this._showFeedback(
+          i18n.t('reindex.success', { chunks: status.chunks, files: status.files }),
+          'ok'
+        );
+      } else {
+        this._showFeedback(
+          i18n.t('reindex.success', { chunks: result.total_chunks, files: result.total_files }),
+          'ok'
+        );
+      }
+
       await this._loadDocuments();
     } catch (err) {
       this._showFeedback(`${i18n.t('reindex.error')} ${err.message}`, 'error');
