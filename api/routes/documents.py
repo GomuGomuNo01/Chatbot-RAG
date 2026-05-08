@@ -35,7 +35,7 @@ from api.schemas import (
 )
 from config import (
     get_all_categories, register_custom_category, delete_custom_category,
-    DOCS_DIR, CATEGORIES, is_r2_enabled,
+    DOCS_DIR, CATEGORIES, CUSTOM_CATEGORIES_FILE, is_r2_enabled,
 )
 
 router = APIRouter()
@@ -529,6 +529,14 @@ def create_category(body: CreateCategoryRequest) -> CategoryInfo:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Persister le registre des catégories vers R2 (survit aux redéploiements)
+    if is_r2_enabled():
+        try:
+            from src.storage import upload_metadata_r2
+            upload_metadata_r2(CUSTOM_CATEGORIES_FILE, "custom_categories.json")
+        except Exception as e:
+            logger.warning(f"[create-cat] R2 custom_categories push ignoré : {e}")
+
     return CategoryInfo(
         key     = body.key,
         label   = body.label,
@@ -934,6 +942,14 @@ async def delete_category(
         delete_custom_category(key)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Persister le registre mis à jour vers R2 (survit aux redéploiements)
+    if is_r2_enabled():
+        try:
+            from src.storage import upload_metadata_r2
+            upload_metadata_r2(CUSTOM_CATEGORIES_FILE, "custom_categories.json")
+        except Exception as e:
+            logger.warning(f"[delete-cat] R2 custom_categories push ignoré : {e}")
 
     # ── Collecter les fichiers restants ──────────────────────────────────────
     remaining_cats = _get_categories()
