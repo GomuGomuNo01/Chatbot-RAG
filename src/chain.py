@@ -151,7 +151,10 @@ class RAGChain:
 
         # ── Couche 2 : décomposition comparative ──────────────────────────────
         # "différence entre CDI et CDD" → 3 sous-requêtes indépendantes
-        sub_queries = decompose_comparative_query(expanded)
+        # IMPORTANT : on passe `question` (original) et non `expanded` pour éviter
+        # une double expansion : decompose_comparative_query appelle expand_acronyms()
+        # en interne sur les termes extraits.
+        sub_queries = decompose_comparative_query(question)
         for sq in sub_queries:
             if sq not in queries:
                 queries.append(sq)
@@ -184,7 +187,8 @@ class RAGChain:
         queries: list[str] = [expanded]
 
         # ── Décomposition comparative ─────────────────────────────────────────
-        sub_queries = decompose_comparative_query(expanded)
+        # Passe `question` (original) — decompose_comparative_query expand en interne
+        sub_queries = decompose_comparative_query(question)
         for sq in sub_queries:
             if sq not in queries:
                 queries.append(sq)

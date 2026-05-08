@@ -1,12 +1,15 @@
 """
 Embedder : génération des embeddings avec optimisations de performance.
 
-Deux modes :
-  Production (HF_TOKEN défini) : huggingface_hub.InferenceClient
-    → embed_documents() envoie les chunks en BATCH (N textes/appel API au lieu de 1)
-    → fallback : pool de threads parallèles si le batch API échoue
-  Développement local (sans HF_TOKEN) : sentence-transformers local
-    → batch_size=64, pas d'overhead tqdm en arrière-plan
+Trois modes (ordre de priorité) :
+  1. Production (HF_TOKEN valide) : huggingface_hub.InferenceClient
+       → embed_documents() envoie les chunks en BATCH (N textes/appel API)
+       → fallback threads parallèles si le batch API échoue
+  2. Fallback local automatique (HF_TOKEN expiré/invalide) :
+       → sentence-transformers CPU (déclenché sur erreur 401 à l'init)
+       → aucune interruption de service
+  3. Développement local (sans HF_TOKEN) : sentence-transformers local
+       → batch_size=32, compatible sentence-transformers >= 3.x
 """
 
 import logging
@@ -169,12 +172,34 @@ class _InferenceClientEmbeddings(Embeddings):
 # FACTORY — retourne l'instance adaptée à l'environnement
 # ============================================================
 
+def _make_local_embeddings() -> Embeddings:
+    """
+    Charge le modèle sentence-transformers en local (CPU).
+
+    Compatibilité sentence-transformers >= 3.x :
+    - show_progress_bar retiré des encode_kwargs (géré par verbose= sur le modèle)
+    - batch_size conservé pour l'efficacité
+    """
+    from langchain_huggingface import HuggingFaceEmbeddings
+    logger.info(f"Embeddings locaux : {EMBEDDING_MODEL} (CPU, batch_size=32)")
+    return HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={
+            "normalize_embeddings": True,
+            "batch_size":           32,   # compatible toutes versions
+        },
+    )
+
+
 def get_embeddings() -> Embeddings:
     """
     Retourne l'instance d'embeddings (singleton).
 
-    HF_TOKEN présent → InferenceClient API (0 RAM, batch optimisé).
-    Absent           → modèle local sentence-transformers (batch_size=64).
+    Ordre de priorité :
+      1. HF_TOKEN valide  → InferenceClient API (0 RAM, batch optimisé)
+      2. HF_TOKEN expiré  → fallback local sentence-transformers (CPU)
+      3. Pas de HF_TOKEN  → local sentence-transformers (CPU)
     """
     global _embeddings_instance
     import os
@@ -188,26 +213,23 @@ def get_embeddings() -> Embeddings:
                 f"(batch={_InferenceClientEmbeddings._BATCH_SIZE}, "
                 f"workers_fallback={_InferenceClientEmbeddings._MAX_WORKERS})"
             )
-            _embeddings_instance = _InferenceClientEmbeddings(
-                token=hf_token,
-                model=_HF_MODEL_ID,
-            )
+            # Valider le token avec un appel de test minimal
+            try:
+                candidate = _InferenceClientEmbeddings(token=hf_token, model=_HF_MODEL_ID)
+                candidate._embed("test")          # appel de validation (~100ms)
+                _embeddings_instance = candidate
+                logger.info("  InferenceClient validé : OK")
+            except Exception as e:
+                # Token expiré / invalide / quota dépassé → fallback local
+                logger.warning(
+                    f"  InferenceClient indisponible ({type(e).__name__}: {e!s:.120}) "
+                    "— fallback modele local sentence-transformers"
+                )
+                _embeddings_instance = _make_local_embeddings()
         else:
-            logger.info(
-                f"Embeddings locaux : {EMBEDDING_MODEL} "
-                f"(batch_size=64, device=cpu)"
-            )
-            from langchain_huggingface import HuggingFaceEmbeddings
-            _embeddings_instance = HuggingFaceEmbeddings(
-                model_name=EMBEDDING_MODEL,
-                model_kwargs={"device": "cpu"},
-                encode_kwargs={
-                    "normalize_embeddings": True,
-                    "batch_size":           64,   # 32 → 64
-                    "show_progress_bar":    False, # évite l'overhead tqdm en arrière-plan
-                },
-            )
-        logger.info("  Embeddings initialisés : OK")
+            _embeddings_instance = _make_local_embeddings()
+
+        logger.info("  Embeddings initialises : OK")
 
     return _embeddings_instance
 

@@ -129,6 +129,7 @@ _ANAPHORA = re.compile(
     # Références duales / plurielles implicites
     r"les deux|tous les deux|toutes les deux|"
     r"l'un et l'autre|l'une et l'autre|"
+    r"l'un de l'autre|l'une de l'autre|"
     r"entre eux|entre elles|entre les deux|"
     r"chacun|chacune|l'un|l'une|l'autre)\b",
     re.IGNORECASE,
