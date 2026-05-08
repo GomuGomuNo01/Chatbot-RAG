@@ -14,6 +14,7 @@ Routes Documents :
 import logging
 import threading
 import time as _time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PureWindowsPath, PurePosixPath
 from typing import List
 
@@ -85,6 +86,69 @@ def _set_error(err: str) -> None:
 
 
 # ============================================================
+# Chargement parallèle des fichiers
+# ============================================================
+
+def _load_files_parallel(
+    files: list,           # [(Path, categorie_str), ...]
+    max_workers: int = 4,
+) -> tuple:               # (all_docs: list, warnings: list[str])
+    """
+    Charge et découpe les fichiers en parallèle (I/O + extraction texte).
+    PyMuPDF libère le GIL → réel gain en parallèle pour les PDFs.
+
+    Préserve l'ordre d'insertion pour un index FAISS déterministe.
+    Retourne (all_docs, warnings) — warnings listant les fichiers en erreur.
+    """
+    from src.loader import load_file
+
+    n = len(files)
+    if n == 0:
+        return [], []
+
+    # Résultats indexés pour préserver l'ordre
+    docs_by_idx: dict[int, list] = {}
+    warnings:    list[str]       = []
+    workers = min(max_workers, n)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(load_file, path, cat): (idx, path, cat)
+            for idx, (path, cat) in enumerate(files)
+        }
+        for future in as_completed(futures):
+            idx, path, cat = futures[future]
+            try:
+                docs = future.result()
+                if not docs:
+                    msg = (
+                        f"« {path.name} » ({cat}) : aucun texte extractible "
+                        "(fichier scanné, protégé ou vide ?)"
+                    )
+                    warnings.append(msg)
+                    logger.warning(f"[load_parallel] {msg}")
+                else:
+                    docs_by_idx[idx] = docs
+                    logger.info(f"[load_parallel] {path.name} → {len(docs)} chunks")
+            except Exception as e:
+                msg = f"« {path.name} » ({cat}) : erreur d'extraction — {e}"
+                warnings.append(msg)
+                logger.warning(f"[load_parallel] {msg}", exc_info=True)
+
+    # Recomposer dans l'ordre d'origine
+    all_docs: list = []
+    for idx in range(n):
+        if idx in docs_by_idx:
+            all_docs.extend(docs_by_idx[idx])
+
+    logger.info(
+        f"[load_parallel] {n} fichier(s) → {len(all_docs)} chunks "
+        f"({len(warnings)} ignoré(s))"
+    )
+    return all_docs, warnings
+
+
+# ============================================================
 # Tâches d'arrière-plan
 # ============================================================
 
@@ -97,36 +161,21 @@ def _run_upload_indexation(
     Appelée par BackgroundTasks après que l'upload HTTP a répondu 202.
     """
     _set_running()
+    t_start = _time.perf_counter()
     try:
-        from src.loader import load_file
         from src.indexer import (
             add_documents_to_index, create_index,
             index_exists, load_manifest, save_manifest,
         )
         from src.retriever import reset_vectorstore
 
-        all_docs:      list = []
-        file_warnings: list = []
         manifest = load_manifest()
         manifest.update(manifest_updates)
 
-        for dest, categorie in saved_files:
-            try:
-                docs = load_file(dest, categorie)
-                if not docs:
-                    msg = (
-                        f"« {dest.name} » : aucun texte extractible "
-                        "(fichier scanné, protégé ou vide ?)"
-                    )
-                    file_warnings.append(msg)
-                    logger.warning(f"[BG-upload] {msg}")
-                else:
-                    all_docs.extend(docs)
-                    logger.info(f"[BG-upload] {dest.name} → {len(docs)} chunks")
-            except Exception as e:
-                msg = f"« {dest.name} » : erreur d'extraction — {e}"
-                file_warnings.append(msg)
-                logger.warning(f"[BG-upload] {msg}", exc_info=True)
+        # ── Chargement parallèle des fichiers ────────────────
+        t0 = _time.perf_counter()
+        all_docs, file_warnings = _load_files_parallel(saved_files, max_workers=4)
+        logger.info(f"[BG-upload] Extraction : {_time.perf_counter() - t0:.1f}s")
 
         if not all_docs:
             detail = "Aucun contenu indexable extrait des fichiers uploadés."
@@ -135,16 +184,20 @@ def _run_upload_indexation(
             _set_error(detail)
             return
 
+        # ── Indexation FAISS ──────────────────────────────────
+        t0 = _time.perf_counter()
         if index_exists():
             add_documents_to_index(all_docs, manifest)
         else:
             create_index(all_docs)
             save_manifest(manifest)
         reset_vectorstore()
+        logger.info(f"[BG-upload] Embedding + FAISS : {_time.perf_counter() - t0:.1f}s")
 
+        elapsed = _time.perf_counter() - t_start
         _set_done(len(all_docs), len(saved_files), warnings=file_warnings)
         logger.info(
-            f"[BG-upload] Indexation terminée : {len(all_docs)} chunks"
+            f"[BG-upload] Terminé en {elapsed:.1f}s — {len(all_docs)} chunks"
             + (f", {len(file_warnings)} avertissement(s)" if file_warnings else "")
         )
 
@@ -159,15 +212,16 @@ def _run_reindex_all_background() -> None:
     Appelée par BackgroundTasks après que la route reindex a répondu 202.
     """
     _set_running()
+    t_start = _time.perf_counter()
     try:
-        from src.loader import load_file, SUPPORTED_EXTENSIONS as EXT
+        from src.loader import SUPPORTED_EXTENSIONS as EXT
         from src.indexer import create_index, save_manifest, _file_hash
         from src.retriever import reset_vectorstore
         from pathlib import Path as P
 
         cats = get_all_categories()
 
-        # Synchroniser R2 → local avant de ré-indexer (Render = filesystem éphémère)
+        # ── Synchroniser R2 → local (Render = filesystem éphémère) ───────────
         if is_r2_enabled():
             try:
                 from src.storage import sync_r2_to_local
@@ -193,22 +247,10 @@ def _run_reindex_all_background() -> None:
             )
             return
 
-        all_docs:      list = []
-        file_warnings: list = []
-
-        for file_path, cat_key in all_files:
-            try:
-                docs = load_file(file_path, cat_key)
-                if not docs:
-                    msg = f"« {file_path.name} » ({cat_key}) : aucun texte extractible"
-                    file_warnings.append(msg)
-                    logger.warning(f"[BG-reindex] {msg}")
-                else:
-                    all_docs.extend(docs)
-            except Exception as e:
-                msg = f"« {file_path.name} » ({cat_key}) : {e}"
-                file_warnings.append(msg)
-                logger.warning(f"[BG-reindex] Impossible de charger {file_path.name} : {e}", exc_info=True)
+        # ── Chargement parallèle des fichiers ────────────────
+        t0 = _time.perf_counter()
+        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=4)
+        logger.info(f"[BG-reindex] Extraction : {_time.perf_counter() - t0:.1f}s")
 
         if not all_docs:
             detail = "Aucun contenu extractible dans les documents présents."
@@ -217,14 +259,19 @@ def _run_reindex_all_background() -> None:
             _set_error(detail)
             return
 
+        # ── Indexation FAISS ──────────────────────────────────
+        t0 = _time.perf_counter()
         create_index(all_docs)
         manifest = {str(f.resolve()): _file_hash(f) for f, _ in all_files}
         save_manifest(manifest)
         reset_vectorstore()
+        logger.info(f"[BG-reindex] Embedding + FAISS : {_time.perf_counter() - t0:.1f}s")
 
+        elapsed = _time.perf_counter() - t_start
         _set_done(len(all_docs), len(all_files), warnings=file_warnings)
         logger.info(
-            f"[BG-reindex] Terminé : {len(all_docs)} chunks, {len(all_files)} fichier(s)"
+            f"[BG-reindex] Terminé en {elapsed:.1f}s — "
+            f"{len(all_docs)} chunks, {len(all_files)} fichier(s)"
             + (f", {len(file_warnings)} avertissement(s)" if file_warnings else "")
         )
 
