@@ -30,8 +30,10 @@ def extract_text_from_pdf(pdf_path: Path) -> List[Dict]:
     """
     pages = []
     try:
+        size_kb = pdf_path.stat().st_size // 1024
         doc = fitz.open(str(pdf_path))
-        for page_num in range(len(doc)):
+        total_pages = len(doc)
+        for page_num in range(total_pages):
             text = doc[page_num].get_text("text").strip()
             if len(text) >= 50:
                 pages.append({
@@ -40,9 +42,20 @@ def extract_text_from_pdf(pdf_path: Path) -> List[Dict]:
                     "file_path": str(pdf_path),
                 })
         doc.close()
-        logger.info(f"  PDF : {pdf_path.name} — {len(pages)} page(s) utile(s)")
+        if not pages:
+            logger.warning(
+                f"  PDF : {pdf_path.name} ({size_kb} Ko, {total_pages} page(s)) — "
+                "aucune page avec du texte extractible. "
+                "Le fichier est peut-être scanné (images) ou protégé."
+            )
+        else:
+            logger.info(f"  PDF : {pdf_path.name} — {len(pages)}/{total_pages} page(s) utile(s)")
     except Exception as e:
-        logger.error(f"  Erreur lecture PDF {pdf_path.name} : {e}")
+        size_kb = pdf_path.stat().st_size // 1024 if pdf_path.exists() else "?"
+        logger.error(
+            f"  Erreur lecture PDF {pdf_path.name} ({size_kb} Ko) : {e}",
+            exc_info=True,
+        )
     return pages
 
 
@@ -63,14 +76,23 @@ def extract_text_from_docx(docx_path: Path) -> List[Dict]:
                 "page_num":  1,
                 "file_path": str(docx_path),
             })
-        logger.info(f"  DOCX : {docx_path.name} — {len(paras)} paragraphe(s)")
+            logger.info(f"  DOCX : {docx_path.name} — {len(paras)} paragraphe(s)")
+        else:
+            logger.warning(
+                f"  DOCX : {docx_path.name} — aucun texte suffisant ({len(paras)} paragraphe(s)). "
+                "Le fichier est peut-être vide ou ne contient que des images."
+            )
     except ImportError:
         logger.error(
-            f"  python-docx requis pour {docx_path.name}. "
-            "Installe-le : pip install python-docx"
+            f"  Dépendance manquante pour lire {docx_path.name} : "
+            "python-docx n'est pas installé. Exécutez : pip install python-docx"
         )
     except Exception as e:
-        logger.error(f"  Erreur lecture DOCX {docx_path.name} : {e}")
+        size_kb = docx_path.stat().st_size // 1024 if docx_path.exists() else "?"
+        logger.error(
+            f"  Erreur lecture DOCX {docx_path.name} ({size_kb} Ko) : {e}",
+            exc_info=True,
+        )
     return pages
 
 
@@ -91,9 +113,19 @@ def extract_text_from_txt(txt_path: Path) -> List[Dict]:
                     "page_num":  idx,
                     "file_path": str(txt_path),
                 })
-        logger.info(f"  TXT : {txt_path.name} — {len(pages)} bloc(s)")
+        if not pages:
+            logger.warning(
+                f"  TXT : {txt_path.name} — fichier vide ou trop court pour être indexé "
+                f"({len(raw)} caractère(s) au total, minimum requis : 50)."
+            )
+        else:
+            logger.info(f"  TXT : {txt_path.name} — {len(pages)} bloc(s)")
     except Exception as e:
-        logger.error(f"  Erreur lecture TXT {txt_path.name} : {e}")
+        size_kb = txt_path.stat().st_size // 1024 if txt_path.exists() else "?"
+        logger.error(
+            f"  Erreur lecture TXT {txt_path.name} ({size_kb} Ko) : {e}",
+            exc_info=True,
+        )
     return pages
 
 

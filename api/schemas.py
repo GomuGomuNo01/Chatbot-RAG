@@ -168,10 +168,11 @@ class ReindexResponse(BaseModel):
 class IndexStatusResponse(BaseModel):
     """Réponse du endpoint GET /api/index/status"""
     running:  bool
-    chunks:   int          = 0
-    files:    int          = 0
+    chunks:   int             = 0
+    files:    int             = 0
     done_at:  Optional[float] = None
     error:    Optional[str]   = None
+    warnings: List[str]       = []   # fichiers partiellement échoués (succès partiel)
     message:  str
 
 

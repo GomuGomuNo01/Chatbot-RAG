@@ -15,15 +15,24 @@ async function apiChat(question, categorie, sessionId) {
   const body = { question, session_id: sessionId };
   if (categorie) body.categorie = categorie;
 
-  const res = await fetch(`${API_BASE}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('Impossible de contacter le serveur. Vérifiez votre connexion réseau.');
+  }
 
+  if (res.status === 503) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'L\'index documentaire n\'est pas disponible. Uploadez des documents d\'abord.');
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Erreur serveur (${res.status})`);
+    throw new Error(err.detail || `Erreur serveur (${res.status}). Réessayez.`);
   }
   return res.json();
 }
@@ -61,15 +70,24 @@ async function apiChatStream(question, categorie, sessionId) {
   const body = { question, session_id: sessionId };
   if (categorie) body.categorie = categorie;
 
-  const res = await fetch(`${API_BASE}/chat/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('Impossible de contacter le serveur. Vérifiez votre connexion réseau.');
+  }
 
+  if (res.status === 503) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'L\'index documentaire n\'est pas disponible. Uploadez des documents d\'abord.');
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Erreur serveur (${res.status})`);
+    throw new Error(err.detail || `Erreur serveur (${res.status}). Réessayez.`);
   }
   return res.body.getReader();
 }
@@ -210,13 +228,29 @@ async function apiUploadFiles(files, categorie, onProgress) {
 
     xhr.onload = () => {
       const json = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
-      if (xhr.status >= 200 && xhr.status < 300) {
+      if (xhr.status === 409) {
+        reject(new Error(json.detail || 'Une indexation est déjà en cours. Attendez qu\'elle se termine.'));
+      } else if (xhr.status === 413) {
+        reject(new Error('Fichier(s) trop volumineux — limite serveur dépassée.'));
+      } else if (xhr.status === 422) {
+        reject(new Error(json.detail || 'Données invalides (catégorie ou fichier non reconnu).'));
+      } else if (xhr.status === 503) {
+        reject(new Error(json.detail || 'Service temporairement indisponible. Réessayez dans quelques instants.'));
+      } else if (xhr.status >= 500) {
+        reject(new Error(json.detail || `Erreur serveur interne (${xhr.status}). Réessayez.`));
+      } else if (xhr.status >= 200 && xhr.status < 300) {
         resolve(json);
       } else {
-        reject(new Error(json.detail || `Erreur upload (${xhr.status})`));
+        reject(new Error(json.detail || `Erreur inattendue (${xhr.status}).`));
       }
     };
-    xhr.onerror = () => reject(new Error('Erreur réseau lors de l\'upload'));
+    xhr.onerror = () => reject(new Error(
+      'Impossible de contacter le serveur. Vérifiez votre connexion réseau.'
+    ));
+    xhr.ontimeout = () => reject(new Error(
+      'Le serveur met trop de temps à répondre. Réessayez dans quelques instants.'
+    ));
+    xhr.timeout = 30000;  // 30 s pour la phase d'envoi (sauvegarde fichier)
     xhr.send(form);
   });
 }

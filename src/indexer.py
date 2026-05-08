@@ -86,22 +86,40 @@ def create_index(documents: List[Document]) -> FAISS:
     """
     Crée un nouvel index FAISS depuis zéro et le sauvegarde sur disque.
     Pousse ensuite l'index vers HuggingFace Hub si configuré.
+
+    Raises:
+        ValueError       : aucun document fourni.
+        RuntimeError     : échec de l'embedding ou de la sauvegarde FAISS.
     """
     if not documents:
         raise ValueError("Impossible de créer un index : aucun document fourni.")
 
     logger.info(f"Création de l'index FAISS ({len(documents)} chunks)…")
-    embeddings  = get_embeddings()
-    vectorstore = FAISS.from_documents(documents=documents, embedding=embeddings)
-    vectorstore.save_local(str(INDEX_PATH))
-    logger.info(f"Index FAISS sauvegardé : {INDEX_PATH}")
+
+    try:
+        embeddings  = get_embeddings()
+        vectorstore = FAISS.from_documents(documents=documents, embedding=embeddings)
+    except Exception as e:
+        raise RuntimeError(
+            f"Échec du calcul des embeddings / construction FAISS "
+            f"({len(documents)} chunks) : {e}"
+        ) from e
+
+    try:
+        INDEX_PATH.mkdir(parents=True, exist_ok=True)
+        vectorstore.save_local(str(INDEX_PATH))
+        logger.info(f"Index FAISS sauvegardé : {INDEX_PATH}")
+    except Exception as e:
+        raise RuntimeError(
+            f"Impossible de sauvegarder l'index FAISS dans {INDEX_PATH} : {e}"
+        ) from e
 
     # Synchronisation vers HF Hub (non bloquant si non configuré)
     try:
         from src.hf_store import push_index_to_hub
         push_index_to_hub()
     except Exception as e:
-        logger.warning(f"HF Hub push ignoré : {e}")
+        logger.warning(f"HF Hub push ignoré (non bloquant) : {e}", exc_info=True)
 
     return vectorstore
 
@@ -131,17 +149,24 @@ def load_index() -> FAISS:
 
     if not index_file.exists():
         raise FileNotFoundError(
-            f"Index FAISS introuvable dans {INDEX_PATH}.\n"
-            "Lance d'abord : python ingest.py"
+            f"Index FAISS introuvable dans {INDEX_PATH}. "
+            "Uploadez des documents via l'interface ou lancez : python ingest.py"
         )
 
     logger.info(f"Chargement de l'index FAISS : {INDEX_PATH}")
-    embeddings  = get_embeddings()
-    vectorstore = FAISS.load_local(
-        str(INDEX_PATH),
-        embeddings,
-        allow_dangerous_deserialization=True,
-    )
+    try:
+        embeddings  = get_embeddings()
+        vectorstore = FAISS.load_local(
+            str(INDEX_PATH),
+            embeddings,
+            allow_dangerous_deserialization=True,
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"Impossible de charger l'index FAISS depuis {INDEX_PATH} : {e}. "
+            "L'index est peut-être corrompu — relancez une ré-indexation complète."
+        ) from e
+
     logger.info("Index FAISS chargé : OK")
     return vectorstore
 
@@ -157,11 +182,26 @@ def add_documents_to_index(
     """
     Ajoute des documents à l'index existant sans tout recalculer.
     Pousse l'index mis à jour vers HuggingFace Hub si configuré.
+
+    Raises:
+        RuntimeError : échec de l'ajout ou de la sauvegarde FAISS.
     """
     logger.info(f"Ajout de {len(new_documents)} chunk(s) à l'index existant…")
     vectorstore = load_index()
-    vectorstore.add_documents(new_documents)
-    vectorstore.save_local(str(INDEX_PATH))
+
+    try:
+        vectorstore.add_documents(new_documents)
+    except Exception as e:
+        raise RuntimeError(
+            f"Impossible d'ajouter {len(new_documents)} chunk(s) à l'index FAISS : {e}"
+        ) from e
+
+    try:
+        vectorstore.save_local(str(INDEX_PATH))
+    except Exception as e:
+        raise RuntimeError(
+            f"Impossible de sauvegarder l'index FAISS mis à jour dans {INDEX_PATH} : {e}"
+        ) from e
 
     if new_manifest is not None:
         save_manifest(new_manifest)
@@ -173,7 +213,7 @@ def add_documents_to_index(
         from src.hf_store import push_index_to_hub
         push_index_to_hub()
     except Exception as e:
-        logger.warning(f"HF Hub push ignoré : {e}")
+        logger.warning(f"HF Hub push ignoré (non bloquant) : {e}", exc_info=True)
 
     return vectorstore
 

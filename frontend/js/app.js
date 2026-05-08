@@ -153,6 +153,7 @@ class App {
           try { event = JSON.parse(line.slice(6)); } catch { continue; }
 
           if (event.error) {
+            // Le backend renvoie déjà un message user-friendly (avec réf.)
             this.ui.appendToken(botEl, `\n\n⚠️ ${event.error}`);
           } else if (event.token !== undefined) {
             this.ui.appendToken(botEl, event.token);
@@ -587,9 +588,17 @@ class App {
         if (overlayTxt) overlayTxt.textContent = i18n.t('upload.indexing');
 
         try {
-          await this._waitForIndexation();
+          const status = await this._waitForIndexation();
           overlay.hidden = true;
-          if (nb_err === 0) {
+
+          // Succès total ou partiel (avec avertissements)
+          if (status.warnings && status.warnings.length > 0) {
+            const warnLines = status.warnings.map(w => `• ${w}`).join('<br>');
+            this._showFeedback(
+              `${i18n.t('upload.partial', { ok: nb_ok - status.warnings.length, err: status.warnings.length })}<br><small>${warnLines}</small>`,
+              'warn'
+            );
+          } else if (nb_err === 0) {
             this._showFeedback(i18n.t('upload.success', { n: nb_ok }), 'ok');
           } else {
             this._showFeedback(i18n.t('upload.partial', { ok: nb_ok, err: nb_err }), 'warn');

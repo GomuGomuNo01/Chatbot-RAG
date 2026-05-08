@@ -4,9 +4,11 @@ Lancer : uvicorn api.main:app --reload --port 8000
 """
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from api.routes import chat, documents, health
@@ -62,7 +64,7 @@ async def lifespan(app: FastAPI):
                 "ou lancez : python ingest.py"
             )
     except Exception as e:
-        logger.error(f"Erreur pre-chargement : {e}")
+        logger.error(f"Erreur pré-chargement au démarrage : {e}", exc_info=True)
 
     yield  # L'app tourne ici
 
@@ -90,6 +92,32 @@ app.add_middleware(
     allow_methods     = ["*"],
     allow_headers     = ["*"]
 )
+
+# ============================================================
+# GESTIONNAIRE D'ERREURS GLOBAL
+# ============================================================
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Intercepte toute exception non gérée par les routes.
+    Évite d'exposer la stack Python au client tout en loggant l'erreur complète.
+    """
+    ref = str(uuid.uuid4())[:8].upper()
+    logger.error(
+        f"[{ref}] Exception non gérée sur {request.method} {request.url.path} : {exc}",
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": (
+                f"Erreur interne inattendue (réf. {ref}). "
+                "Réessayez dans quelques instants."
+            )
+        },
+    )
+
 
 # ---- Routes API ----
 app.include_router(

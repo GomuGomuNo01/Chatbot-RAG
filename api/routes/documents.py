@@ -54,6 +54,7 @@ _indexation_status: dict = {
     "files":    0,
     "done_at":  None,
     "error":    None,
+    "warnings": [],   # liste de messages d'avertissement (succès partiel)
 }
 _status_lock = threading.Lock()
 
@@ -62,15 +63,16 @@ def _set_running() -> None:
     with _status_lock:
         _indexation_status.update({
             "running": True, "chunks": 0, "files": 0,
-            "done_at": None, "error": None,
+            "done_at": None, "error": None, "warnings": [],
         })
 
 
-def _set_done(chunks: int, files: int = 0) -> None:
+def _set_done(chunks: int, files: int = 0, warnings: list | None = None) -> None:
     with _status_lock:
         _indexation_status.update({
             "running": False, "chunks": chunks, "files": files,
             "done_at": _time.time(), "error": None,
+            "warnings": warnings or [],
         })
 
 
@@ -78,7 +80,7 @@ def _set_error(err: str) -> None:
     with _status_lock:
         _indexation_status.update({
             "running": False, "chunks": 0, "files": 0,
-            "done_at": None, "error": err,
+            "done_at": None, "error": err, "warnings": [],
         })
 
 
@@ -103,32 +105,52 @@ def _run_upload_indexation(
         )
         from src.retriever import reset_vectorstore
 
-        all_docs = []
+        all_docs:      list = []
+        file_warnings: list = []
         manifest = load_manifest()
         manifest.update(manifest_updates)
 
         for dest, categorie in saved_files:
             try:
                 docs = load_file(dest, categorie)
-                all_docs.extend(docs)
-                logger.info(f"[BG-upload] {dest.name} → {len(docs)} chunks")
+                if not docs:
+                    msg = (
+                        f"« {dest.name} » : aucun texte extractible "
+                        "(fichier scanné, protégé ou vide ?)"
+                    )
+                    file_warnings.append(msg)
+                    logger.warning(f"[BG-upload] {msg}")
+                else:
+                    all_docs.extend(docs)
+                    logger.info(f"[BG-upload] {dest.name} → {len(docs)} chunks")
             except Exception as e:
-                logger.warning(f"[BG-upload] Impossible de charger {dest.name} : {e}")
+                msg = f"« {dest.name} » : erreur d'extraction — {e}"
+                file_warnings.append(msg)
+                logger.warning(f"[BG-upload] {msg}", exc_info=True)
 
-        if all_docs:
-            if index_exists():
-                add_documents_to_index(all_docs, manifest)
-            else:
-                create_index(all_docs)
-                save_manifest(manifest)
-            reset_vectorstore()
+        if not all_docs:
+            detail = "Aucun contenu indexable extrait des fichiers uploadés."
+            if file_warnings:
+                detail += " Détails : " + " | ".join(file_warnings)
+            _set_error(detail)
+            return
 
-        _set_done(len(all_docs), len(saved_files))
-        logger.info(f"[BG-upload] Indexation terminée : {len(all_docs)} chunks.")
+        if index_exists():
+            add_documents_to_index(all_docs, manifest)
+        else:
+            create_index(all_docs)
+            save_manifest(manifest)
+        reset_vectorstore()
+
+        _set_done(len(all_docs), len(saved_files), warnings=file_warnings)
+        logger.info(
+            f"[BG-upload] Indexation terminée : {len(all_docs)} chunks"
+            + (f", {len(file_warnings)} avertissement(s)" if file_warnings else "")
+        )
 
     except Exception as e:
-        logger.error(f"[BG-upload] Erreur : {e}", exc_info=True)
-        _set_error(str(e))
+        logger.error(f"[BG-upload] Erreur inattendue : {e}", exc_info=True)
+        _set_error(f"Erreur d'indexation : {e}")
 
 
 def _run_reindex_all_background() -> None:
@@ -151,9 +173,9 @@ def _run_reindex_all_background() -> None:
                 from src.storage import sync_r2_to_local
                 downloaded = sync_r2_to_local(DOCS_DIR)
                 if downloaded:
-                    logger.info(f"[BG-reindex] R2 → local : {downloaded} fichier(s)")
+                    logger.info(f"[BG-reindex] R2 → local : {downloaded} fichier(s) synchronisé(s)")
             except Exception as e:
-                logger.warning(f"[BG-reindex] Sync R2 ignorée : {e}")
+                logger.warning(f"[BG-reindex] Synchronisation R2 → local ignorée : {e}", exc_info=True)
 
         all_files: list = []
         for cat_key, cat_cfg in cats.items():
@@ -165,19 +187,34 @@ def _run_reindex_all_background() -> None:
                     all_files.append((f, cat_key))
 
         if not all_files:
-            _set_error("Aucun document trouvé dans docs/.")
+            _set_error(
+                "Aucun document trouvé dans docs/. "
+                "Uploadez des fichiers via l'interface avant de lancer une ré-indexation."
+            )
             return
 
-        all_docs = []
+        all_docs:      list = []
+        file_warnings: list = []
+
         for file_path, cat_key in all_files:
             try:
                 docs = load_file(file_path, cat_key)
-                all_docs.extend(docs)
+                if not docs:
+                    msg = f"« {file_path.name} » ({cat_key}) : aucun texte extractible"
+                    file_warnings.append(msg)
+                    logger.warning(f"[BG-reindex] {msg}")
+                else:
+                    all_docs.extend(docs)
             except Exception as e:
-                logger.warning(f"[BG-reindex] Impossible de charger {file_path.name} : {e}")
+                msg = f"« {file_path.name} » ({cat_key}) : {e}"
+                file_warnings.append(msg)
+                logger.warning(f"[BG-reindex] Impossible de charger {file_path.name} : {e}", exc_info=True)
 
         if not all_docs:
-            _set_error("Aucun contenu extrait des documents.")
+            detail = "Aucun contenu extractible dans les documents présents."
+            if file_warnings:
+                detail += " Détails : " + " | ".join(file_warnings)
+            _set_error(detail)
             return
 
         create_index(all_docs)
@@ -185,12 +222,15 @@ def _run_reindex_all_background() -> None:
         save_manifest(manifest)
         reset_vectorstore()
 
-        _set_done(len(all_docs), len(all_files))
-        logger.info(f"[BG-reindex] Terminé : {len(all_docs)} chunks, {len(all_files)} fichiers.")
+        _set_done(len(all_docs), len(all_files), warnings=file_warnings)
+        logger.info(
+            f"[BG-reindex] Terminé : {len(all_docs)} chunks, {len(all_files)} fichier(s)"
+            + (f", {len(file_warnings)} avertissement(s)" if file_warnings else "")
+        )
 
     except Exception as e:
-        logger.error(f"[BG-reindex] Erreur : {e}", exc_info=True)
-        _set_error(str(e))
+        logger.error(f"[BG-reindex] Erreur inattendue : {e}", exc_info=True)
+        _set_error(f"Erreur lors de la reconstruction de l'index : {e}")
 
 
 # ============================================================
@@ -547,7 +587,10 @@ def get_index_status() -> IndexStatusResponse:
     elif s["error"]:
         msg = f"Erreur d'indexation : {s['error']}"
     elif s["done_at"]:
-        msg = f"Indexation terminée — {s['chunks']} chunk(s) ajouté(s)."
+        warn_count = len(s.get("warnings", []))
+        msg = f"Indexation terminée — {s['chunks']} chunk(s) depuis {s['files']} fichier(s)."
+        if warn_count:
+            msg += f" ({warn_count} fichier(s) ignoré(s) — voir warnings)"
     else:
         msg = "Aucune indexation récente."
 
@@ -557,6 +600,7 @@ def get_index_status() -> IndexStatusResponse:
         files    = s["files"],
         done_at  = s["done_at"],
         error    = s["error"],
+        warnings = s.get("warnings", []),
         message  = msg,
     )
 
