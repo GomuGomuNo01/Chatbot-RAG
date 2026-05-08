@@ -138,6 +138,42 @@ def delete_prefix_r2(categorie: str) -> int:
     return deleted
 
 
+def upload_metadata_r2(file_path, name: str) -> None:
+    """Upload un fichier de configuration (ex. custom_categories.json) sous config/{name} dans R2."""
+    if not is_r2_enabled():
+        return
+    from pathlib import Path as _Path
+    content = _Path(file_path).read_bytes()
+    key = f"config/{name}"
+    _get_client().put_object(Bucket=R2_BUCKET_NAME, Key=key, Body=content)
+    logger.info(f"R2 ← metadata upload : {key}")
+
+
+def download_metadata_r2(name: str, dest_path) -> bool:
+    """
+    Télécharge un fichier de config depuis R2 config/{name} vers dest_path.
+    Retourne True si téléchargé, False si absent ou R2 non configuré.
+    """
+    if not is_r2_enabled():
+        return False
+    from pathlib import Path as _Path
+    key = f"config/{name}"
+    try:
+        from botocore.exceptions import ClientError
+        response = _get_client().get_object(Bucket=R2_BUCKET_NAME, Key=key)
+        dest = _Path(dest_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(response["Body"].read())
+        logger.info(f"R2 → metadata download : {key}")
+        return True
+    except Exception as e:
+        from botocore.exceptions import ClientError
+        if isinstance(e, ClientError) and e.response["Error"]["Code"] in ("404", "NoSuchKey"):
+            return False
+        logger.warning(f"R2 metadata download {key} erreur : {e}")
+        return False
+
+
 def sync_r2_to_local(docs_dir) -> int:
     """
     Télécharge depuis R2 tous les fichiers absents du dossier docs/ local.

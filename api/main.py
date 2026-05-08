@@ -50,6 +50,22 @@ async def lifespan(app: FastAPI):
         # entre les redémarrages. R2 est la source de vérité permanente.
         if is_r2_enabled():
             logger.info("[startup] Cloudflare R2 configuré — restauration des fichiers sources…")
+
+            # 1a. Restaurer custom_categories.json en premier (nécessaire pour
+            #     que sync_r2_to_local crée les bons sous-dossiers de catégories)
+            from config import CUSTOM_CATEGORIES_FILE
+            if not CUSTOM_CATEGORIES_FILE.exists():
+                try:
+                    from src.storage import download_metadata_r2
+                    restored = download_metadata_r2("custom_categories.json", CUSTOM_CATEGORIES_FILE)
+                    if restored:
+                        logger.info("[startup] ✓ R2 → local : custom_categories.json restauré")
+                    else:
+                        logger.info("[startup] · R2 → local : custom_categories.json absent (1er déploiement ?)")
+                except Exception as e:
+                    logger.warning(f"[startup] ✗ R2 custom_categories restore ignorée : {e}", exc_info=True)
+
+            # 1b. Restaurer les fichiers documents (PDF, DOCX, TXT)
             try:
                 from src.storage import sync_r2_to_local
                 downloaded = sync_r2_to_local(DOCS_DIR)
