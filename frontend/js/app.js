@@ -93,13 +93,30 @@ class App {
     const sidebar        = document.getElementById('sidebar');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
 
-    menuBtn.addEventListener('click', () => {
-      sidebar.classList.toggle('sidebar--open');
-      sidebarOverlay.classList.toggle('sidebar-overlay--visible');
-    });
-    sidebarOverlay.addEventListener('click', () => {
+    const _openSidebar = () => {
+      sidebar.classList.add('sidebar--open');
+      sidebarOverlay.classList.add('sidebar-overlay--visible');
+      menuBtn.setAttribute('aria-expanded', 'true');
+      menuBtn.setAttribute('aria-label', 'Fermer le menu');
+    };
+    const _closeSidebar = () => {
       sidebar.classList.remove('sidebar--open');
       sidebarOverlay.classList.remove('sidebar-overlay--visible');
+      menuBtn.setAttribute('aria-expanded', 'false');
+      menuBtn.setAttribute('aria-label', 'Ouvrir le menu');
+    };
+
+    menuBtn.addEventListener('click', () => {
+      sidebar.classList.contains('sidebar--open') ? _closeSidebar() : _openSidebar();
+    });
+    sidebarOverlay.addEventListener('click', _closeSidebar);
+
+    /* Accessibilité clavier : Escape ferme la sidebar */
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && sidebar.classList.contains('sidebar--open')) {
+        _closeSidebar();
+        menuBtn.focus();
+      }
     });
 
     document.querySelectorAll('.example-btn').forEach(btn => {
