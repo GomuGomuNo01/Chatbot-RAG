@@ -1,0 +1,57 @@
+[tool.ruff]
+# Longueur de ligne maximale
+line-length = 100
+
+# Répertoires à analyser
+src = ["src", "api", "tests"]
+
+# Fichiers et répertoires exclus
+exclude = [
+    ".venv",
+    ".git",
+    "__pycache__",
+    "*.egg-info",
+    "dist",
+    "build",
+]
+
+[tool.ruff.lint]
+# Règles activées :
+#   E  — erreurs pycodestyle
+#   W  — avertissements pycodestyle
+#   F  — pyflakes (imports inutilisés, variables non définies…)
+#   I  — isort (tri des imports)
+#   UP — pyupgrade (modernisation syntaxe Python)
+#   B  — flake8-bugbear (bugs courants)
+#   SIM — flake8-simplify (simplifications)
+select = ["E", "W", "F", "I", "UP", "B", "SIM"]
+
+# Règles ignorées
+ignore = [
+    "E501",   # longueur de ligne gérée par line-length
+    "B008",   # appels de fonctions dans les valeurs par défaut (courant avec FastAPI Depends)
+]
+
+# Règles ignorées par fichier
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",   # assertions autorisées dans les tests
+    "SIM117", # with imbriqués acceptés dans les tests
+]
+"api/main.py" = [
+    "B008",   # FastAPI Depends() dans les paramètres de route
+]
+
+[tool.ruff.lint.isort]
+# Forcer les imports first-party dans le bon groupe
+known-first-party = ["src", "api"]
+
+[tool.ruff.format]
+# Style de guillemets (cohérent avec Black)
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

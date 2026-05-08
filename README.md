@@ -13,6 +13,7 @@
 [![37 tests](https://img.shields.io/badge/Tests-37%20✓-22c55e?logo=pytest&logoColor=white&style=flat-square)](tests/)
 [![Déployé](https://img.shields.io/badge/Déployé-Render-46E3B7?logo=render&logoColor=white&style=flat-square)](https://chatbot-rag-xodz.onrender.com)
 [![Licence MIT](https://img.shields.io/badge/Licence-MIT-6366f1?style=flat-square)](LICENSE)
+[![CI](https://github.com/GomuGomuNo01/Chatbot-RAG/actions/workflows/ci.yml/badge.svg)](https://github.com/GomuGomuNo01/Chatbot-RAG/actions/workflows/ci.yml)
 
 <br>
 

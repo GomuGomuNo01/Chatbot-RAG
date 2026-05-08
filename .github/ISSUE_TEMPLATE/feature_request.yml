@@ -1,0 +1,58 @@
+name: ✨ Demande de fonctionnalité
+description: Proposer une amélioration ou une nouvelle fonctionnalité
+labels: ["enhancement"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de proposer une amélioration !
+        Décrivez votre idée clairement pour qu'elle puisse être évaluée.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problème à résoudre
+      description: Quel problème cette fonctionnalité résoudrait-elle ?
+      placeholder: "Je suis frustré quand... / Il manque la possibilité de..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution proposée
+      description: Comment imaginez-vous cette fonctionnalité ?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Périmètre
+      options:
+        - Frontend (UI/UX)
+        - API (nouvelle route / comportement)
+        - Pipeline RAG (qualité des réponses)
+        - Performance (vitesse / coût)
+        - Déploiement / infrastructure
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considérées
+      description: Avez-vous envisagé d'autres approches ?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: J'ai vérifié que cette fonctionnalité n'est pas déjà dans les issues ouvertes
+          required: true

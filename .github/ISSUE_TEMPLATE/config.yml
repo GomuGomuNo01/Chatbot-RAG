@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: 📖 Documentation
+    url: https://chatbot-rag-xodz.onrender.com/docs
+    about: Consultez la documentation Swagger de l'API
+  - name: 🚀 Démo live
+    url: https://chatbot-rag-xodz.onrender.com
+    about: Tester l'application directement

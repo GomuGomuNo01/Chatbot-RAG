@@ -1,0 +1,35 @@
+version: 2
+
+updates:
+  # ── Dépendances Python (pip) ───────────────────────────────
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "08:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+    groups:
+      langchain:
+        patterns:
+          - "langchain*"
+      testing:
+        patterns:
+          - "pytest*"
+          - "httpx"
+
+  # ── Actions GitHub ─────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+      time: "08:00"
+      timezone: Europe/Paris
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions

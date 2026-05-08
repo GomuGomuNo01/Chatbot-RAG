@@ -1,0 +1,78 @@
+name: 🐛 Rapport de bug
+description: Signaler un comportement inattendu
+labels: ["bug", "triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de prendre le temps de signaler ce bug.
+        Remplissez le formulaire ci-dessous pour nous aider à reproduire et corriger le problème.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description du bug
+      description: Description claire et concise du problème.
+      placeholder: "Ex : La réponse du chatbot ne cite aucune source même quand des documents sont indexés."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes pour reproduire
+      description: |
+        Décrivez les étapes précises pour reproduire le bug.
+      placeholder: |
+        1. Aller sur '...'
+        2. Cliquer sur '...'
+        3. Entrer la question '...'
+        4. Observer l'erreur
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportement attendu
+      description: Que s'est-il passé à la place ?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Composant concerné
+      options:
+        - Frontend (UI/CSS/JS)
+        - API (FastAPI / routes)
+        - Pipeline RAG (chain / retriever)
+        - Indexation (ingest / embedder)
+        - Déploiement (Docker / Render)
+        - Autre
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environnement
+      description: Informations sur votre environnement.
+      value: |
+        - OS :
+        - Python :
+        - Navigateur (si frontend) :
+        - Version du commit :
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Messages d'erreur
+      description: Copiez les logs pertinents (terminal, console navigateur, etc.)
+      render: shell
+    validations:
+      required: false

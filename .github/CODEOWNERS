@@ -1,0 +1,20 @@
+# CODEOWNERS — Propriétaires du code par répertoire
+# Les personnes listées sont automatiquement demandées en review sur les PR.
+# Syntaxe : <pattern> <@utilisateur ou @org/équipe>
+
+# Propriétaire global
+*                       @GomuGomuNo01
+
+# Pipeline IA — revue requise pour toute modification du cœur RAG
+src/                    @GomuGomuNo01
+
+# API — revue requise pour les changements de contrat public
+api/                    @GomuGomuNo01
+
+# Tests — aucune PR sans tests valides
+tests/                  @GomuGomuNo01
+
+# Infrastructure — revue soigneuse des changements de déploiement
+Dockerfile              @GomuGomuNo01
+render.yaml             @GomuGomuNo01
+.github/workflows/      @GomuGomuNo01
