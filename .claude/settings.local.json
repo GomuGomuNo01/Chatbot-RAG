@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"D:\\\\PROJET PERSO\\\\PROJET IA\\\\chatbot-rag\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "Bash(powershell -Command \"Get-Content 'D:\\\\PROJET PERSO\\\\PROJET IA\\\\chatbot-rag\\\\README.md' -Raw\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git reset *)",
+      "Bash(Get-ChildItem docs *)",
+      "Bash(Select-Object FullName, Length)",
+      "Bash(.venv\\\\Scripts\\\\python.exe ingest.py --reset)",
+      "Bash(git commit -m 'config : renseigne l'\\\\''URL Render de production \\(chatbot-rag-xodz.onrender.com\\) *)",
+      "Bash(git pull *)",
+      "Bash(gh repo *)",
+      "Bash(git commit -m 'docs : refonte complète du README \\(présentation, architecture, stack, déploiement\\) *)",
+      "Bash(git branch *)",
+      "Bash(git commit -m 'docs : README orienté recruteur — problème, compétences, vulgarisation IA *)",
+      "Bash(git ls-remote *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} fichiers dans le manifeste'\\); [print\\(' -', k\\) for k in list\\(d.keys\\(\\)\\)[:5]]\")",
+      "Bash(.venv/Scripts/pip install *)",
+      "Bash(.venv/Scripts/python -c \"import boto3; import huggingface_hub; print\\('boto3', boto3.__version__\\); print\\('huggingface_hub', huggingface_hub.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Bash(.venv/Scripts/python -W error -c ' *)"
+    ]
+  }
+}
