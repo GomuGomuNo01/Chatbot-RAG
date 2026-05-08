@@ -32,43 +32,97 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Exécuté au démarrage et à l'arrêt de l'API."""
-    logger.info("=" * 50)
-    logger.info("  CHATBOT RAG - DEMARRAGE")
-    logger.info("=" * 50)
+    logger.info("=" * 55)
+    logger.info("  CHATBOT RAG — DÉMARRAGE")
+    logger.info("=" * 55)
 
-    # Pré-charger l'index et le modèle au démarrage
     try:
         from src.indexer import index_exists
-        from config import is_hf_enabled
+        from config import (
+            is_hf_enabled, is_r2_enabled,
+            get_all_categories, DOCS_DIR,
+        )
+        from src.loader import SUPPORTED_EXTENSIONS as _EXT
+        from pathlib import Path as _Path
 
+        # ── 1. Restaurer les fichiers sources depuis Cloudflare R2 ────────────
+        # Render (et tout PaaS avec filesystem éphémère) perd les fichiers locaux
+        # entre les redémarrages. R2 est la source de vérité permanente.
+        if is_r2_enabled():
+            logger.info("[startup] Cloudflare R2 configuré — restauration des fichiers sources…")
+            try:
+                from src.storage import sync_r2_to_local
+                downloaded = sync_r2_to_local(DOCS_DIR)
+                if downloaded:
+                    logger.info(f"[startup] ✓ R2 → local : {downloaded} fichier(s) restauré(s)")
+                else:
+                    logger.info("[startup] · R2 → local : aucun nouveau fichier à restaurer")
+            except Exception as e:
+                logger.warning(f"[startup] ✗ R2 sync ignorée : {e}", exc_info=True)
+        else:
+            logger.info("[startup] Cloudflare R2 : non configuré (mode filesystem local)")
+
+        # ── 2. Récupérer l'index FAISS depuis HuggingFace Hub ────────────────
         if not index_exists() and is_hf_enabled():
-            # Index absent localement → tentative de pull depuis HF Hub
-            logger.info("Index FAISS absent — tentative de pull depuis HuggingFace Hub…")
+            logger.info("[startup] Index FAISS absent — pull depuis HuggingFace Hub…")
             try:
                 from src.hf_store import pull_index_from_hub
                 pulled = pull_index_from_hub()
                 if pulled:
-                    logger.info("Index FAISS récupéré depuis HF Hub : OK")
+                    logger.info("[startup] ✓ Index FAISS récupéré depuis HF Hub")
                 else:
-                    logger.warning("HF Hub : index absent (premier déploiement ?)")
+                    logger.info("[startup] · HF Hub : index absent (premier déploiement ?)")
             except Exception as e:
-                logger.warning(f"HF Hub pull ignoré : {e}")
+                logger.warning(f"[startup] ✗ HF Hub pull ignoré : {e}", exc_info=True)
+        elif not is_hf_enabled():
+            logger.info("[startup] HuggingFace Hub : non configuré (persistance index désactivée)")
 
+        # ── 3. Pré-charger l'index ou lancer une reconstruction automatique ──
         if index_exists():
             from src.retriever import get_vectorstore
             get_vectorstore()
-            logger.info("Index FAISS pre-charge : OK")
+            logger.info("[startup] ✓ Index FAISS pré-chargé")
         else:
-            logger.warning(
-                "Index FAISS absent — uploadez des documents via l'interface "
-                "ou lancez : python ingest.py"
-            )
+            # Vérifier si des documents locaux sont présents
+            cats = get_all_categories()
+            has_docs = False
+            for cat_cfg in cats.values():
+                cat_dir = _Path(cat_cfg["dir"])
+                if cat_dir.exists() and any(
+                    f.suffix.lower() in _EXT for f in cat_dir.iterdir()
+                ):
+                    has_docs = True
+                    break
+
+            if has_docs:
+                logger.info("[startup] Documents présents sans index → reconstruction automatique…")
+                try:
+                    from api.routes.documents import _run_reindex_all_background
+                    import threading
+                    t = threading.Thread(
+                        target=_run_reindex_all_background,
+                        daemon=True,
+                        name="startup-auto-reindex",
+                    )
+                    t.start()
+                    logger.info("[startup] ✓ Reconstruction d'index lancée en arrière-plan")
+                except Exception as e:
+                    logger.warning(f"[startup] ✗ Reconstruction auto échouée : {e}", exc_info=True)
+            else:
+                logger.warning(
+                    "[startup] · Index FAISS absent — uploadez des documents via l'interface"
+                )
+
     except Exception as e:
-        logger.error(f"Erreur pré-chargement au démarrage : {e}", exc_info=True)
+        logger.error(f"[startup] Erreur critique au démarrage : {e}", exc_info=True)
+
+    logger.info("=" * 55)
+    logger.info("  API prête — http://0.0.0.0:8000")
+    logger.info("=" * 55)
 
     yield  # L'app tourne ici
 
-    logger.info("Chatbot RAG - Arret propre.")
+    logger.info("[shutdown] Chatbot RAG — Arrêt propre.")
 
 
 # ============================================================

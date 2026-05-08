@@ -81,6 +81,7 @@ const TRANSLATIONS = {
     'upload.bg.error':    'Erreur lors de l\'indexation :',
     'upload.err.nofiles': 'Sélectionnez au moins un fichier.',
     'upload.err.nocat':   'Choisissez une catégorie.',
+    'upload.file.toobig': '⚠️ « {name} » ({size}) dépasse la limite de 50 Mo et ne sera pas envoyé.',
 
     /* ── Nouvelle catégorie ── */
     'newcat.option':  '＋ Nouvelle catégorie',
@@ -107,13 +108,15 @@ const TRANSLATIONS = {
     /* ── Suppression document ── */
     'delete.doc.confirm':  'Supprimer « {name} » ? Cette action est irréversible.',
     'delete.doc.running':  'Suppression en cours…',
+    'delete.doc.pending':  '🗑️ « {name} » supprimé. Reconstruction de l\'index…',
     'delete.doc.success':  '✅ « {name} » supprimé. Index reconstruit.',
     'delete.doc.error':    '⚠️ Erreur lors de la suppression.',
 
     /* ── Suppression catégorie ── */
     'delete.cat.confirm':  'Supprimer la catégorie « {label} » et tous ses documents ? Action irréversible.',
     'delete.cat.running':  'Suppression en cours…',
-    'delete.cat.success':  '✅ Catégorie « {label} » supprimée ({n} document(s)).',
+    'delete.cat.pending':  '🗑️ Catégorie « {label} » supprimée ({n} doc.). Reconstruction de l\'index…',
+    'delete.cat.success':  '✅ Catégorie « {label} » supprimée ({n} document(s)). Index reconstruit.',
     'delete.cat.error':    '⚠️ Erreur lors de la suppression de la catégorie.',
 
     /* ── Ré-indexation d'un fichier ── */
@@ -199,6 +202,7 @@ const TRANSLATIONS = {
     'upload.bg.error':    'Indexation error:',
     'upload.err.nofiles': 'Please select at least one file.',
     'upload.err.nocat':   'Please choose a category.',
+    'upload.file.toobig': '⚠️ « {name} » ({size}) exceeds the 50 MB limit and will not be uploaded.',
 
     /* ── Nouvelle catégorie ── */
     'newcat.option':  '＋ New category',
@@ -225,13 +229,15 @@ const TRANSLATIONS = {
     /* ── Delete document ── */
     'delete.doc.confirm':  'Delete « {name} »? This action is irreversible.',
     'delete.doc.running':  'Deleting…',
+    'delete.doc.pending':  '🗑️ « {name} » deleted. Rebuilding index…',
     'delete.doc.success':  '✅ « {name} » deleted. Index rebuilt.',
     'delete.doc.error':    '⚠️ Error while deleting.',
 
     /* ── Delete category ── */
     'delete.cat.confirm':  'Delete category « {label} » and all its documents? Irreversible action.',
     'delete.cat.running':  'Deleting…',
-    'delete.cat.success':  '✅ Category « {label} » deleted ({n} document(s)).',
+    'delete.cat.pending':  '🗑️ Category « {label} » deleted ({n} doc.). Rebuilding index…',
+    'delete.cat.success':  '✅ Category « {label} » deleted ({n} document(s)). Index rebuilt.',
     'delete.cat.error':    '⚠️ Error while deleting category.',
 
     /* ── Reindex single file ── */

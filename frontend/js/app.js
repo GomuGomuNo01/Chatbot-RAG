@@ -198,10 +198,18 @@ class App {
     const statusEl = document.getElementById('statusText');
     const isOk     = data.status === 'ok' && data.index_disponible;
 
-    badge.className      = `status-badge status-badge--${isOk ? 'ok' : 'warn'}`;
-    statusEl.textContent = isOk
-      ? `${i18n.lang === 'en' ? 'Ready' : 'Prêt'} · ${data.nb_categories} ${i18n.lang === 'en' ? 'cat.' : 'cat.'}`
-      : i18n.t('status.noindex');
+    badge.className = `status-badge status-badge--${isOk ? 'ok' : 'warn'}`;
+
+    if (isOk) {
+      const nbDocs = data.nb_documents != null ? data.nb_documents : null;
+      const catPart = `${data.nb_categories} cat.`;
+      const docPart = nbDocs != null
+        ? ` · ${nbDocs} doc${nbDocs !== 1 ? 's' : ''}`
+        : '';
+      statusEl.textContent = `${i18n.lang === 'en' ? 'Ready' : 'Prêt'} · ${catPart}${docPart}`;
+    } else {
+      statusEl.textContent = i18n.t('status.noindex');
+    }
 
     if (!data.index_disponible) {
       this._showNotice(i18n.t('notice.noindex'));
@@ -520,15 +528,42 @@ class App {
   }
 
   _addFiles(fileList) {
-    const allowed = new Set(['.pdf', '.docx', '.txt']);
+    const allowed  = new Set(['.pdf', '.docx', '.txt']);
+    const MAX_SIZE = 50 * 1024 * 1024;  // 50 Mo — identique à la limite serveur
+    let   hasWarn  = false;
+
     for (const file of fileList) {
       const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+
+      // Extension non supportée → ignorer silencieusement (le browseBtn filtre déjà)
       if (!allowed.has(ext)) continue;
+
+      // Taille supérieure à 50 Mo → alerter l'utilisateur avant l'envoi
+      if (file.size > MAX_SIZE) {
+        this._showFeedback(
+          i18n.t('upload.file.toobig', { name: this._esc(file.name), size: this._humanSize(file.size) }),
+          'warn',
+        );
+        hasWarn = true;
+        continue;
+      }
+
+      // Doublon dans la sélection en cours → ignorer silencieusement
       if (this._uploadFiles.some(f => f.name === file.name)) continue;
+
       this._uploadFiles.push(file);
     }
+
     this._renderFileList();
     this._refreshSubmitBtn();
+
+    // Masquer le feedback de taille si tous les fichiers étaient valides
+    if (!hasWarn) {
+      const fb = document.getElementById('uploadFeedback');
+      if (fb && fb.classList.contains('upload-feedback--warn') && !this._uploadFiles.length) {
+        // Ne pas masquer un message d'erreur existant s'il n'y a pas encore de fichiers
+      }
+    }
   }
 
   _renderFileList() {
@@ -578,10 +613,20 @@ class App {
         pct.textContent  = `${progress}%`;
       });
 
-      const nb_ok  = result.fichiers.filter(f => f.statut === 'ok').length;
-      const nb_err = result.fichiers.filter(f => f.statut === 'erreur').length;
+      const nb_ok      = result.fichiers.filter(f => f.statut === 'ok').length;
+      const nb_err     = result.fichiers.filter(f => f.statut === 'erreur').length;
+      const errored    = result.fichiers.filter(f => f.statut === 'erreur');
 
-      // ── Phase 2 : attente de l'indexation en arrière-plan ──
+      // Bloc HTML détaillant les erreurs par fichier (si présentes)
+      const _buildErrDetail = () => {
+        if (!errored.length) return '';
+        const lines = errored.map(f =>
+          `• <strong>${this._esc(f.nom)}</strong> : ${this._esc(f.detail || 'Erreur inconnue')}`
+        ).join('<br>');
+        return `<br><small style="opacity:.85">${lines}</small>`;
+      };
+
+      // ── Phase 2 : attente de l'indexation en arrière-plan ──────────────────
       if (result.background && nb_ok > 0) {
         fill.style.width = '100%';
         pct.textContent  = '100%';
@@ -591,30 +636,32 @@ class App {
           const status = await this._waitForIndexation();
           overlay.hidden = true;
 
-          // Succès total ou partiel (avec avertissements)
-          if (status.warnings && status.warnings.length > 0) {
-            const warnLines = status.warnings.map(w => `• ${w}`).join('<br>');
+          // Avertissements d'extraction (fichiers scannés / vides)
+          const bgWarns = status.warnings || [];
+          const okFinal = nb_ok - bgWarns.length;
+
+          if (bgWarns.length > 0 || nb_err > 0) {
+            const warnLines = bgWarns.map(w => `• ${this._esc(w)}`).join('<br>');
             this._showFeedback(
-              `${i18n.t('upload.partial', { ok: nb_ok - status.warnings.length, err: status.warnings.length })}<br><small>${warnLines}</small>`,
-              'warn'
+              i18n.t('upload.partial', { ok: Math.max(0, okFinal), err: nb_err + bgWarns.length })
+              + (warnLines ? `<br><small style="opacity:.85">${warnLines}</small>` : '')
+              + _buildErrDetail(),
+              'warn',
             );
-          } else if (nb_err === 0) {
-            this._showFeedback(i18n.t('upload.success', { n: nb_ok }), 'ok');
           } else {
-            this._showFeedback(i18n.t('upload.partial', { ok: nb_ok, err: nb_err }), 'warn');
+            this._showFeedback(i18n.t('upload.success', { n: nb_ok }), 'ok');
           }
         } catch (bgErr) {
           overlay.hidden = true;
           this._showFeedback(`⚠️ ${i18n.t('upload.bg.error')} ${bgErr.message}`, 'error');
         }
       } else {
-        // Pas d'indexation (tous en erreur)
+        // Tous en erreur → pas d'indexation lancée
         overlay.hidden = true;
-        if (nb_ok === 0) {
-          this._showFeedback(i18n.t('upload.partial', { ok: 0, err: nb_err }), 'warn');
-        } else {
-          this._showFeedback(i18n.t('upload.partial', { ok: nb_ok, err: nb_err }), 'warn');
-        }
+        this._showFeedback(
+          i18n.t('upload.partial', { ok: nb_ok, err: nb_err }) + _buildErrDetail(),
+          nb_ok > 0 ? 'warn' : 'error',
+        );
       }
 
       await this._loadDocuments();
@@ -710,12 +757,27 @@ class App {
     if (!confirm(i18n.t('delete.doc.confirm', { name: filename }))) return;
 
     // Feedback inline dans la sidebar
-    const item = document.querySelector(`.doc-item[data-cat="${categorie}"][data-file="${CSS.escape(filename)}"]`);
+    const item = document.querySelector(
+      `.doc-item[data-cat="${CSS.escape(categorie)}"][data-file="${CSS.escape(filename)}"]`
+    );
     if (item) item.style.opacity = '0.4';
 
     try {
-      await apiDeleteDocument(categorie, filename);
-      this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
+      const result = await apiDeleteDocument(categorie, filename);
+
+      if (result.background) {
+        // Fichier supprimé — reconstruction index en arrière-plan
+        this._showToast(i18n.t('delete.doc.pending', { name: filename }), 'ok');
+        // Attendre la fin sans bloquer l'interface
+        this._waitForIndexation().then(() => {
+          this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
+        }).catch(err => {
+          this._showToast(`${i18n.t('delete.doc.error')} ${err.message}`, 'error');
+        });
+      } else {
+        this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
+      }
+
       await this._loadDocuments();
       await this._checkHealth();
     } catch (err) {
@@ -728,15 +790,26 @@ class App {
     if (!confirm(i18n.t('delete.cat.confirm', { label }))) return;
     try {
       const result = await apiDeleteCategory(key);
+
       // Si la catégorie supprimée était sélectionnée, remettre à "Tout"
       if (this.selectedCategory === key) {
         this.selectedCategory = null;
         this._updateCategoryBadge();
-        document.querySelector('input[name="category"][value=""]').checked = true;
+        const allRadio = document.querySelector('input[name="category"][value=""]');
+        if (allRadio) allRadio.checked = true;
       }
       delete this._customCategories[key];
       this._renderDynamicCategoryItems();
-      this._showToast(i18n.t('delete.cat.success', { label, n: result.docs_deleted }), 'ok');
+
+      if (result.background) {
+        this._showToast(i18n.t('delete.cat.pending', { label, n: result.docs_deleted }), 'ok');
+        this._waitForIndexation().then(() => {
+          this._showToast(i18n.t('delete.cat.success', { label, n: result.docs_deleted }), 'ok');
+        }).catch(() => {});
+      } else {
+        this._showToast(i18n.t('delete.cat.success', { label, n: result.docs_deleted }), 'ok');
+      }
+
       await this._loadDocuments();
       await this._checkHealth();
     } catch (err) {

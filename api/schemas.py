@@ -77,12 +77,15 @@ class DocumentsResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Réponse du endpoint GET /api/health"""
-    status:          str
+    status:           str
     index_disponible: bool
-    nb_categories:   int
-    modele_llm:      str
+    nb_categories:    int
+    nb_documents:     int = 0    # nombre total de fichiers dans docs/
+    modele_llm:       str
     modele_embedding: str
-    version:         str
+    version:          str
+    r2_enabled:       bool = False   # Cloudflare R2 configuré
+    hf_enabled:       bool = False   # HuggingFace Hub configuré
 
 
 class ErrorResponse(BaseModel):
@@ -178,17 +181,19 @@ class IndexStatusResponse(BaseModel):
 
 class DeleteDocumentResponse(BaseModel):
     """Réponse du endpoint DELETE /api/documents/{categorie}/{filename}"""
-    nom:       str
-    categorie: str
-    message:   str
+    nom:        str
+    categorie:  str
+    message:    str
+    background: bool = False  # True = reconstruction index en arrière-plan
 
 
 class DeleteCategoryResponse(BaseModel):
     """Réponse du endpoint DELETE /api/categories/{key}"""
-    key:           str
-    label:         str
-    docs_deleted:  int
-    message:       str
+    key:          str
+    label:        str
+    docs_deleted: int
+    message:      str
+    background:   bool = False  # True = reconstruction index en arrière-plan
 
 
 class ReindexFileResponse(BaseModel):

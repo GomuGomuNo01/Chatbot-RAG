@@ -125,9 +125,47 @@ _ANAPHORA = re.compile(
     r"ce|cet|cette|ces|celui|celle|ceux|celles|"
     r"y|en|ça|cela|ceci|lequel|laquelle|lesquels|lesquelles|"
     r"dont|duquel|de laquelle|"
-    r"le même|la même|les mêmes)\b",
+    r"le même|la même|les mêmes|"
+    # Références duales / plurielles implicites
+    r"les deux|tous les deux|toutes les deux|"
+    r"l'un et l'autre|l'une et l'autre|"
+    r"entre eux|entre elles|entre les deux|"
+    r"chacun|chacune|l'un|l'une|l'autre)\b",
     re.IGNORECASE,
 )
+
+# ──────────────────────────────────────────────────────────────
+# Patterns de questions comparatives
+# ──────────────────────────────────────────────────────────────
+
+# Détecte "différence entre X et Y", "comparer X et Y", "X vs Y", etc.
+_COMPARATIVE_RE: list[re.Pattern] = [
+    # "la différence entre X et Y", "quelles différences entre X et Y"
+    re.compile(
+        r"\bdiff[eé]rence[s]?\s+entre\s+(.+?)\s+et\s+(.+?)(?=\s*\?|$)",
+        re.IGNORECASE,
+    ),
+    # "comparer X et Y", "comparaison entre X et Y"
+    re.compile(
+        r"\bcompar(?:er|aison|ez)\s+(?:entre\s+)?(.+?)\s+et\s+(.+?)(?=\s*\?|$)",
+        re.IGNORECASE,
+    ),
+    # "X versus Y", "X vs Y"
+    re.compile(
+        r"\b(.+?)\s+(?:versus|vs\.?)\s+(.+?)(?=\s*\?|$)",
+        re.IGNORECASE,
+    ),
+    # "distinguer X de Y", "distinction entre X et Y"
+    re.compile(
+        r"\bdistin(?:guer|ction)\s+(?:entre\s+|de\s+)?(.+?)\s+(?:et|de)\s+(.+?)(?=\s*\?|$)",
+        re.IGNORECASE,
+    ),
+    # "qu'est-ce qui différencie X de Y"
+    re.compile(
+        r"\bdiff[eé]renci(?:e|er|ent)\s+(.+?)\s+(?:de|et)\s+(.+?)(?=\s*\?|$)",
+        re.IGNORECASE,
+    ),
+]
 
 # Prompt ultra-compact pour la réécriture contextuelle
 _REWRITE_PROMPT = """\
@@ -265,6 +303,69 @@ async def contextualize_query_async(
     except Exception as e:
         logger.warning(f"[STREAM] Query rewriting ignoré : {e}")
         return question
+
+
+# ──────────────────────────────────────────────────────────────
+# Décomposition des questions comparatives
+# ──────────────────────────────────────────────────────────────
+
+def decompose_comparative_query(question: str) -> list[str]:
+    """
+    Détecte les questions comparatives et les décompose en sous-requêtes
+    spécialisées pour maximiser le rappel FAISS.
+
+    Principe : une question du type « différence entre CDI et CDD » nécessite
+    des chunks sur CDI *et* des chunks sur CDD. Une unique requête vectorielle
+    ne couvre pas forcément les deux termes. On génère donc 3 sous-requêtes :
+      1. Requête ciblée sur le concept A
+      2. Requête ciblée sur le concept B
+      3. Requête directe sur la comparaison A/B
+
+    Exemple :
+      "Quelle est la différence entre un CDI et un CDD ?"
+      → [
+          "CDI (contrat à durée indéterminée) définition caractéristiques",
+          "CDD (contrat à durée déterminée) définition caractéristiques",
+          "différence CDI (contrat à durée indéterminée) CDD (contrat à durée déterminée)",
+        ]
+
+    Retourne une liste vide si aucun pattern comparatif n'est détecté.
+    """
+    # Nettoyer la question des mots interrogatifs parasites avant la détection
+    cleaned = re.sub(
+        r"^(quelle est|quelles sont|qu'est-ce que|comment|pourquoi|"
+        r"what is|what are|how|why)\s+",
+        "",
+        question.strip(),
+        flags=re.IGNORECASE,
+    )
+
+    for pattern in _COMPARATIVE_RE:
+        m = pattern.search(cleaned)
+        if m:
+            x = m.group(1).strip().rstrip(".,;:")
+            y = m.group(2).strip().rstrip(".,;:")
+
+            # Ignorer si l'un des termes est trop court ou trop vague
+            if len(x) < 2 or len(y) < 2:
+                continue
+
+            # Expansion des acronymes dans chaque terme
+            x_exp = expand_acronyms(x)
+            y_exp = expand_acronyms(y)
+
+            sub_queries = [
+                f"{x_exp} définition caractéristiques",
+                f"{y_exp} définition caractéristiques",
+                f"différence {x_exp} {y_exp}",
+            ]
+            logger.info(
+                f"[decompose] Question comparative détectée : «{x}» vs «{y}» "
+                f"→ {len(sub_queries)} sous-requêtes"
+            )
+            return sub_queries
+
+    return []
 
 
 # ──────────────────────────────────────────────────────────────

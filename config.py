@@ -64,8 +64,9 @@ CHUNK_OVERLAP = 200    # Chevauchement pour conserver le contexte
 # RETRIEVAL — Recherche sémantique
 # ============================================================
 
-TOP_K_RESULTS       = 6     # Nb de chunks remontés par requête
-SIMILARITY_THRESHOLD = 0.15 # Score minimum (1/(1+L2_dist)) — 0.15 ≈ distance L2 ≤ 5.6
+TOP_K_RESULTS       = 8     # Nb de chunks dans le contexte final (multi_search fusionne N requêtes)
+SIMILARITY_THRESHOLD = 0.12 # Score minimum (1/(1+L2_dist)) — 0.12 ≈ distance L2 ≤ 7.3
+                            # Seuil abaissé pour les questions comparatives multi-requêtes
 
 # ============================================================
 # MÉMOIRE CONVERSATIONNELLE
@@ -231,10 +232,15 @@ Ne jamais inventer, supposer ou compléter avec des connaissances non présentes
 2. **Exhaustivité** — Si plusieurs extraits apportent des éléments complémentaires, \
 synthétise-les tous. Ne laisse pas d'information pertinente de côté.
 3. **Honnêteté** — Si l'information est absente, partielle ou ambiguë dans les extraits, \
-dis-le explicitement : *« Les documents disponibles ne précisent pas… »*
-4. **Pas de référence aux sources** — Ne cite pas les numéros d'extraits (ex. [1], [2], \
+dis-le explicitement : *« Les documents disponibles ne précisent pas… »* \
+Ne dis PAS que l'information est absente si tu peux la déduire des extraits fournis.
+4. **Synthèse comparative** — Si la question compare deux concepts (ex. : « différence entre CDI et CDD ») \
+et que les extraits définissent chaque concept séparément (sans paragraphe de comparaison explicite), \
+construis toi-même la comparaison à partir des définitions et caractéristiques disponibles. \
+Commence par résumer chaque concept, puis présente les différences clés dans un tableau ou une liste contrastive.
+5. **Pas de référence aux sources** — Ne cite pas les numéros d'extraits (ex. [1], [2], \
 Extrait 3…) — elles sont affichées séparément dans l'interface.
-5. **Langue** — Réponds impérativement dans la même langue que la question.
+6. **Langue** — Réponds impérativement dans la même langue que la question.
 
 ## Format de réponse
 

@@ -24,6 +24,7 @@ from src.query_processor import (
     expand_acronyms,
     build_search_query,
     build_search_query_async,
+    decompose_comparative_query,
 )
 from config import (
     GROQ_API_KEY,
@@ -134,16 +135,41 @@ class RAGChain:
     ) -> list[str]:
         """
         Construit la liste de requêtes à envoyer au retriever.
-        Toujours au moins [requête originale étendue].
-        Si contextualisation utile : [originale étendue, requête contextualisée].
+
+        Stratégie multi-couche :
+          1. Requête originale avec expansion des acronymes
+          2. Décomposition comparative (si "différence entre X et Y") :
+             génère des sous-requêtes ciblées sur chaque concept
+          3. Réécriture contextuelle via LLM (si pronoms / "les deux" / question courte) :
+             résout les anaphores grâce à l'historique
+          4. Décomposition comparative de la requête réécrite (si applicable)
+
+        multi_search() fusionne et déduplique les résultats de toutes les requêtes.
         """
         expanded = expand_acronyms(question)
-        queries = [expanded]
-        # La réécriture contextuelle synchrone (pour ask())
+        queries: list[str] = [expanded]
+
+        # ── Couche 2 : décomposition comparative ──────────────────────────────
+        # "différence entre CDI et CDD" → 3 sous-requêtes indépendantes
+        sub_queries = decompose_comparative_query(expanded)
+        for sq in sub_queries:
+            if sq not in queries:
+                queries.append(sq)
+
+        # ── Couche 3 : réécriture contextuelle (synchrone pour ask()) ─────────
+        # Résout "les deux" → "CDI et CDD", "il" → "le CDI", etc.
         if not is_stream:
             rewritten = build_search_query(question, history_compact, self.llm)
-            if rewritten != expanded and rewritten not in queries:
+            if rewritten and rewritten != expanded and rewritten not in queries:
                 queries.append(rewritten)
+                # ── Couche 4 : décomposer aussi la requête réécrite ───────────
+                # Ex. : "les deux" → "différence CDI CDD" → décomposition
+                sub_rewritten = decompose_comparative_query(rewritten)
+                for sq in sub_rewritten:
+                    if sq not in queries:
+                        queries.append(sq)
+
+        logger.info(f"Requêtes retrieval ({len(queries)}) : {queries}")
         return queries
 
     async def _build_search_queries_async(
@@ -151,12 +177,28 @@ class RAGChain:
         question: str,
         history_compact: str,
     ) -> list[str]:
-        """Version async pour ask_stream()."""
-        expanded  = expand_acronyms(question)
-        queries   = [expanded]
+        """
+        Version async pour ask_stream() — même logique que _build_search_queries.
+        """
+        expanded = expand_acronyms(question)
+        queries: list[str] = [expanded]
+
+        # ── Décomposition comparative ─────────────────────────────────────────
+        sub_queries = decompose_comparative_query(expanded)
+        for sq in sub_queries:
+            if sq not in queries:
+                queries.append(sq)
+
+        # ── Réécriture contextuelle async ─────────────────────────────────────
         rewritten = await build_search_query_async(question, history_compact, self.llm)
-        if rewritten != expanded and rewritten not in queries:
+        if rewritten and rewritten != expanded and rewritten not in queries:
             queries.append(rewritten)
+            sub_rewritten = decompose_comparative_query(rewritten)
+            for sq in sub_rewritten:
+                if sq not in queries:
+                    queries.append(sq)
+
+        logger.info(f"[STREAM] Requêtes retrieval ({len(queries)}) : {queries}")
         return queries
 
     def _no_result_answer(
