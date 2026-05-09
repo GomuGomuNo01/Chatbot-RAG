@@ -59,8 +59,9 @@ def extract_text_from_pdf(pdf_path: Path) -> list[dict]:
         doc = fitz.open(str(pdf_path))
         total_pages = len(doc)
 
-        # Pré-lecture pour détecter le format slides
+        # Pré-lecture pour détecter le format slides et les PDFs scannés
         raw_texts = [doc[i].get_text("text").strip() for i in range(min(15, total_pages))]
+        sample_chars = sum(len(t) for t in raw_texts)
         is_slides = _is_slide_pdf(raw_texts)
         if is_slides:
             logger.info(f"  PDF slides détecté : {pdf_path.name} — nettoyage du bruit activé")
@@ -79,11 +80,21 @@ def extract_text_from_pdf(pdf_path: Path) -> list[dict]:
                 )
         doc.close()
         if not pages:
-            logger.warning(
-                f"  PDF : {pdf_path.name} ({size_kb} Ko, {total_pages} page(s)) — "
-                "aucune page avec du texte extractible. "
-                "Le fichier est peut-être scanné (images) ou protégé."
-            )
+            # Distingue les PDFs scannés (image uniquement) des PDFs protégés/vides
+            if sample_chars == 0:
+                logger.warning(
+                    f"  PDF scanné (image uniquement) : {pdf_path.name} "
+                    f"({size_kb} Ko, {total_pages} page(s)) — "
+                    "0 caractère extractible sur les pages testées. "
+                    "Ce document doit être converti en PDF texte avant indexation "
+                    "(ex : Adobe Acrobat OCR, ocrmypdf, ou un outil en ligne)."
+                )
+            else:
+                logger.warning(
+                    f"  PDF : {pdf_path.name} ({size_kb} Ko, {total_pages} page(s)) — "
+                    "aucune page avec suffisamment de texte (min 50 chars). "
+                    "Le fichier est peut-être protégé ou contient principalement des images."
+                )
         else:
             logger.info(f"  PDF : {pdf_path.name} — {len(pages)}/{total_pages} page(s) utile(s)")
     except Exception as e:

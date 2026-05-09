@@ -477,6 +477,75 @@ async def build_search_query_async(
 # Détection des références à des articles de loi
 # ──────────────────────────────────────────────────────────────
 
+
+def _normalize_article_ref(ref: str) -> str | None:
+    """
+    Normalise une référence d'article vers le format stocké dans les PDFs.
+
+    Le Code du Travail stocke les articles sans point ni espace entre la lettre
+    de préfixe et les chiffres (ex : « L1111-1 » et non « L. 1111-1 »).
+    Les utilisateurs utilisent souvent la notation officielle avec point.
+
+    Exemples :
+        "L. 1234-5"  → "L1234-5"   ✓ format PDF Code du Travail
+        "R. 123-4"   → "R123-4"
+        "D. 123-4"   → "D123-4"
+        "4"          → None         (Code Civil — pas de variante)
+        "111-1"      → None         (Code Pénal — pas de variante)
+    """
+    m = re.match(r"^([A-Z])\.\s+(\d[\d\-]*)\s*$", ref.strip())
+    if m:
+        return f"{m.group(1)}{m.group(2)}"
+    return None
+
+
+def _expand_article_range(start_ref: str, end_ref: str) -> list[str]:
+    """
+    Tente d'énumérer les articles d'une plage « articles X à Y ».
+
+    N'énumère que si X et Y sont des entiers purs (sans tiret ni lettre)
+    et si la plage contient au plus 10 articles. Sinon retourne les deux bornes.
+
+    Exemples :
+        "4", "7"       → ["4", "5", "6", "7"]
+        "1", "50"      → ["1", "50"]  (plage trop grande)
+        "L1234-5", "L1234-10" → ["L1234-5", "L1234-10"]
+    """
+    s, e = start_ref.strip(), end_ref.strip()
+    if re.match(r"^\d+$", s) and re.match(r"^\d+$", e):
+        si, ei = int(s), int(e)
+        if 0 < ei - si <= 10:
+            return [str(n) for n in range(si, ei + 1)]
+    return [s, e]
+
+
+def _article_query_forms(ref: str) -> list[str]:
+    """
+    Génère toutes les formes de requête FAISS pour une référence d'article.
+
+    Produit « Article X » (forme originale) et, si applicable, « Article Y »
+    (forme normalisée PDF) pour couvrir les variantes de notation.
+
+    Exemples :
+        "L. 1234-5" → ["Article L. 1234-5", "Article L1234-5"]
+        "4"         → ["Article 4"]
+        "111-1"     → ["Article 111-1"]
+    """
+    forms = [f"Article {ref}"]
+    normalized = _normalize_article_ref(ref)
+    if normalized:
+        nq = f"Article {normalized}"
+        if nq not in forms:
+            forms.append(nq)
+    return forms
+
+
+# Détecte "articles X à Y" ou "articles X au Y" (plages d'articles)
+_ARTICLE_RANGE_RE = re.compile(
+    r"\barticles?\s+([A-Z]*\.?\s*\d+(?:[–\-]\d+)*)\s+(?:à|au)\s+([A-Z]*\.?\s*\d+(?:[–\-]\d+)*)",
+    re.IGNORECASE,
+)
+
 # "article 4", "l'article L. 1234-5", "articles R. 123-4", etc.
 _ARTICLE_NUM_RE = re.compile(
     r"\barticles?\s+([A-Z]*\.?\s*\d+(?:[–\-]\d+)*)",
@@ -494,33 +563,45 @@ def extract_article_queries(question: str) -> list[str]:
     Détecte les références à des articles de loi dans la question et génère
     des requêtes ciblées à ajouter au multi-retrieval.
 
-    Principe : le modèle d'embedding paraphrase ne fait pas bien la
-    correspondance entre « que dit l'article 4 » et le chunk « Article 4 \\n
-    Le juge qui refusera… ». En ajoutant une requête directe « Article 4 »,
-    on garantit un hit quasi-certain dans l'espace vectoriel.
+    Améliorations :
+    • Gère les plages : « articles 4 à 7 » → requêtes pour 4, 5, 6, 7
+    • Normalise le format Code du Travail : « L. 1234-5 » génère aussi
+      « Article L1234-5 » (le PDF stocke sans point ni espace)
+    • Déduplique les références identiques
 
     Exemples :
-        "que dit l'article 4 du code civil"          → ["Article 4"]
-        "quelles règles pour les articles 4 et 5 ?"  → ["Article 4", "Article 5"]
-        "article L. 1234-5 du code du travail"       → ["Article L. 1234-5"]
-        "expliquez les articles R. 123-1 et R. 123-2"→ ["Article R. 123-1", "Article R. 123-2"]
+        "que dit l'article 4 du code civil"
+            → ["Article 4"]
+        "article L. 1234-5 du code du travail"
+            → ["Article L. 1234-5", "Article L1234-5"]
+        "les articles 1 à 3 du code civil"
+            → ["Article 1", "Article 2", "Article 3"]
+        "articles R. 123-1 et R. 123-2"
+            → ["Article R. 123-1", "Article R123-1",
+               "Article R. 123-2", "Article R123-2"]
 
     Retourne une liste vide si aucune référence légale n'est trouvée.
     """
-    refs: list[str] = []
-    for m in _ARTICLE_NUM_RE.finditer(question):
-        refs.append(m.group(1).strip())
-    for m in _ARTICLE_AND_RE.finditer(question):
-        refs.append(m.group(1).strip())
+    raw_refs: list[str] = []
 
-    # Normalise : "Article N" et déduplique (ordre préservé)
+    # ── Plages : "articles X à Y" ──────────────────────────────
+    for m in _ARTICLE_RANGE_RE.finditer(question):
+        raw_refs.extend(_expand_article_range(m.group(1).strip(), m.group(2).strip()))
+
+    # ── Références individuelles ────────────────────────────────
+    for m in _ARTICLE_NUM_RE.finditer(question):
+        raw_refs.append(m.group(1).strip())
+    for m in _ARTICLE_AND_RE.finditer(question):
+        raw_refs.append(m.group(1).strip())
+
+    # ── Génération des formes de requête + déduplication ────────
     seen: set[str] = set()
     queries: list[str] = []
-    for ref in refs:
-        normalized = f"Article {ref}"
-        if normalized not in seen:
-            seen.add(normalized)
-            queries.append(normalized)
+    for ref in raw_refs:
+        for form in _article_query_forms(ref):
+            if form not in seen:
+                seen.add(form)
+                queries.append(form)
 
     if queries:
         logger.info(f"[article_queries] Références légales détectées : {queries}")
@@ -644,3 +725,205 @@ def clean_slide_text(text: str) -> str:
     # Nettoyer les lignes vides multiples générées par les suppressions
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+# ──────────────────────────────────────────────────────────────
+# Enrichissement sémantique des concepts juridiques
+# ──────────────────────────────────────────────────────────────
+
+# Paires (pattern de détection dans la question, requête enrichie pour FAISS)
+# Activées uniquement si le concept apparaît textuellement dans la question.
+_LEGAL_CONCEPTS: list[tuple[re.Pattern, str]] = [
+    # ── Droit du travail (Code du Travail) ──────────────────────
+    (
+        re.compile(r"\blicenci(?:ement|er|é|és)\b", re.I),
+        "licenciement motif cause réelle sérieuse procédure lettre préavis",
+    ),
+    (
+        re.compile(r"\brupture\s+conventionnelle\b", re.I),
+        "rupture conventionnelle contrat travail homologation formulaire",
+    ),
+    (
+        re.compile(r"\bheures?\s+suppl[eé]mentaires?\b", re.I),
+        "heures supplémentaires durée travail majoration contingent annuel",
+    ),
+    (
+        re.compile(r"\bcong[eé]\s+(?:parental|maternit[eé]|paternit[eé]|pay[eé])\b", re.I),
+        "congé parental maternité paternité payé protection emploi durée",
+    ),
+    (
+        re.compile(r"\bharc[eè]lement\b", re.I),
+        "harcèlement moral sexuel définition obligation employeur sanctions pénales",
+    ),
+    (
+        re.compile(r"\bdiscrimination\b", re.I),
+        "discrimination emploi interdiction critères protégés égalité traitement",
+    ),
+    (
+        re.compile(r"\bpr[eé]avis\b", re.I),
+        "préavis licenciement démission durée délai dispense rémunération",
+    ),
+    (
+        re.compile(r"\bindemni(?:t[eé]|sation)\s+(?:de\s+)?licenciement\b", re.I),
+        "indemnité licenciement calcul ancienneté barème légal",
+    ),
+    (
+        re.compile(r"\bprud[''']?hommes?\b", re.I),
+        "conseil prud'hommes compétence procédure saisine conciliation jugement",
+    ),
+    (
+        re.compile(r"\bp[eé]riode\s+d[''']essai\b", re.I),
+        "période essai durée renouvellement rupture conditions CDI CDD",
+    ),
+    (
+        re.compile(r"\bgrève\b", re.I),
+        "grève droit exercice préavis service minimum réquisition",
+    ),
+    (
+        re.compile(r"\bsyndicat\b", re.I),
+        "syndicat représentativité droits délégué section syndicale",
+    ),
+    (
+        re.compile(r"\bcomit[eé]\s+social\b", re.I),
+        "comité social économique CSE attributions consultation représentation",
+    ),
+    # ── Droit civil (Code Civil) ─────────────────────────────────
+    (
+        re.compile(r"\bdivorce\b", re.I),
+        "divorce causes procédure consentement mutuel faute effets patrimoniaux",
+    ),
+    (
+        re.compile(r"\bmariage\b", re.I),
+        "mariage conditions célébration effets régime matrimonial époux",
+    ),
+    (
+        re.compile(r"\bsuccession\b", re.I),
+        "succession héritage héritiers réserve héréditaire quotité disponible",
+    ),
+    (
+        re.compile(r"\btestament\b", re.I),
+        "testament formes validité olographe authentique legs légataire",
+    ),
+    (
+        re.compile(r"\bdonation\b", re.I),
+        "donation conditions effets révocation réduction rapport succession",
+    ),
+    (
+        re.compile(r"\bresponsabilit[eé]\s+civile\b", re.I),
+        "responsabilité civile délictuelle contractuelle faute dommage réparation",
+    ),
+    (
+        re.compile(r"\bprescription\b", re.I),
+        "prescription délai extinction droit action civile interruption",
+    ),
+    (
+        re.compile(r"\bgarde\s+(?:d[''']?enfant|alternée)\b", re.I),
+        "garde enfant autorité parentale résidence alternée droit visite",
+    ),
+    (
+        re.compile(r"\btutelle\b", re.I),
+        "tutelle curatelle mesure protection majeur incapacité tribunal",
+    ),
+    (
+        re.compile(r"\badoption\b", re.I),
+        "adoption plénière simple conditions effets filiation",
+    ),
+    (
+        re.compile(r"\bhypoth[eè]que\b", re.I),
+        "hypothèque sûreté réelle immeuble inscription créancier privilège",
+    ),
+    (
+        re.compile(r"\bnullit[eé]\s+(?:d[eu][s]?\s+)?contrat\b", re.I),
+        "nullité contrat vices consentement dol erreur violence relative absolue",
+    ),
+    # ── Droit pénal (Code Pénal) ─────────────────────────────────
+    (
+        re.compile(r"\bgarde\s+[aà]\s+vue\b", re.I),
+        "garde à vue droits durée renouvellement notification avocat silence",
+    ),
+    (
+        re.compile(r"\bmise\s+en\s+examen\b", re.I),
+        "mise en examen instruction judiciaire juge indices graves charges",
+    ),
+    (
+        re.compile(r"\bd[eé]tention\s+provisoire\b", re.I),
+        "détention provisoire conditions durée liberté présomption innocence",
+    ),
+    (
+        re.compile(r"\bl[eé]gitime\s+d[eé]fense\b", re.I),
+        "légitime défense conditions proportionnalité nécessité riposte infraction",
+    ),
+    (
+        re.compile(r"\bcomplicit[eé]\b", re.I),
+        "complicité aide assistance infraction peine auteur principal",
+    ),
+    (
+        re.compile(r"\br[eé]cidive\b", re.I),
+        "récidive aggravation peine circonstances définition délai",
+    ),
+    (
+        re.compile(r"\bhomicide\b", re.I),
+        "homicide involontaire volontaire meurtre assassinat peine réclusion",
+    ),
+    (
+        re.compile(r"\bvol\s+(?:qualifi[eé]|avec\s+violence|aggrav[eé])\b", re.I),
+        "vol qualifié violence arme bande organisée circonstances aggravantes peine",
+    ),
+    (
+        re.compile(r"\bextorsion\b", re.I),
+        "extorsion violence menace contrainte bien signature peine crime",
+    ),
+    # ── Droits fondamentaux (DDHC / Constitution) ────────────────
+    (
+        re.compile(r"\blibert[eé]\s+d[''']expression\b", re.I),
+        "liberté expression presse opinion droits fondamentaux déclaration",
+    ),
+    (
+        re.compile(r"\b[eé]galit[eé]\s+(?:devant\s+la\s+loi|des\s+droits|des\s+citoyens)\b", re.I),
+        "égalité droits citoyens loi principe constitutionnel",
+    ),
+    (
+        re.compile(r"\bpropri[eé]t[eé]\s+(?:priv[eé]e|droit|inviolable)\b", re.I),
+        "propriété droit inviolable sacré expropriation utilité publique",
+    ),
+    (
+        re.compile(r"\bpr[eé]somption\s+d[''']innocence\b", re.I),
+        "présomption innocence droits défense principe fondamental accusé",
+    ),
+]
+
+
+def extract_legal_concept_queries(question: str) -> list[str]:
+    """
+    Détecte les concepts juridiques dans la question et génère des requêtes
+    enrichies avec le vocabulaire légal technique correspondant.
+
+    Améliore le retrieval sur les codes juridiques (Code Civil, Code du Travail,
+    Code Pénal, Constitution, DDHC) en injectant des termes du domaine légal
+    souvent absents dans la question brute de l'utilisateur.
+
+    Principe : la question « comment se passe un licenciement ? » ne contient
+    pas les termes « cause réelle sérieuse » ou « préavis » qui apparaissent dans
+    les chunks du Code du Travail. La requête enrichie les injecte pour améliorer
+    la similarité vectorielle avec les bons chunks.
+
+    Exemples :
+        "comment se passe un licenciement ?"
+            → ["licenciement motif cause réelle sérieuse procédure lettre préavis"]
+
+        "qu'est-ce qu'une garde à vue ?"
+            → ["garde à vue droits durée renouvellement notification avocat silence"]
+
+    Retourne une liste vide si aucun concept juridique n'est détecté.
+    """
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    for pattern, enriched in _LEGAL_CONCEPTS:
+        if pattern.search(question) and enriched not in seen:
+            seen.add(enriched)
+            queries.append(enriched)
+
+    if queries:
+        logger.info(f"[legal_concept_queries] Concepts juridiques : {queries}")
+    return queries
