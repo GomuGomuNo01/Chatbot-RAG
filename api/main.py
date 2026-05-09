@@ -105,10 +105,22 @@ async def lifespan(app: FastAPI):
 
         # ── 3. Pré-charger l'index ou lancer une reconstruction automatique ──
         if index_exists():
-            from src.retriever import get_vectorstore
+            # Pré-chargement optionnel : accélère la 1ère requête mais non critique.
+            # Encapsulé séparément du try global pour éviter un crash OOM silencieux
+            # (le kernel tue le process avant que l'exception ne soit catchée).
+            # Si les embeddings échouent (HF_TOKEN absent, modèle local manquant),
+            # on continue — l'index se chargera lazily à la première requête.
+            try:
+                from src.retriever import get_vectorstore
 
-            get_vectorstore()
-            logger.info("[startup] ✓ Index FAISS pré-chargé")
+                get_vectorstore()
+                logger.info("[startup] ✓ Index FAISS pré-chargé")
+            except Exception as preload_err:
+                logger.warning(
+                    f"[startup] · Pré-chargement index ignoré ({type(preload_err).__name__}) "
+                    "— chargement différé à la première requête. "
+                    "Vérifiez que HF_TOKEN est défini si vous utilisez requirements-prod.txt."
+                )
         else:
             # Vérifier si des documents locaux sont présents
             cats = get_all_categories()
