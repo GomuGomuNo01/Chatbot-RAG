@@ -63,17 +63,17 @@ Cette technique s'appelle le **RAG** *(Retrieval-Augmented Generation)* — elle
 Votre question
       │
       ▼
-┌─────────────────┐     ┌──────────────────────────┐
+┌─────────────────┐     ┌───────────────────────────┐
 │  Transformation │     │  Base de 15 917 passages  │
 │  en empreinte   │────▶│  indexés (FAISS)          │
 │  numérique      │     │  ← vos documents PDF/Word │
-└─────────────────┘     └──────────┬───────────────┘
+└─────────────────┘     └──────────┬────────────────┘
                                    │ Top 10 passages pertinents
                                    ▼
-                        ┌──────────────────────────┐
+                        ┌───────────────────────────┐
                         │  Llama 3.3 70B (via Groq) │
                         │  génère la réponse        │
-                        └──────────┬───────────────┘
+                        └──────────┬────────────────┘
                                    │
                                    ▼
                      Réponse + sources (fichier + page)
