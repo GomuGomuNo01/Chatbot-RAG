@@ -29,6 +29,7 @@ from src.query_processor import (
     extract_annotation_queries,
     extract_article_queries,
     extract_legal_concept_queries,
+    extract_tech_concept_queries,
 )
 from src.retriever import (
     format_sources,
@@ -293,12 +294,22 @@ class RAGChain:
         # ── Couche 2c : concepts juridiques ───────────────────────────────────
         # "licenciement abusif ?" → ajoute les termes légaux du Code du Travail
         # "garde à vue ?"        → termes procéduraux du Code Pénal
-        # Améliore le rappel sur les codes juridiques : les chunks contiennent
-        # un vocabulaire technique absent de la question brute de l'utilisateur.
+        # "grille salariale ?"   → termes de la convention collective
+        # "49-3 ?"               → termes constitutionnels
         legal_qs = extract_legal_concept_queries(question)
         for lq in legal_qs:
             if lq not in queries:
                 queries.append(lq)
+
+        # ── Couche 2d : concepts techniques JS / PHP ───────────────────────────
+        # "closure en JS ?"      → termes du cours JavaScript
+        # "connexion PDO PHP ?"  → termes du cours PHP
+        # Améliore le rappel sur les cours techniques : les chunks contiennent
+        # un vocabulaire précis (then, catch, __construct…) absent de la question.
+        tech_qs = extract_tech_concept_queries(question)
+        for tq in tech_qs:
+            if tq not in queries:
+                queries.append(tq)
 
         # ── Couche 3 : décomposition comparative ──────────────────────────────
         # "différence entre CDI et CDD" → 3 sous-requêtes indépendantes
@@ -354,6 +365,12 @@ class RAGChain:
         for lq in legal_qs:
             if lq not in queries:
                 queries.append(lq)
+
+        # ── Concepts techniques JS / PHP ──────────────────────────────────────
+        tech_qs = extract_tech_concept_queries(question)
+        for tq in tech_qs:
+            if tq not in queries:
+                queries.append(tq)
 
         # ── Décomposition comparative ─────────────────────────────────────────
         # Passe `question` (original) — decompose_comparative_query expand en interne

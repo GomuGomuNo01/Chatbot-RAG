@@ -869,6 +869,83 @@ _LEGAL_CONCEPTS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\bextorsion\b", re.I),
         "extorsion violence menace contrainte bien signature peine crime",
     ),
+    # ── Droit pénal — compléments ────────────────────────────────
+    (
+        re.compile(r"\bviol\b|\bagression\s+sexuelle\b|\batteinte\s+sexuelle\b", re.I),
+        "viol agression sexuelle atteinte mineur consentement peine crime",
+    ),
+    (
+        re.compile(r"\bescroquerie\b", re.I),
+        "escroquerie tromperie manœuvres frauduleuses remise bien peine",
+    ),
+    (
+        re.compile(r"\babus\s+de\s+confiance\b", re.I),
+        "abus confiance détournement bien remis usage déterminé peine",
+    ),
+    (
+        re.compile(r"\bterrorisme\b|\bacte\s+terroriste\b", re.I),
+        "terrorisme acte infraction association malfaiteurs financement peine",
+    ),
+    (
+        re.compile(r"\bcrime[s]?\b|\bcrim(?:inel|inelle|inels)\b", re.I),
+        "crime classification infraction peine réclusion cour d'assises",
+    ),
+    (
+        re.compile(r"\bd[eé]lit[s]?\b", re.I),
+        "délit infraction tribunal correctionnel peine emprisonnement amende",
+    ),
+    (
+        re.compile(r"\bcontravention[s]?\b", re.I),
+        "contravention infraction tribunal police amende classe",
+    ),
+    # ── Droit civil — compléments ────────────────────────────────
+    (
+        re.compile(r"\bPACS\b|\bpacte\s+civil\s+de\s+solidarit[eé]\b", re.I),
+        "PACS pacte civil solidarité enregistrement effets rupture régime",
+    ),
+    (
+        re.compile(r"\bfiliation\b|\b[eé]tablissement\s+de\s+la\s+filiation\b", re.I),
+        "filiation reconnaissance légitimité paternité maternité acte naissance",
+    ),
+    (
+        re.compile(r"\bobligation\s+alimentaire\b|\bpension\s+alimentaire\b", re.I),
+        "obligation alimentaire pension alimentaire créancier débiteur calcul",
+    ),
+    (
+        re.compile(r"\bbail\b|\blocataire\b|\bpropri[eé]taire\b|\blocatif\b", re.I),
+        "bail loyer locataire bailleur congé préavis dépôt garantie charges",
+    ),
+    (
+        re.compile(r"\bcopropri[eé]t[eé]\b|\bsyndicat\s+de\s+copropri[eé]taires\b", re.I),
+        "copropriété lot tantièmes assemblée générale syndic charges règlement",
+    ),
+    (
+        re.compile(
+            r"\bcontrat\s+de\s+vente\b|\bvente\s+(?:immobili[eè]re|d[''']un\s+bien)\b", re.I
+        ),
+        "contrat vente prix livraison transfert propriété garanties défauts",
+    ),
+    # ── Droit du travail — compléments ──────────────────────────
+    (
+        re.compile(r"\b35\s*heures?\b|\bdur[eé]e\s+l[eé]gale\b|\btemps\s+de\s+travail\b", re.I),
+        "durée légale travail 35 heures semaine dépassement contingent annuel",
+    ),
+    (
+        re.compile(r"\bt[eé]l[eé]travail\b|\btravail\s+[aà]\s+distance\b", re.I),
+        "télétravail accord conditions matériel frais prise en charge employeur",
+    ),
+    (
+        re.compile(r"\bapprentissage\b|\bcontrat\s+d[''']apprentissage\b", re.I),
+        "apprentissage contrat apprenti maître d'apprentissage rémunération formation",
+    ),
+    (
+        re.compile(r"\bformation\s+professionnelle\b|\bCPF\b", re.I),
+        "formation professionnelle CPF plan développement compétences financement OPCO",
+    ),
+    (
+        re.compile(r"\bconvention\s+de\s+forfait\b|\bforfait\s+jours?\b", re.I),
+        "convention forfait jours cadre accord collectif renonciation RTT",
+    ),
     # ── Droits fondamentaux (DDHC / Constitution) ────────────────
     (
         re.compile(r"\blibert[eé]\s+d[''']expression\b", re.I),
@@ -886,6 +963,115 @@ _LEGAL_CONCEPTS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\bpr[eé]somption\s+d[''']innocence\b", re.I),
         "présomption innocence droits défense principe fondamental accusé",
     ),
+    (
+        re.compile(r"\bsouverainet[eé]\b|\bsouverain\b", re.I),
+        "souveraineté nationale peuple délégation représentants élections",
+    ),
+    (
+        re.compile(r"\blibert[eé]\s+(?:individuelle|personnelle|fondamentale)\b", re.I),
+        "liberté individuelle droits naturels inaliénables déclaration",
+    ),
+    (
+        re.compile(r"\bdr(?:oit|oits)\s+de\s+l[''']homme\b|\bDDHC\b", re.I),
+        "droits de l'homme citoyen 1789 déclaration principes naturels liberté égalité",
+    ),
+    # ── Droit constitutionnel (Constitution du 4 octobre 1958) ──
+    (
+        re.compile(r"\b49[\s\-]3\b|\barticle\s+49\b", re.I),
+        "article 49 engagement responsabilité gouvernement texte vote confiance censure",
+    ),
+    (
+        re.compile(r"\bmotion\s+de\s+censure\b", re.I),
+        "motion censure Assemblée nationale renversement gouvernement vote",
+    ),
+    (
+        re.compile(r"\bdissolution\b|\bdissoudre\s+l[''']Assembl[eé]e\b", re.I),
+        "dissolution Assemblée nationale Président République décret élections législatives",
+    ),
+    (
+        re.compile(r"\br[eé]vision\s+constitutionnelle\b|\bmodifier\s+la\s+Constitution\b", re.I),
+        "révision Constitution article 89 initiative parlement référendum congrès",
+    ),
+    (
+        re.compile(r"\b[eé]tat\s+d[''']urgence\b|\barticle\s+16\b", re.I),
+        "état urgence pouvoirs exceptionnels article 16 Président République menace",
+    ),
+    (
+        re.compile(r"\bConseil\s+constitutionnel\b", re.I),
+        "Conseil constitutionnel contrôle conformité loi Constitution QPC membres",
+    ),
+    (
+        re.compile(r"\bQuestion\s+[Pp]rioritaire\s+de\s+[Cc]onstitutionnalit[eé]\b|\bQPC\b", re.I),
+        "QPC question prioritaire constitutionnalité droits fondamentaux contrôle",
+    ),
+    (
+        re.compile(r"\bPremier\s+ministre\b|\bchef\s+du\s+gouvernement\b", re.I),
+        "Premier ministre chef gouvernement nomination responsabilité Assemblée",
+    ),
+    (
+        re.compile(r"\bPr[eé]sident\s+de\s+la\s+R[eé]publique\b|\bpr[eé]sidentiel\b", re.I),
+        "Président République pouvoirs élection quinquennat promulgation loi",
+    ),
+    (
+        re.compile(r"\bs[eé]paration\s+des\s+pouvoirs?\b", re.I),
+        "séparation pouvoirs exécutif législatif judiciaire équilibre Constitution",
+    ),
+    (
+        re.compile(r"\bparlement\b|\bAssembl[eé]e\s+nationale\b|\bS[eé]nat\b", re.I),
+        "Parlement Assemblée nationale Sénat vote loi bicamérisme navette",
+    ),
+    # ── Convention collective (RH) ────────────────────────────────
+    (
+        re.compile(r"\bgrille\s+salariale\b|\bclassification\s+(?:profession|\s)", re.I),
+        "grille salariale classification coefficient catégorie emploi échelon",
+    ),
+    (
+        re.compile(r"\bsal(?:aire|aris[eé]s?)\s+(?:minimum|de\s+base|brut|net)\b", re.I),
+        "salaire minimum base brut net coefficient classification grille rémunération",
+    ),
+    (
+        re.compile(r"\bprime\s+(?:d[''']anciennet[eé]|de\s+treizi[eè]me|annuelle)\b", re.I),
+        "prime ancienneté treizième mois annuelle conditions calcul versement",
+    ),
+    (
+        re.compile(r"\bconvention\s+collective\b", re.I),
+        "convention collective accord branche entreprise salaires classification préavis",
+    ),
+    (
+        re.compile(
+            r"\bpr[eé]avis\s+(?:de\s+)?(?:d[eé]mission|licenciement)\b.*convention\b"
+            r"|convention\b.*\bpr[eé]avis\b",
+            re.I,
+        ),
+        "préavis démission licenciement durée convention collective catégorie cadre",
+    ),
+    (
+        re.compile(r"\bmutuelle\b|\bcompl[eé]mentaire\s+sant[eé]\b|\bprevoyance\b", re.I),
+        "mutuelle complémentaire santé prévoyance cotisation employeur salarié",
+    ),
+    (
+        re.compile(r"\bretraite\s+compl[eé]mentaire\b|\bARRCO\b|\bAGIRC\b", re.I),
+        "retraite complémentaire ARRCO AGIRC points cotisation taux",
+    ),
+    (
+        re.compile(
+            r"\bavantage[s]?\s+en\s+nature\b|\bticketing?\s+restaurant\b|\bvéhicule\s+de\s+fonction\b",
+            re.I,
+        ),
+        "avantages en nature ticket restaurant véhicule de fonction évaluation cotisations",
+    ),
+    (
+        re.compile(r"\bintéressement\b|\bparticipation\b|\bépargne\s+salariale\b", re.I),
+        "intéressement participation épargne salariale accord bénéfices répartition",
+    ),
+    (
+        re.compile(
+            r"\bclassification\s+(?:convention|convention\s+collective|emploi|poste)\b"
+            r"|niveau\s+(?:de\s+classification|d[''']emploi)\b",
+            re.I,
+        ),
+        "classification emploi poste niveau coefficient critères classement",
+    ),
 ]
 
 
@@ -894,9 +1080,8 @@ def extract_legal_concept_queries(question: str) -> list[str]:
     Détecte les concepts juridiques dans la question et génère des requêtes
     enrichies avec le vocabulaire légal technique correspondant.
 
-    Améliore le retrieval sur les codes juridiques (Code Civil, Code du Travail,
-    Code Pénal, Constitution, DDHC) en injectant des termes du domaine légal
-    souvent absents dans la question brute de l'utilisateur.
+    Couvre : Code du Travail, Code Civil, Code Pénal, Constitution 1958,
+    DDHC 1789 et Convention collective (RH).
 
     Principe : la question « comment se passe un licenciement ? » ne contient
     pas les termes « cause réelle sérieuse » ou « préavis » qui apparaissent dans
@@ -910,6 +1095,9 @@ def extract_legal_concept_queries(question: str) -> list[str]:
         "qu'est-ce qu'une garde à vue ?"
             → ["garde à vue droits durée renouvellement notification avocat silence"]
 
+        "quelle est la grille salariale ?"
+            → ["grille salariale classification coefficient catégorie emploi échelon"]
+
     Retourne une liste vide si aucun concept juridique n'est détecté.
     """
     queries: list[str] = []
@@ -922,4 +1110,153 @@ def extract_legal_concept_queries(question: str) -> list[str]:
 
     if queries:
         logger.info(f"[legal_concept_queries] Concepts juridiques : {queries}")
+    return queries
+
+
+# ──────────────────────────────────────────────────────────────
+# Enrichissement sémantique des concepts techniques (JS / PHP)
+# ──────────────────────────────────────────────────────────────
+
+# Paires (pattern de détection dans la question, requête enrichie pour FAISS)
+# Complémentaire aux annotations Spring Boot — couvre le JS (Cours_Javascript.pdf)
+# et PHP (Php.pdf) dont les concepts ne bénéficient d'aucun enrichissement natif.
+_TECH_CONCEPTS: list[tuple[re.Pattern, str]] = [
+    # ── JavaScript ───────────────────────────────────────────────
+    (
+        re.compile(r"\bclosure[s]?\b", re.I),
+        "closure portée variable fonction contexte lexical environnement",
+    ),
+    (
+        re.compile(r"\bhoisting\b|\bremonté[eés]?\b.*(?:var|déclaration)\b", re.I),
+        "hoisting remontée déclaration variable var let const portée",
+    ),
+    (
+        re.compile(r"\bpromesse[s]?\b|\bpromise[s]?\b", re.I),
+        "promise promesse then catch finally resolve reject état pending",
+    ),
+    (
+        re.compile(r"\basync\b.*\bawait\b|\bawait\b.*\basync\b|\basync\/await\b", re.I),
+        "async await promesse asynchrone fonction mot-clé JavaScript",
+    ),
+    (
+        re.compile(r"\bDOM\b|\bdocument\s+object\s+model\b|\bmanipulation\s+(?:du\s+)?DOM\b", re.I),
+        "DOM document object model manipulation élément nœud sélecteur",
+    ),
+    (
+        re.compile(r"\b(?:gestionnaire\s+d['''])?[eé]v[eé]nement[s]?\b|\baddEventListener\b", re.I),
+        "événement addEventListener gestionnaire callback clic souris clavier",
+    ),
+    (
+        re.compile(r"\bprototype\b", re.I),
+        "prototype héritage chaîne objet JavaScript __proto__ Object",
+    ),
+    (
+        re.compile(r"\bmodule[s]?\s+(?:ES6|javascript|js)\b|\bimport\b.*\bfrom\b", re.I),
+        "module import export ES6 CommonJS ESM default named",
+    ),
+    (
+        re.compile(r"\bfetch\b|\bXMLHttpRequest\b", re.I),
+        "fetch XMLHttpRequest requête HTTP API JSON asynchrone réponse",
+    ),
+    (
+        re.compile(r"\blocal\s*storage\b|\bsession\s*storage\b", re.I),
+        "localStorage sessionStorage stockage navigateur clé valeur persistance",
+    ),
+    (
+        re.compile(r"\bdestructuration\b|\bdestructuring\b", re.I),
+        "destructuration tableau objet affectation ES6 spread rest",
+    ),
+    (
+        re.compile(r"\bclasse[s]?\s+(?:javascript|js|ES6)\b|\bclass\b.*\bextends\b", re.I),
+        "classe ES6 constructeur héritage extends super méthodes JavaScript",
+    ),
+    (
+        re.compile(r"\bportée\b|\bscope\b", re.I),
+        "portée scope variable let const var bloc fonction globale",
+    ),
+    (
+        re.compile(r"\bcallback[s]?\b|\bfonction\s+de\s+rappel\b", re.I),
+        "callback fonction rappel asynchrone paramètre exécution",
+    ),
+    (
+        re.compile(r"\bspread\b|\brest\b.*param[eè]tres?\b|\bop[eé]rateur\s+\.\.\.", re.I),
+        "spread rest opérateur décomposition tableau objet paramètres",
+    ),
+    # ── PHP ──────────────────────────────────────────────────────
+    (
+        re.compile(r"\bPDO\b|\bbase\s+de\s+donn[eé]es\s+PHP\b|\bconnexion\s+PHP\b", re.I),
+        "PDO connexion base données PHP requête préparée prepare execute fetch",
+    ),
+    (
+        re.compile(r"\bsession[s]?\s+PHP\b|\b\$_SESSION\b|\bsession_start\b", re.I),
+        "session PHP $_SESSION session_start stockage variable côté serveur",
+    ),
+    (
+        re.compile(r"\bcookie[s]?\s+PHP\b|\bsetcookie\b|\b\$_COOKIE\b", re.I),
+        "cookie PHP setcookie $_COOKIE lecture expiration sécurité",
+    ),
+    (
+        re.compile(r"\btableau[x]?\s+PHP\b|\barray\b.*\bPHP\b|\bPHP\b.*\barray\b", re.I),
+        "tableau array PHP fonctions array_map array_filter sort count",
+    ),
+    (
+        re.compile(r"\bclasse[s]?\s+PHP\b|\bhéritage\s+PHP\b|\bextends\b.*PHP\b", re.I),
+        "classe PHP héritage extends constructeur __construct méthodes public private",
+    ),
+    (
+        re.compile(r"\bformulaire[s]?\s+PHP\b|\b\$_POST\b|\b\$_GET\b", re.I),
+        "formulaire PHP $_POST $_GET traitement validation données utilisateur",
+    ),
+    (
+        re.compile(r"\bnamespace[s]?\s+PHP\b|\buse\b.*\\\w", re.I),
+        "namespace PHP espace noms autoload use Composer PSR",
+    ),
+    (
+        re.compile(r"\binclude\b.*PHP\b|\brequire\b.*PHP\b|\bPHP\b.*\binclude\b", re.I),
+        "include require include_once require_once fichier PHP modularité",
+    ),
+    (
+        re.compile(r"\binterface\s+PHP\b|\btrait[s]?\s+PHP\b|\babstrait[e]?\b.*PHP\b", re.I),
+        "interface trait classe abstraite PHP contrat implémentation",
+    ),
+    (
+        re.compile(r"\bgestion\s+(?:d['''])?erreur[s]?\s+PHP\b|\btry\b.*\bcatch\b.*PHP\b", re.I),
+        "exception erreur PHP try catch finally throw Exception gestion",
+    ),
+]
+
+
+def extract_tech_concept_queries(question: str) -> list[str]:
+    """
+    Détecte les concepts techniques JavaScript/PHP dans la question et génère
+    des requêtes enrichies avec le vocabulaire technique correspondant.
+
+    Couvre les documents :
+    - Cours_Javascript.pdf : closures, DOM, promesses, async/await, classes ES6…
+    - Php.pdf : PDO, sessions, tableaux, classes PHP, formulaires…
+
+    Principe identique à extract_legal_concept_queries : la question
+    « comment créer une promesse ? » ne contient pas les mots « then », « catch »,
+    « resolve » qui apparaissent dans les chunks du cours. La requête enrichie
+    les injecte pour améliorer la similarité vectorielle.
+
+    Exemples :
+        "comment fonctionne async/await ?"
+            → ["async await promesse asynchrone fonction mot-clé JavaScript"]
+
+        "comment se connecter à une BDD en PHP ?"
+            → ["PDO connexion base données PHP requête préparée prepare execute fetch"]
+
+    Retourne une liste vide si aucun concept technique n'est détecté.
+    """
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    for pattern, enriched in _TECH_CONCEPTS:
+        if pattern.search(question) and enriched not in seen:
+            seen.add(enriched)
+            queries.append(enriched)
+
+    if queries:
+        logger.info(f"[tech_concept_queries] Concepts techniques JS/PHP : {queries}")
     return queries
