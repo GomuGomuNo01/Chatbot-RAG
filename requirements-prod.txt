@@ -25,4 +25,4 @@ pydantic-settings==2.14.1
 # Utilitaires
 python-dotenv==1.2.2
 tqdm==4.67.3
-huggingface_hub>=0.23.0
+huggingface_hub>=1.14.0
