@@ -26,7 +26,9 @@ from src.query_processor import (
     build_search_query_async,
     decompose_comparative_query,
     expand_acronyms,
+    extract_annotation_queries,
     extract_article_queries,
+    extract_legal_concept_queries,
 )
 from src.retriever import format_sources, multi_search, search
 from src.utils import format_context_from_docs
@@ -249,11 +251,12 @@ class RAGChain:
 
         Stratégie multi-couche :
           1. Requête originale avec expansion des acronymes
-          2. Décomposition comparative (si "différence entre X et Y") :
-             génère des sous-requêtes ciblées sur chaque concept
-          3. Réécriture contextuelle via LLM (si pronoms / "les deux" / question courte) :
-             résout les anaphores grâce à l'historique
-          4. Décomposition comparative de la requête réécrite (si applicable)
+          2. Références légales directes ("article L. 1234-5" → "Article L1234-5")
+          2b. Annotations Java/Spring Boot (@Annotation → requête enrichie)
+          2c. Concepts juridiques (licenciement → termes légaux du code)
+          3. Décomposition comparative ("différence entre X et Y" → sous-requêtes)
+          4. Réécriture contextuelle via LLM (pronoms / question courte)
+          5. Décomposition comparative de la requête réécrite
 
         multi_search() fusionne et déduplique les résultats de toutes les requêtes.
         """
@@ -269,6 +272,27 @@ class RAGChain:
         for aq in article_qs:
             if aq not in queries:
                 queries.append(aq)
+
+        # ── Couche 2b : annotations Java/Spring Boot (@Annotation) ───────────
+        # "@RestController comment l'utiliser" → ajoute une requête enrichie
+        # "@RestController rest controller http endpoints web mvc"
+        # Le modèle d'embedding ne fait pas bien le lien entre la question
+        # et le chunk de doc qui décrit l'annotation. La requête enrichie
+        # contient les termes-clés du contexte Spring Boot correspondant.
+        annotation_qs = extract_annotation_queries(question)
+        for aq in annotation_qs:
+            if aq not in queries:
+                queries.append(aq)
+
+        # ── Couche 2c : concepts juridiques ───────────────────────────────────
+        # "licenciement abusif ?" → ajoute les termes légaux du Code du Travail
+        # "garde à vue ?"        → termes procéduraux du Code Pénal
+        # Améliore le rappel sur les codes juridiques : les chunks contiennent
+        # un vocabulaire technique absent de la question brute de l'utilisateur.
+        legal_qs = extract_legal_concept_queries(question)
+        for lq in legal_qs:
+            if lq not in queries:
+                queries.append(lq)
 
         # ── Couche 3 : décomposition comparative ──────────────────────────────
         # "différence entre CDI et CDD" → 3 sous-requêtes indépendantes
@@ -312,6 +336,18 @@ class RAGChain:
         for aq in article_qs:
             if aq not in queries:
                 queries.append(aq)
+
+        # ── Annotations Java/Spring Boot ──────────────────────────────────────
+        annotation_qs = extract_annotation_queries(question)
+        for aq in annotation_qs:
+            if aq not in queries:
+                queries.append(aq)
+
+        # ── Concepts juridiques ───────────────────────────────────────────────
+        legal_qs = extract_legal_concept_queries(question)
+        for lq in legal_qs:
+            if lq not in queries:
+                queries.append(lq)
 
         # ── Décomposition comparative ─────────────────────────────────────────
         # Passe `question` (original) — decompose_comparative_query expand en interne
