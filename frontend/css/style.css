@@ -72,9 +72,19 @@
   --shadow-md: 0 4px 18px rgba(28,17,9,.10);
   --shadow-lg: 0 10px 36px rgba(28,17,9,.15);
 
-  /* ── Transitions ── */
-  --t:      150ms ease;
-  --t-slow: 260ms ease;
+  /* ── Easing — Impeccable animate.md + Taste MOTION_INTENSITY:6 ──
+     ease-out-expo : "confident, decisive" (cubic-bezier(0.16,1,0.3,1))
+     Utilisé pour TOUT. Jamais `ease`, jamais `linear`, jamais bounce.  */
+  --ease:      cubic-bezier(0.16, 1, 0.3, 1);   /* ease-out-expo     */
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);       /* ease-in — sorties */
+
+  /* ── Durées par intention (Impeccable animate.md) ──
+     100–150ms : feedback immédiat (touche, toggle)
+     200–300ms : changement d'état (hover, menu)
+     300–500ms : layout (accordéon, modal)           */
+  --t:      200ms var(--ease);
+  --t-fast: 120ms var(--ease);
+  --t-slow: 300ms var(--ease);
 
   /* ── Espacement fluide (clamp) ── */
   --sp-xs: clamp(0.5rem,  1vw,  0.75rem);
@@ -100,14 +110,26 @@ html, body { height: 100%; }
 
 body {
   font-family: var(--font);
-  /* 15px → 16px fluide entre 375 et 1024px */
   font-size: clamp(0.9375rem, 0.875rem + 0.33vw, 1rem);
   color: var(--clr-text);
   background: var(--clr-bg);
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* OpenType features Satoshi — kern + ligatures (Impeccable typeset.md) */
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+  font-kerning: normal;
 }
+
+/* ── Focus-visible — anneau clavier accessible, invisible au clic ──
+   Impeccable product.md : state vocabulary complet obligatoire         */
+:focus-visible {
+  outline: 2px solid var(--clr-primary);
+  outline-offset: 3px;
+  border-radius: var(--r-sm);
+}
+/* Neutralise l'outline natif (remplacé par :focus-visible ci-dessus) */
+:focus:not(:focus-visible) { outline: none; }
 
 body.modal-open { overflow: hidden; }
 
@@ -577,21 +599,45 @@ a    { color: var(--clr-primary); }
 
 .example-btn {
   padding: 7px 14px;
-  /* Presque carré — anti-bulle pill générique */
   border-radius: var(--r-sm);
   border: 1px solid var(--clr-border);
   background: var(--clr-surface);
   color: var(--clr-text-muted);
   font-size: 0.8125rem; font-weight: 500;
-  transition: background var(--t), color var(--t), border-color var(--t);
+  /* Stagger reveal — apparition en cascade (Taste MOTION_INTENSITY:6) */
+  opacity: 0;
+  animation: exampleIn 400ms var(--ease) forwards;
   touch-action: manipulation;
+  will-change: transform;
 }
-.example-btn:hover  {
-  background: var(--clr-primary-light);
-  color: var(--clr-primary);
-  border-color: var(--clr-primary);
+/* Stagger par position (Taste Section 4 : staggered orchestration) */
+.example-btn:nth-child(1) { animation-delay: 80ms; }
+.example-btn:nth-child(2) { animation-delay: 160ms; }
+.example-btn:nth-child(3) { animation-delay: 240ms; }
+.example-btn:nth-child(4) { animation-delay: 320ms; }
+
+@keyframes exampleIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-.example-btn:active { opacity: .85; }
+
+/* Hover : uniquement si l'appareil supporte le hover (Impeccable responsive.md) */
+@media (hover: hover) {
+  .example-btn:hover {
+    background: var(--clr-primary-light);
+    color: var(--clr-primary);
+    border-color: var(--clr-primary);
+    transform: translateY(-1px);
+    transition: background var(--t), color var(--t), border-color var(--t),
+                transform var(--t-fast);
+  }
+}
+/* Active : retour physique (Impeccable delight.md + Taste Rule 5) */
+.example-btn:active {
+  transform: translateY(1px);
+  transition-duration: 80ms;
+  opacity: .9;
+}
 
 /* ================================================================
    MESSAGES — style éditorial, pas "iMessage"
@@ -666,9 +712,10 @@ a    { color: var(--clr-primary); }
 }
 .message--assistant .message__bubble:hover { box-shadow: var(--shadow); }
 .message--assistant {
-  transition: transform 160ms cubic-bezier(0.25, 0, 0, 1);
+  transition: transform var(--t-fast);
+  will-change: transform;
 }
-.message--assistant:hover { transform: translateY(-1px); }
+/* Le :hover du message est géré dans @media (hover: hover) plus bas */
 
 /* ── Markdown ── */
 .message__text p            { margin: 0 0 8px; }
@@ -931,16 +978,29 @@ a    { color: var(--clr-primary); }
   transition: background var(--t), opacity var(--t), transform 100ms ease;
   touch-action: manipulation;
 }
-.send-btn svg                    { width: 15px; height: 15px; }
-.send-btn:hover:not(:disabled)   { background: var(--clr-primary-hover); }
-.send-btn:active:not(:disabled)  { transform: scale(0.88); }
+.send-btn svg { width: 15px; height: 15px; }
+@media (hover: hover) {
+  .send-btn:hover:not(:disabled) { background: var(--clr-primary-hover); }
+}
+/* Active : push physique + ombre compressée (Impeccable delight.md) */
+.send-btn:active:not(:disabled) {
+  transform: translateY(2px) scale(0.95);
+  box-shadow: 0 1px 3px rgba(28,17,9,.18);
+  transition-duration: 80ms;
+}
 .send-btn:disabled { background: var(--clr-border); color: var(--clr-text-faint); cursor: not-allowed; }
 
 .input-footer {
   display: flex; justify-content: space-between; padding: 0 2px;
   max-width: 740px; width: 100%; margin-inline: auto;
 }
-.char-counter, .disclaimer { font-size: 0.6875rem; color: var(--clr-text-faint); }
+/* tabular-nums : chiffres largeur fixe (Impeccable typeset.md) */
+.char-counter {
+  font-size: 0.6875rem; color: var(--clr-text-faint);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+.disclaimer { font-size: 0.6875rem; color: var(--clr-text-faint); }
 
 /* ================================================================
    NOTICE
@@ -1036,15 +1096,26 @@ a    { color: var(--clr-primary); }
 .btn {
   padding: 8px 18px; border-radius: var(--r); border: none;
   font-size: 0.875rem; font-weight: 600; cursor: pointer;
-  transition: background var(--t), color var(--t), border-color var(--t), opacity var(--t);
+  transition: background var(--t), color var(--t), border-color var(--t), opacity var(--t),
+              transform var(--t-fast), box-shadow var(--t-fast);
   touch-action: manipulation;
+  will-change: transform;
 }
-.btn:disabled   { opacity: .5; cursor: not-allowed; }
-.btn--primary   { background: var(--clr-primary); color: #FFF; }
-.btn--primary:hover:not(:disabled) { background: var(--clr-primary-hover); }
-.btn--ghost     { background: transparent; color: var(--clr-text-muted); border: 1px solid var(--clr-border); }
-.btn--ghost:hover:not(:disabled)   { background: var(--clr-bg); color: var(--clr-text); }
-.btn--sm        { padding: 6px 12px; font-size: 0.8125rem; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn--primary { background: var(--clr-primary); color: #FFF; }
+@media (hover: hover) {
+  .btn--primary:hover:not(:disabled) { background: var(--clr-primary-hover); transform: translateY(-1px); }
+  .btn--ghost:hover:not(:disabled)   { background: var(--clr-bg); color: var(--clr-text); transform: translateY(-1px); }
+}
+/* Active : retour physique — toujours, hover ou pas (Taste Rule 5) */
+.btn--primary:active:not(:disabled),
+.btn--ghost:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgba(28,17,9,.10);
+  transition-duration: 80ms;
+}
+.btn--ghost { background: transparent; color: var(--clr-text-muted); border: 1px solid var(--clr-border); }
+.btn--sm    { padding: 6px 12px; font-size: 0.8125rem; }
 
 /* ── Radios catégorie (dans la modale) ── */
 .cat-radio-group {
@@ -1177,6 +1248,64 @@ a    { color: var(--clr-primary); }
 .upload-progress-bar      { width: 200px; height: 3px; background: var(--clr-border); border-radius: 2px; overflow: hidden; }
 .upload-progress-bar__fill { height: 100%; background: var(--clr-primary); border-radius: 2px; transition: width .2s ease; }
 .upload-overlay__pct      { font-size: 0.75rem; color: var(--clr-text-muted); font-weight: 600; font-family: var(--font-mono); }
+
+/* ================================================================
+   SKELETON SHIMMER — Impeccable animate.md + Taste Rule 5
+   "Skeletal loaders matching layout sizes — avoid generic spinners"
+   ================================================================ */
+@keyframes shimmer {
+  from { background-position: -200% center; }
+  to   { background-position:  200% center; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--clr-border) 25%,
+    var(--clr-bg)     50%,
+    var(--clr-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s var(--ease) infinite;
+  border-radius: var(--r-sm);
+  color: transparent !important;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Skeleton adaptatif par composant */
+.skeleton--line   { height: 0.875rem; width: 100%; }
+.skeleton--line-sm { height: 0.75rem; width: 60%; }
+.skeleton--avatar { width: 28px; height: 28px; border-radius: var(--r); }
+.skeleton--doc    { height: 1.5rem; width: 100%; margin-bottom: 4px; }
+
+/* source-card__score-label — tabular-nums pour alignement chiffres */
+.source-card__score-label {
+  font-variant-numeric: tabular-nums;
+}
+
+/* new-chat-btn et upload-trigger : active feedback */
+.new-chat-btn:active {
+  transform: scale(0.93);
+  transition-duration: 80ms;
+}
+
+@media (hover: hover) {
+  .new-chat-btn:hover {
+    background: var(--clr-primary-light);
+    border-color: var(--clr-primary);
+    color: var(--clr-primary);
+    transform: translateY(-1px);
+  }
+  .upload-trigger-btn:hover {
+    background: rgba(194,65,12,.20);
+    border-color: rgba(194,65,12,.55);
+    color: #FED7AA;
+    transform: translateY(-1px);
+  }
+  /* Message assistant : lift uniquement sur device hover */
+  .message--assistant:hover { transform: translateY(-1px); }
+}
 
 /* ================================================================
    RESPONSIVE — Mobile-first

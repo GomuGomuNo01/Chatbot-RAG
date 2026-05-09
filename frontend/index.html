@@ -2,7 +2,8 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- viewport-fit=cover : safe-area-inset-* fonctionne sur iPhone notch/Dynamic Island -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="description" content="Assistant documentaire RAG — Technique, RH, Juridique">
   <title>Assistant Documentaire</title>
   <!-- Polices : Satoshi (Fontshare) · JetBrains Mono (Google Fonts) -->
@@ -81,7 +82,16 @@
       <div class="modal__panel" id="panelFiles">
         <p class="modal__step-label" data-i18n="upload.step2">2. Sélectionner les fichiers</p>
         <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Zone de dépôt de fichiers">
-          <div class="drop-zone__icon">📂</div>
+          <!-- SVG dossier — Taste ANTI-EMOJI POLICY -->
+          <div class="drop-zone__icon" aria-hidden="true">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              <line x1="12" y1="11" x2="12" y2="17"/>
+              <line x1="9" y1="14" x2="15" y2="14"/>
+            </svg>
+          </div>
           <p class="drop-zone__title" data-i18n="upload.drop.title">Glissez vos fichiers ici</p>
           <p class="drop-zone__hint" data-i18n="upload.drop.hint">PDF, DOCX, TXT · 50 Mo max</p>
           <button class="btn btn--ghost btn--sm" id="browseBtn" type="button" data-i18n="upload.browse">Parcourir</button>
@@ -214,7 +224,13 @@
             data-i18n-aria="btn.newchat.aria"
             title="Nouvelle conversation (efface l'historique)"
             aria-label="Nouvelle conversation">
-            ✏️
+            <!-- Icône crayon SVG — Taste ANTI-EMOJI POLICY -->
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9"/>
+              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+            </svg>
           </button>
         </div>
       </header>
@@ -224,7 +240,8 @@
 
         <!-- Écran de bienvenue -->
         <section class="welcome" id="welcomeScreen" aria-label="Écran de bienvenue">
-          <div class="welcome-icon" aria-hidden="true">📄</div>
+          <!-- Ornement CSS — div vide, rendu par style.css (barre terracotta) -->
+          <div class="welcome-icon" aria-hidden="true"></div>
           <h2 data-i18n="welcome.title">Bonjour ! Comment puis-je vous aider ?</h2>
           <p id="welcomeDesc">
             Posez vos questions sur la documentation <strong>technique</strong>,
@@ -232,15 +249,16 @@
             Je citerai toujours mes sources.
           </p>
           <div class="example-questions" aria-label="Questions exemples">
+            <!-- Emojis supprimés — Taste ANTI-EMOJI POLICY [CRITICAL] -->
             <button class="example-btn" data-i18n-q="welcome.q1_val"
               data-question="Quelles sont les règles sur les congés payés ?"
-              data-i18n="welcome.q1">👥 Congés payés</button>
+              data-i18n="welcome.q1">Congés payés</button>
             <button class="example-btn" data-i18n-q="welcome.q2_val"
               data-question="Comment configurer Spring Boot ?"
-              data-i18n="welcome.q2">⚙️ Configurer Spring Boot</button>
+              data-i18n="welcome.q2">Configurer Spring Boot</button>
             <button class="example-btn" data-i18n-q="welcome.q3_val"
               data-question="Quelles sont les clauses essentielles d'un contrat CDI ?"
-              data-i18n="welcome.q3">⚖️ Clauses CDI</button>
+              data-i18n="welcome.q3">Clauses CDI</button>
           </div>
         </section>
 
