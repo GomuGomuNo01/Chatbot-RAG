@@ -2,7 +2,7 @@
 
 # DocAssist — Assistant IA sur documents internes
 
-**Posez une question en français. Obtenez une réponse claire, avec la page exacte où l'information a été trouvée.**
+**Posez une question. Obtenez une réponse claire, avec la page exacte où l'information a été trouvée.**
 
 <br>
 
