@@ -701,18 +701,21 @@ def extract_annotation_queries(question: str) -> list[str]:
 
 # Détecte les questions où l'utilisateur fournit un extrait de texte légal
 # et demande dans quel article il se trouve.
+# NOTE : pas de \b au début — `à` n'est pas un char ASCII \w,
+#        donc \b avant `à` ne matche pas en milieu de phrase.
 _REVERSE_LOOKUP_RE = re.compile(
-    r"\b(?:"
+    r"(?:"
     r"[àa]\s+quel(?:s)?\s+article[s]?"
     r"|dans\s+quel(?:s)?\s+article[s]?"
-    r"|quel\s+(?:est\s+l['''])?article[s]?"
+    r"|quel\s+(?:est\s+l['''])?article[s]?\b"
     r"|d[''']où\s+(?:vient|provient)\s+ce\s+(?:texte|passage|extrait)"
     r"|quelle\s+(?:est\s+la\s+)?r[eé]f[eé]rence"
     r"|retrouver?\s+(?:cet?|l['''])\s*article"
     r"|source\s+de\s+ce\s+(?:texte|passage|extrait)"
     r"|trouver\s+(?:l[''']article|la\s+r[eé]f[eé]rence)"
     r"|correspond(?:e)?\s+(?:ce|cet?|à\s+quel)"
-    r")\b",
+    r"|quel(?:le)?\s+est\s+l[''']article\s+(?:correspondant|source|qui\s+dit)"
+    r")",
     re.IGNORECASE,
 )
 
@@ -1146,6 +1149,54 @@ _LEGAL_CONCEPTS: list[tuple[re.Pattern, str]] = [
         ),
         "classification emploi poste niveau coefficient critères classement",
     ),
+    # ── Sanctions / pénalités (tous codes) ──────────────────────
+    (
+        re.compile(
+            r"\bsanction[s]?\b|\bque\s+risque[nt]?\b|\brisque[nt]?\s+(?:de|quoi)\b"
+            r"|\bpuni[e]?\s+(?:de|par)\b",
+            re.I,
+        ),
+        "peine sanction amende emprisonnement réclusion contravention délit crime encourt",
+    ),
+    (
+        re.compile(r"\bamende[s]?\b|\bpeine\s+d[''']amende\b", re.I),
+        "amende montant sanction pécuniaire contraventionnelle délictuelle peine",
+    ),
+    (
+        re.compile(
+            r"\bpeine[s]?\s+(?:de\s+prison|encourues?|applicables?)\b|\bem(?:prison)?nement\b",
+            re.I,
+        ),
+        "peine emprisonnement réclusion criminelle durée maximum crime délit",
+    ),
+    # ── Procédures (toutes catégories) ───────────────────────────
+    (
+        re.compile(
+            r"\bcomment\s+(?:faire|procéder|engager|saisir|contester|obtenir|demander)\b",
+            re.I,
+        ),
+        "procédure étapes démarche conditions délai formulaire compétence recours",
+    ),
+    (
+        re.compile(
+            r"\brecours\b|\bappel\b.*(?:jugement|décision)\b|\bcontester\s+une\b",
+            re.I,
+        ),
+        "recours appel cassation voies recours délai compétence juridiction",
+    ),
+    # ── Droit constitutionnel — compléments ─────────────────────
+    (
+        re.compile(r"\bla[ï]cit[eé]\b|\bséparation\s+(?:Église|église|religion)\b", re.I),
+        "laïcité séparation Église État République principe constitutionnel loi",
+    ),
+    (
+        re.compile(r"\br[eé]f[eé]rendum\b", re.I),
+        "référendum consultation populaire article 11 article 89 Constitution vote",
+    ),
+    (
+        re.compile(r"\bcensure\s+du\s+gouvernement\b|\brenverser\s+le\s+gouvernement\b", re.I),
+        "censure gouvernement motion Assemblée nationale vote majorité article 49",
+    ),
 ]
 
 
@@ -1296,6 +1347,95 @@ _TECH_CONCEPTS: list[tuple[re.Pattern, str]] = [
     (
         re.compile(r"\bgestion\s+(?:d['''])?erreur[s]?\s+PHP\b|\btry\b.*\bcatch\b.*PHP\b", re.I),
         "exception erreur PHP try catch finally throw Exception gestion",
+    ),
+    # ── JavaScript — compléments ─────────────────────────────────
+    (
+        re.compile(
+            r"\blet\b.*\bconst\b|\bconst\b.*\blet\b|\bvar\b.*\blet\b"
+            r"|\blet\s+vs\b|\bconst\s+vs\b|\bdiff[eé]rence\s+let\b",
+            re.I,
+        ),
+        "let const var portée bloc hoisting redéclaration mutation immuable",
+    ),
+    (
+        re.compile(r"\barrow\s+function[s]?\b|\bfonction[s]?\s+fl[eè]che\b|\b=>\b", re.I),
+        "arrow function flèche syntaxe this contexte lexical ES6 raccourci",
+    ),
+    (
+        re.compile(
+            r"\bquerySelectorAll?\b|\bgetElementById\b|\bgetElementsByClassName\b"
+            r"|\bsélectionner\s+(?:un\s+)?élément\b",
+            re.I,
+        ),
+        "querySelector getElementById sélecteur CSS DOM élément manipulation",
+    ),
+    (
+        re.compile(r"\bevent\s+loop\b|\bboucle\s+(?:des\s+)?événements?\b", re.I),
+        "event loop boucle événements pile appels microtâches macrotâches asynchrone",
+    ),
+    (
+        re.compile(r"\bgénérateur[s]?\b|\byield\b|\bfunction\s*\*", re.I),
+        "générateur function generator yield itération séquence paresseux",
+    ),
+    (
+        re.compile(r"\bWeakMap\b|\bWeakSet\b|\bMap\b.*\bSet\b|\bSet\b.*\bMap\b", re.I),
+        "Map Set WeakMap WeakSet collection clé valeur itérable unicité",
+    ),
+    # ── PHP — compléments ─────────────────────────────────────────
+    (
+        re.compile(r"\bprint_r\b|\bvar_dump\b|\bvar_export\b|\bdébogage\s+PHP\b", re.I),
+        "print_r var_dump débogage affichage variable structure PHP",
+    ),
+    (
+        re.compile(
+            r"\bfonction[s]?\s+PHP\b|\bPHP\b.*\bfonction[s]?\b|\bfunction\s+\w+\s*\(.*PHP\b",
+            re.I,
+        ),
+        "function PHP paramètres valeur retour portée récursivité callback",
+    ),
+    (
+        re.compile(
+            r"\bsécurit[eé]\s+PHP\b|\binjection\s+SQL\b|\bXSS\b|\bCSRF\b|\bfiltrer\s+PHP\b",
+            re.I,
+        ),
+        "sécurité PHP injection SQL XSS CSRF filter_input htmlspecialchars protection",
+    ),
+    (
+        re.compile(r"\bcomposeur\b|\bComposer\b|\bautoload\b|\bPSR\b", re.I),
+        "Composer autoload PSR dépendances packages PHP vendor namespace",
+    ),
+    # ── Spring Boot — compléments ─────────────────────────────────
+    (
+        re.compile(r"\bSpring\s+Security\b|\bauthentification\s+Spring\b|\bauthorization\b", re.I),
+        "Spring Security authentication authorization filter chain UserDetailsService JWT",
+    ),
+    (
+        re.compile(r"\bactuator\b|\bmonitoring\s+Spring\b|\bhealth\s+check\b", re.I),
+        "actuator endpoint health metrics monitoring Spring Boot production",
+    ),
+    (
+        re.compile(r"\bauto[- ]?configuration\b|\bauto[- ]?config\b|\bstarter\b", re.I),
+        "auto-configuration Spring Boot condition conditional bean starter dependency",
+    ),
+    (
+        re.compile(
+            r"\bapplication\.(?:properties|yml|yaml)\b|\bspring\.datasource\b"
+            r"|\bconfiguration\s+externe\b",
+            re.I,
+        ),
+        "application properties yaml configuration externe datasource Spring Boot",
+    ),
+    (
+        re.compile(
+            r"\bSpring\s+Data\b|\bRepository\s+JPA\b|\bCrudRepository\b|\bJpaRepository\b", re.I
+        ),
+        "Spring Data JPA Repository CrudRepository findBy requête méthode dérivée",
+    ),
+    (
+        re.compile(
+            r"\bexception\s+handler\b|\bgestion\s+erreur\s+Spring\b|\bControllerAdvice\b", re.I
+        ),
+        "ExceptionHandler ControllerAdvice gestion erreur globale HTTP status Spring",
     ),
 ]
 

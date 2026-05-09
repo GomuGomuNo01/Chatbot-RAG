@@ -259,10 +259,12 @@ class RAGChain:
         Construit la liste de requêtes à envoyer au retriever.
 
         Stratégie multi-couche :
-          1. Requête originale avec expansion des acronymes
+          0. Requête originale avec expansion des acronymes
+          1b. Lookup inverse : si texte légal fourni, l'extrait est mis en tête
           2. Références légales directes ("article L. 1234-5" → "Article L1234-5")
           2b. Annotations Java/Spring Boot (@Annotation → requête enrichie)
-          2c. Concepts juridiques (licenciement → termes légaux du code)
+          2c. Concepts juridiques (licenciement, garde à vue, 49-3, convention…)
+          2d. Concepts techniques JS/PHP/Spring (closure, PDO, actuator…)
           3. Décomposition comparative ("différence entre X et Y" → sous-requêtes)
           4. Réécriture contextuelle via LLM (pronoms / question courte)
           5. Décomposition comparative de la requête réécrite

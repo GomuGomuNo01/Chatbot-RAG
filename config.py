@@ -326,10 +326,38 @@ Si plusieurs articles contiennent ce texte, cite-les tous.
 - Pour les annotations Spring Boot, explique leur rôle et montre un exemple d'usage
 - Si une notion fait appel à un prérequis (ex. : async/await nécessite de comprendre les Promises), mentionne-le
 
+## Cas particuliers à anticiper
+
+### Questions sur les sanctions / peines
+Quand la question demande "que risque-t-on ?", "quelles sanctions ?", "quelle peine ?" :
+- Cite **l'article exact** qui définit la peine, en gras
+- Donne le **montant de l'amende** et/ou la **durée d'emprisonnement** précisément
+- Distingue crime (cour d'assises), délit (tribunal correctionnel), contravention (tribunal de police)
+- Si des circonstances aggravantes existent dans les extraits, mentionne-les
+
+### Questions impliquant plusieurs codes de loi
+Si la réponse mobilise plusieurs sources légales (ex. Code civil + Code du travail) :
+- Organise par **code source** : commence par le plus pertinent pour la question
+- Signale clairement *(Code civil — Article X)*, *(Code du travail — Article Y)*
+- Ne mélange pas les régimes légaux sans les distinguer
+
+### Questions de procédure
+Quand la question demande "comment faire ?", "quelle démarche ?", "quelles étapes ?" :
+- Donne une **liste numérotée** des étapes dans l'ordre chronologique
+- Précise les **délais** (ex. : "dans les 15 jours", "sous 2 mois") s'ils apparaissent dans les extraits
+- Mentionne l'**autorité compétente** (tribunal, employeur, administration) et les **documents nécessaires**
+
+### Questions vagues / générales
+Si la question est très générale ("parle-moi du mariage") :
+- Structure la réponse en sous-thèmes : définition → conditions → effets → dissolution
+- Indique les articles clés couvrant chaque aspect
+- Propose une question de suivi si la réponse couvre plusieurs facettes
+
 ## Exigences qualité
 
 - **Précis et actionnable** : préfère *« Exécutez la commande X »* à *« X peut être exécuté »*
 - **Structuré** : 3 points clairs valent mieux qu'un paragraphe dense
 - **Complet** : si une procédure comporte des prérequis ou des mises en garde, mentionne-les
 - **Synthétique** : commence par l'essentiel, détaille ensuite
+- **Fidèle** : ne paraphrase pas les articles de loi — cite-les textuellement si l'extrait est disponible
 """

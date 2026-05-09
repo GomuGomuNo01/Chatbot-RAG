@@ -17,9 +17,60 @@ from config import MEMORY_MAX_EXCHANGES
 logger = logging.getLogger(__name__)
 
 # Nb max de caractères par réponse dans le prompt (évite les contextes trop longs)
-_MAX_ANSWER_CHARS = 280
+# 400 chars — les réponses juridiques citent des articles longs ; 280 tronquait trop tôt
+_MAX_ANSWER_CHARS = 400
 # Nb max d'échanges affichés en détail dans le prompt principal
 _DETAIL_EXCHANGES = 3
+
+# Mots vides pour l'extraction de topics (module-level pour éviter la recompilation)
+_STOP_WORDS: frozenset[str] = frozenset(
+    {
+        "les",
+        "des",
+        "que",
+        "qui",
+        "dans",
+        "pour",
+        "avec",
+        "sur",
+        "par",
+        "une",
+        "est",
+        "sont",
+        "était",
+        "être",
+        "avoir",
+        "fait",
+        "peut",
+        "doit",
+        "votre",
+        "notre",
+        "leur",
+        "leurs",
+        "cette",
+        "aussi",
+        "mais",
+        "comme",
+        "plus",
+        "tout",
+        "bien",
+        "même",
+        "donc",
+        "alors",
+        "après",
+        "avant",
+        "entre",
+        "selon",
+        "sans",
+    }
+)
+
+# Capture les références d'articles légaux dans un échange (ex: L1272-4, Article 6, 111-1)
+_ARTICLE_REF_RE = re.compile(
+    r"\b(?:Article\s+)?([A-Z]\d[\d\-]+|\d{1,4}(?:[–\-]\d+)+|\d{1,4})\b"
+    r"(?=\s+(?:du|de|Code|alinéa|al\.)|\s*$|[,;.])",
+    re.IGNORECASE,
+)
 
 
 class ConversationMemory:
@@ -66,48 +117,35 @@ class ConversationMemory:
 
     def _update_topics(self, question: str, answer: str) -> None:
         """
-        Extrait des entités clés (acronymes, noms propres, mots longs)
-        depuis le dernier échange pour enrichir le contexte de recherche.
+        Extrait des entités clés depuis le dernier échange :
+        - Acronymes majuscules (CDI, JPA, DDHC…)
+        - Références d'articles légaux (Article 6, L1272-4, 49-3…)
+        - Mots techniques longs (≥ 8 chars, hors stop-words)
+
+        Ces topics enrichissent la réécriture de requête pour les questions
+        anaphoriques ("et dans cet article ?", "quelle est sa sanction ?").
         """
         combined = f"{question} {answer}"
+
         # Acronymes (2-6 lettres MAJ)
         acronyms = re.findall(r"\b[A-Z]{2,6}\b", combined)
-        # Mots techniques longs (> 7 chars, pas de stop-words)
-        _STOP = {
-            "les",
-            "des",
-            "que",
-            "qui",
-            "dans",
-            "pour",
-            "avec",
-            "sur",
-            "par",
-            "une",
-            "est",
-            "sont",
-            "cette",
-            "votre",
-            "aussi",
-            "mais",
-            "comme",
-            "peut",
-            "doit",
-            "être",
-            "avoir",
-            "fait",
-            "plus",
-            "tout",
-            "bien",
-        }
-        long_words = [
-            w for w in re.findall(r"\b[a-zéèêëàâùûîïôœç]{8,}\b", combined.lower()) if w not in _STOP
+
+        # Références d'articles légaux : "Article 6", "L1272-4", "49-3", "111-1"
+        article_refs = [
+            f"Article {m.group(1)}" for m in _ARTICLE_REF_RE.finditer(combined) if m.group(1)
         ]
 
-        new_topics = list(dict.fromkeys(acronyms + long_words[:5]))[:8]
-        # Fusionner avec les topics existants, garder les 12 plus récents
+        # Mots techniques longs (≥ 8 chars, hors stop-words)
+        long_words = [
+            w
+            for w in re.findall(r"\b[a-zéèêëàâùûîïôœç]{8,}\b", combined.lower())
+            if w not in _STOP_WORDS
+        ]
+
+        new_topics = list(dict.fromkeys(acronyms + article_refs + long_words[:4]))[:10]
+        # Fusionner avec les topics existants, garder les 15 plus récents
         all_topics = new_topics + [t for t in self._topics if t not in new_topics]
-        self._topics = all_topics[:12]
+        self._topics = all_topics[:15]
 
     def get_topics(self) -> list[str]:
         """Retourne les entités clés de la conversation."""
