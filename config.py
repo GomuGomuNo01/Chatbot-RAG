@@ -47,7 +47,7 @@ for _dir in [
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_LLM_MODEL = "llama-3.3-70b-versatile"
 GROQ_TEMPERATURE = 0.1  # Faible = réponses précises et stables
-GROQ_MAX_TOKENS = 1024
+GROQ_MAX_TOKENS = 2048  # Était 1024 — les articles longs ou comparaisons tronquaient la réponse
 
 # Embeddings locaux (gratuit, multilingue FR/EN)
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -57,22 +57,25 @@ EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 # ============================================================
 
 CHUNK_SIZE = 1000  # Nb de caractères par chunk
-CHUNK_OVERLAP = 200  # Chevauchement pour conserver le contexte
-# entre deux chunks consécutifs
+CHUNK_OVERLAP = 300  # Chevauchement 30 % — réduit la perte d'info aux frontières de chunks
+# (était 200 → un article coupé en deux perdait son contexte d'en-tête)
 
 # ============================================================
 # RETRIEVAL — Recherche sémantique
 # ============================================================
 
-TOP_K_RESULTS = 10  # Nb de chunks dans le contexte final (multi_search fusionne N requêtes)
-SIMILARITY_THRESHOLD = 0.12  # Score minimum (1/(1+L2_dist)) — 0.12 ≈ distance L2 ≤ 7.3
-# Seuil abaissé pour les questions comparatives multi-requêtes
+TOP_K_RESULTS = 15  # Nb de chunks dans le contexte final (était 10)
+# Augmenté pour les questions comparatives, multi-articles ou documents denses
+SIMILARITY_THRESHOLD = 0.10  # Score minimum (1/(1+L2_dist)) — était 0.12
+# Abaissé pour ne pas exclure des chunks pertinents sur documents très spécialisés
+# (terminologie juridique ou technique rare → scores naturellement plus bas)
 
 # ============================================================
 # MÉMOIRE CONVERSATIONNELLE
 # ============================================================
 
-MEMORY_MAX_EXCHANGES = 7  # Nb d'échanges conservés en mémoire (étendu à 7)
+MEMORY_MAX_EXCHANGES = 8  # Nb d'échanges conservés en mémoire (était 7)
+# +1 échange → meilleur suivi des conversations longues sur un même document
 
 # ============================================================
 # CATÉGORIES DE DOCUMENTS

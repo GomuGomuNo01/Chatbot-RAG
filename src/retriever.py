@@ -112,11 +112,11 @@ def search(query: str, categorie: str | None = None, k: int = TOP_K_RESULTS) -> 
         if categorie and doc.metadata.get("categorie") != categorie:
             continue
 
-        # Déduplication douce : max 3 chunks par page d'un même fichier
-        # (était 2 — trop restrictif sur les grands PDF juridiques avec
-        #  plusieurs articles pertinents par page)
+        # Déduplication douce : max 4 chunks par page d'un même fichier
+        # (était 3 → bloquait les articles longs qui s'étendent sur 4+ chunks
+        #  d'une même page dans les codes juridiques denses)
         page_key = (doc.metadata.get("source", ""), doc.metadata.get("page", ""))
-        if page_hits.get(page_key, 0) >= 3:
+        if page_hits.get(page_key, 0) >= 4:
             continue
 
         doc.metadata["similarity_score"] = round(float(similarity), 3)

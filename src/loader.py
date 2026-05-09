@@ -216,16 +216,45 @@ def pages_to_documents(
     """
     Convertit les pages/blocs extraits en Documents LangChain
     avec métadonnées complètes.
+
+    Séparateurs ordonnés du plus fort au plus faible :
+    1. Frontières d'articles légaux  → coupe AVANT "Article X" (Code Civil/Travail/Pénal)
+    2. Frontières de chapitres/titres → Chapitre, Titre, Section, Annexe
+    3. Sections Markdown (# ##)       → pour les docs techniques (Spring Boot, README…)
+    4. Doubles sauts de ligne         → paragraphes
+    5. Simple saut de ligne           → listes, items
+    6. Ponctuation forte              → phrase
+    7. Espace / caractère             → découpage de dernier recours
     """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ".", "!", "?", " ", ""],
+        separators=[
+            # ── Codes légaux (Code Civil, Code du Travail, Code Pénal) ──
+            "\n\nArticle ",  # "Article 6", "Article L1272-4", "Article 111-1"
+            "\n\nChapitre ",  # "Chapitre Ier", "Chapitre II"
+            "\n\nTitre ",  # "Titre I", "Titre II"
+            "\n\nSection ",  # "Section 1", "Section 2"
+            "\n\nSous-section ",
+            "\n\nAnnexe ",
+            # ── Documents techniques (Markdown) ─────────────────────────
+            "\n# ",  # Titre H1
+            "\n## ",  # Titre H2
+            "\n### ",  # Titre H3
+            # ── Séparateurs universels ───────────────────────────────────
+            "\n\n",  # Paragraphes
+            "\n",  # Lignes
+            ". ",  # Phrases
+            "! ",
+            "? ",
+            " ",  # Mots
+            "",  # Caractères (dernier recours)
+        ],
     )
     documents = []
     for page in pages:
         for chunk_idx, chunk in enumerate(splitter.split_text(page["text"])):
-            if len(chunk.strip()) < 30:
+            if len(chunk.strip()) < 50:  # était 30 — évite les micro-chunks parasites
                 continue
             documents.append(
                 Document(
