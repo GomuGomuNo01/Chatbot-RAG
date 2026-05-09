@@ -30,7 +30,13 @@ from src.query_processor import (
     extract_article_queries,
     extract_legal_concept_queries,
 )
-from src.retriever import format_sources, multi_search, search
+from src.retriever import (
+    format_sources,
+    merge_with_keyword_results,
+    multi_search,
+    search,
+    search_by_keyword,
+)
 from src.utils import format_context_from_docs
 
 logger = logging.getLogger(__name__)
@@ -418,10 +424,22 @@ class RAGChain:
         queries = self._build_search_queries(question, compact_hist)
         logger.info(f"Requêtes retrieval : {queries}")
 
-        # ── [3] Multi-retrieval ──────────────────────────────
+        # ── [3] Multi-retrieval sémantique ──────────────────────
         documents = (
             multi_search(queries, categorie) if len(queries) > 1 else search(queries[0], categorie)
         )
+
+        # ── [3b] Keyword search pour les articles de loi ────────
+        # Le modèle d'embedding ne distingue pas "Article L1272-4"
+        # de "Article L1272-3" — numéros opaques sémantiquement.
+        # Scan exact du docstore → hit garanti si l'article est indexé.
+        article_qs = extract_article_queries(question)
+        if article_qs:
+            keyword_docs: list = []
+            for aq in article_qs:
+                keyword_docs.extend(search_by_keyword(aq, categorie))
+            if keyword_docs:
+                documents = merge_with_keyword_results(documents, keyword_docs)
 
         if not documents:
             answer = self._no_result_answer(question, queries[0], categorie, lang)
@@ -466,10 +484,19 @@ class RAGChain:
         queries = await self._build_search_queries_async(question, compact_hist)
         logger.info(f"[STREAM] Requêtes retrieval : {queries}")
 
-        # ── [3] Multi-retrieval ───────────────────────────────
+        # ── [3] Multi-retrieval sémantique ───────────────────────
         documents = (
             multi_search(queries, categorie) if len(queries) > 1 else search(queries[0], categorie)
         )
+
+        # ── [3b] Keyword search pour les articles de loi ─────────
+        article_qs = extract_article_queries(question)
+        if article_qs:
+            keyword_docs: list = []
+            for aq in article_qs:
+                keyword_docs.extend(search_by_keyword(aq, categorie))
+            if keyword_docs:
+                documents = merge_with_keyword_results(documents, keyword_docs)
 
         if not documents:
             answer = self._no_result_answer(question, queries[0], categorie, lang)

@@ -1,8 +1,9 @@
 """
-Retriever : recherche sémantique dans l'index FAISS
+Retriever : recherche sémantique + keyword dans l'index FAISS
 """
 
 import logging
+import re
 from typing import cast
 
 from config import SIMILARITY_THRESHOLD, TOP_K_RESULTS
@@ -129,6 +130,103 @@ def search(query: str, categorie: str | None = None, k: int = TOP_K_RESULTS) -> 
     logger.info(f"Recherche '{q_display}' → {len(filtered)} chunks pertinents trouvés")
 
     return filtered
+
+
+def search_by_keyword(
+    article_query: str,
+    categorie: str | None = None,
+    max_results: int = 5,
+) -> list[Document]:
+    """
+    Recherche exacte d'un article de loi dans le docstore FAISS.
+
+    Pourquoi : le modèle d'embedding traite les numéros d'articles comme
+    des identifiants opaques. "Article L1272-4" ou "Article 6" n'ont aucun
+    sens sémantique — la recherche vectorielle peut rater le bon chunk même
+    quand il existe exactement dans l'index.
+
+    Ce scan linéaire du docstore garantit un hit exact indépendamment du
+    score sémantique.
+
+    Pattern : lookahead négatif (?![0-9\\-.]) pour éviter que "Article 6"
+    remonte aussi "Article 6-1" ou "Article 60".
+
+    Args:
+        article_query : ex. "Article L1272-4", "Article 6", "Article 111-1"
+        categorie     : filtre optionnel sur la catégorie
+        max_results   : nombre max de chunks retournés par article
+    """
+    vectorstore = get_vectorstore()
+
+    # Lookahead négatif : "Article 6" ne matche PAS "Article 6-1" ni "Article 60"
+    pattern = re.compile(
+        re.escape(article_query) + r"(?![0-9\-\.])",
+        re.IGNORECASE,
+    )
+
+    results: list[Document] = []
+    for doc in vectorstore.docstore._dict.values():
+        if not pattern.search(doc.page_content):
+            continue
+        if categorie and doc.metadata.get("categorie") != categorie:
+            continue
+        # Copie avec score 0.99 (match exact → priorité maximale dans le contexte)
+        enriched = Document(
+            page_content=doc.page_content,
+            metadata={**doc.metadata, "similarity_score": 0.99},
+        )
+        results.append(enriched)
+        if len(results) >= max_results:
+            break
+
+    if results:
+        logger.info(f"[keyword] '{article_query}' → {len(results)} chunk(s) exact(s)")
+    else:
+        logger.warning(f"[keyword] '{article_query}' → 0 chunk trouvé dans le docstore")
+    return results
+
+
+def merge_with_keyword_results(
+    semantic_docs: list[Document],
+    keyword_docs: list[Document],
+    k: int = TOP_K_RESULTS,
+) -> list[Document]:
+    """
+    Fusionne résultats sémantiques et résultats keyword.
+
+    Les chunks keyword (score 0.99 = match exact) sont placés EN PREMIER
+    dans le contexte envoyé au LLM — il les voit en priorité et peut
+    répondre précisément sur l'article demandé.
+
+    Les résultats sémantiques complètent le contexte avec des chunks connexes.
+    La déduplication évite les doublons.
+    """
+
+    def _key(doc: Document) -> str:
+        return f"{doc.metadata.get('source')}|{doc.metadata.get('page')}|{doc.page_content[:80]}"
+
+    seen: set[str] = set()
+    merged: list[Document] = []
+
+    # 1. Keyword results en tête (réponse exacte à la question sur l'article)
+    for doc in keyword_docs:
+        dk = _key(doc)
+        if dk not in seen:
+            seen.add(dk)
+            merged.append(doc)
+
+    # 2. Résultats sémantiques en complément
+    for doc in semantic_docs:
+        dk = _key(doc)
+        if dk not in seen:
+            seen.add(dk)
+            merged.append(doc)
+
+    logger.info(
+        f"[merge] {len(keyword_docs)} keyword + {len(semantic_docs)} sémantique "
+        f"→ {min(len(merged), k)} chunks finaux"
+    )
+    return merged[:k]
 
 
 def format_sources(documents: list[Document]) -> list[dict]:
