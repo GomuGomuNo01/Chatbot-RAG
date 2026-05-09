@@ -145,18 +145,14 @@ ACRONYMS: dict[str, str] = {
     "POJO": "plain old java object",
     "DTO": "data transfer object",
     "DAO": "data access object",
-    "ORM": "object relational mapping",
     "AMQP": "advanced message queuing protocol",
     "AOT": "ahead of time compilation",
     "GraalVM": "graal virtual machine",
     # ── Architecture / Patterns ───────────────────────────────
-    "DAO": "data access object",
-    "DTO": "data transfer object",
     "BFF": "backend for frontend",
     "CQRS": "command query responsibility segregation",
     "DDD": "domain driven design",
     "TDD": "test driven development",
-    "BDD": "behavior driven development",
     "SOLID": "single responsibility open closed liskov substitution interface segregation dependency inversion",
     # ── Données / Bases ───────────────────────────────────────
     "JSON": "javascript object notation",
