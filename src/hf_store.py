@@ -16,18 +16,19 @@ retournent immédiatement sans lever d'exception.
 import logging
 from pathlib import Path
 
-from config import FAISS_INDEX_DIR, HF_TOKEN, HF_REPO_ID, is_hf_enabled
+from config import FAISS_INDEX_DIR, HF_REPO_ID, HF_TOKEN, is_hf_enabled
 
 logger = logging.getLogger(__name__)
 
-_INDEX_PATH  = Path(FAISS_INDEX_DIR)
+_INDEX_PATH = Path(FAISS_INDEX_DIR)
 _INDEX_FILES = ["index.faiss", "index.pkl", "manifest.json"]
-_HF_SUBDIR   = "faiss_index"
+_HF_SUBDIR = "faiss_index"
 
 
 # ──────────────────────────────────────────────────────────────
 # Push → Hub
 # ──────────────────────────────────────────────────────────────
+
 
 def push_index_to_hub() -> None:
     """
@@ -40,6 +41,7 @@ def push_index_to_hub() -> None:
 
     try:
         from huggingface_hub import HfApi
+
         api = HfApi(token=HF_TOKEN)
 
         # S'assurer que le dépôt existe (le crée si nécessaire)
@@ -80,6 +82,7 @@ def push_index_to_hub() -> None:
 # Pull ← Hub
 # ──────────────────────────────────────────────────────────────
 
+
 def pull_index_from_hub() -> bool:
     """
     Télécharge l'index FAISS depuis HuggingFace Hub vers le dossier local.
@@ -119,9 +122,11 @@ def pull_index_from_hub() -> bool:
                     pulled = True
                 logger.info(f"HF Hub → pull : {fname}")
 
-            except (EntryNotFoundError,):
-                logger.debug(f"HF Hub : {fname} absent dans le dépôt (normal au premier démarrage).")
-            except (RepositoryNotFoundError,):
+            except EntryNotFoundError:
+                logger.debug(
+                    f"HF Hub : {fname} absent dans le dépôt (normal au premier démarrage)."
+                )
+            except RepositoryNotFoundError:
                 logger.warning(f"HF Hub : dépôt {HF_REPO_ID} introuvable.")
                 return False
             except Exception as e:

@@ -11,13 +11,12 @@ Le système continue de fonctionner en mode filesystem local.
 
 import logging
 from functools import lru_cache
-from typing import List, Optional
 
 from config import (
-    R2_ACCOUNT_ID,
     R2_ACCESS_KEY_ID,
-    R2_SECRET_ACCESS_KEY,
+    R2_ACCOUNT_ID,
     R2_BUCKET_NAME,
+    R2_SECRET_ACCESS_KEY,
     is_r2_enabled,
 )
 
@@ -30,6 +29,7 @@ _R2_PREFIX = "docs"
 def _get_client():
     """Singleton boto3 vers Cloudflare R2."""
     import boto3
+
     return boto3.client(
         "s3",
         endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
@@ -47,12 +47,14 @@ def _object_key(categorie: str, filename: str) -> str:
 # API publique
 # ──────────────────────────────────────────────────────────────
 
+
 def file_exists_r2(categorie: str, filename: str) -> bool:
     """Vérifie si un fichier est présent dans R2."""
     if not is_r2_enabled():
         return False
     try:
         from botocore.exceptions import ClientError
+
         _get_client().head_object(
             Bucket=R2_BUCKET_NAME,
             Key=_object_key(categorie, filename),
@@ -60,6 +62,7 @@ def file_exists_r2(categorie: str, filename: str) -> bool:
         return True
     except Exception as e:
         from botocore.exceptions import ClientError
+
         if isinstance(e, ClientError) and e.response["Error"]["Code"] in ("404", "NoSuchKey"):
             return False
         logger.warning(f"R2 head_object erreur : {e}")
@@ -82,7 +85,7 @@ def download_file_r2(categorie: str, filename: str) -> bytes:
     return response["Body"].read()
 
 
-def list_files_r2(categorie: Optional[str] = None) -> List[dict]:
+def list_files_r2(categorie: str | None = None) -> list[dict]:
     """
     Liste les fichiers stockés dans R2.
 
@@ -93,13 +96,9 @@ def list_files_r2(categorie: Optional[str] = None) -> List[dict]:
     if not is_r2_enabled():
         return []
     try:
-        prefix = (
-            f"{_R2_PREFIX}/{categorie}/"
-            if categorie
-            else f"{_R2_PREFIX}/"
-        )
+        prefix = f"{_R2_PREFIX}/{categorie}/" if categorie else f"{_R2_PREFIX}/"
         paginator = _get_client().get_paginator("list_objects_v2")
-        results: List[dict] = []
+        results: list[dict] = []
         for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=prefix):
             for obj in page.get("Contents", []):
                 parts = obj["Key"].split("/")
@@ -143,6 +142,7 @@ def upload_metadata_r2(file_path, name: str) -> None:
     if not is_r2_enabled():
         return
     from pathlib import Path as _Path
+
     content = _Path(file_path).read_bytes()
     key = f"config/{name}"
     _get_client().put_object(Bucket=R2_BUCKET_NAME, Key=key, Body=content)
@@ -157,9 +157,11 @@ def download_metadata_r2(name: str, dest_path) -> bool:
     if not is_r2_enabled():
         return False
     from pathlib import Path as _Path
+
     key = f"config/{name}"
     try:
         from botocore.exceptions import ClientError
+
         response = _get_client().get_object(Bucket=R2_BUCKET_NAME, Key=key)
         dest = _Path(dest_path)
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -168,6 +170,7 @@ def download_metadata_r2(name: str, dest_path) -> bool:
         return True
     except Exception as e:
         from botocore.exceptions import ClientError
+
         if isinstance(e, ClientError) and e.response["Error"]["Code"] in ("404", "NoSuchKey"):
             return False
         logger.warning(f"R2 metadata download {key} erreur : {e}")
@@ -189,13 +192,14 @@ def sync_r2_to_local(docs_dir) -> int:
         return 0
 
     from pathlib import Path
+
     docs_dir = Path(docs_dir)
     downloaded = 0
 
     for item in list_files_r2():
-        cat      = item["categorie"]
+        cat = item["categorie"]
         filename = item["filename"]
-        dest     = docs_dir / cat / filename
+        dest = docs_dir / cat / filename
         if not dest.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
             try:

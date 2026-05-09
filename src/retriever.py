@@ -3,16 +3,19 @@ Retriever : recherche sémantique dans l'index FAISS
 """
 
 import logging
-from typing import List, Optional, cast
-from langchain_core.documents import Document
+from typing import cast
+
+from config import SIMILARITY_THRESHOLD, TOP_K_RESULTS
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
+
 from src.indexer import load_index
-from config import TOP_K_RESULTS, SIMILARITY_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
 # Instance globale — évite de recharger l'index à chaque requête
-_vectorstore_instance: Optional[FAISS] = None
+_vectorstore_instance: FAISS | None = None
+
 
 def get_vectorstore() -> FAISS:
     """Retourne l'instance vectorstore (singleton)."""
@@ -21,6 +24,7 @@ def get_vectorstore() -> FAISS:
         _vectorstore_instance = load_index()
     return cast(FAISS, _vectorstore_instance)
 
+
 def reset_vectorstore() -> None:
     """Invalide le singleton pour forcer le rechargement au prochain appel.
     À appeler après un upload ou une ré-indexation."""
@@ -28,11 +32,12 @@ def reset_vectorstore() -> None:
     _vectorstore_instance = None
     logger.info("Vectorstore réinitialisé — sera rechargé au prochain appel.")
 
+
 def multi_search(
-    queries: List[str],
-    categorie: Optional[str] = None,
+    queries: list[str],
+    categorie: str | None = None,
     k: int = TOP_K_RESULTS,
-) -> List[Document]:
+) -> list[Document]:
     """
     Recherche avec plusieurs formulations de la même question.
     Fusionne les résultats et garde le meilleur score par chunk unique.
@@ -45,8 +50,8 @@ def multi_search(
     if not queries:
         return []
 
-    seen_ids: dict[str, float] = {}   # page_key → meilleur score
-    doc_map: dict[str, Document] = {} # page_key → document
+    seen_ids: dict[str, float] = {}  # page_key → meilleur score
+    doc_map: dict[str, Document] = {}  # page_key → document
 
     for query in queries:
         results = search(query=query, categorie=categorie, k=k)
@@ -62,16 +67,14 @@ def multi_search(
                 doc.metadata["similarity_score"] = score
                 doc_map[key] = doc
 
-    merged = sorted(doc_map.values(), key=lambda d: d.metadata.get("similarity_score", 0), reverse=True)
+    merged = sorted(
+        doc_map.values(), key=lambda d: d.metadata.get("similarity_score", 0), reverse=True
+    )
     logger.info(f"multi_search({len(queries)} requêtes) → {len(merged)} chunks uniques (top {k})")
     return merged[:k]
 
 
-def search(
-    query: str,
-    categorie: Optional[str] = None,
-    k: int = TOP_K_RESULTS
-) -> List[Document]:
+def search(query: str, categorie: str | None = None, k: int = TOP_K_RESULTS) -> list[Document]:
     """
     Recherche les chunks les plus pertinents pour une question.
 
@@ -91,10 +94,10 @@ def search(
 
     results_with_scores = vectorstore.similarity_search_with_score(
         query=query,
-        k=k * 3
+        k=k * 5,  # pool élargi (était k*3) — améliore le rappel sur grands corpus
     )
 
-    filtered: List[Document] = []
+    filtered: list[Document] = []
     # page_hits : nb de chunks déjà retenus par clé (source, page)
     page_hits: dict = {}
 
@@ -108,12 +111,11 @@ def search(
         if categorie and doc.metadata.get("categorie") != categorie:
             continue
 
-        # Déduplication douce : max 2 chunks par page d'un même fichier
-        page_key = (
-            doc.metadata.get("source", ""),
-            doc.metadata.get("page", "")
-        )
-        if page_hits.get(page_key, 0) >= 2:
+        # Déduplication douce : max 3 chunks par page d'un même fichier
+        # (était 2 — trop restrictif sur les grands PDF juridiques avec
+        #  plusieurs articles pertinents par page)
+        page_key = (doc.metadata.get("source", ""), doc.metadata.get("page", ""))
+        if page_hits.get(page_key, 0) >= 3:
             continue
 
         doc.metadata["similarity_score"] = round(float(similarity), 3)
@@ -129,7 +131,7 @@ def search(
     return filtered
 
 
-def format_sources(documents: List[Document]) -> List[dict]:
+def format_sources(documents: list[Document]) -> list[dict]:
     """
     Formate les sources pour l'affichage dans le frontend.
 
@@ -137,20 +139,22 @@ def format_sources(documents: List[Document]) -> List[dict]:
         Liste de dicts avec source, page, catégorie, score
     """
     sources = []
-    seen    = set()
+    seen = set()
 
     for doc in documents:
         meta = doc.metadata
-        key  = f"{meta.get('source')}_{meta.get('page')}"
+        key = f"{meta.get('source')}_{meta.get('page')}"
 
         if key not in seen:
             seen.add(key)
-            sources.append({
-                "fichier":   str(meta.get("source", "Inconnu")),
-                "page":      meta.get("page", "?"),
-                "categorie": str(meta.get("categorie", "Inconnu")),
-                "score":     float(meta.get("similarity_score", 0)),
-                "extrait":   doc.page_content[:150] + "..."
-            })
+            sources.append(
+                {
+                    "fichier": str(meta.get("source", "Inconnu")),
+                    "page": meta.get("page", "?"),
+                    "categorie": str(meta.get("categorie", "Inconnu")),
+                    "score": float(meta.get("similarity_score", 0)),
+                    "extrait": doc.page_content[:150] + "...",
+                }
+            )
 
     return sources

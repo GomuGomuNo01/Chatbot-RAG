@@ -14,10 +14,9 @@ Trois modes (ordre de priorité) :
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import List
 
-from langchain_core.embeddings import Embeddings
 from config import EMBEDDING_MODEL
+from langchain_core.embeddings import Embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +33,20 @@ class _InferenceClientEmbeddings(Embeddings):
       2. Fallback threads : _MAX_WORKERS appels parallèles si le batch échoue
     """
 
-    _BATCH_SIZE  = 32   # textes par appel API batch
-    _MAX_WORKERS = 8    # threads parallèles (fallback)
+    _BATCH_SIZE = 32  # textes par appel API batch
+    _MAX_WORKERS = 8  # threads parallèles (fallback)
 
     def __init__(self, token: str, model: str):
         from huggingface_hub import InferenceClient
+
         self._client = InferenceClient(model=model, token=token)
 
     # ── Embedding d'un seul texte (query + fallback interne) ────────────────
 
-    def _embed(self, text: str) -> List[float]:
+    def _embed(self, text: str) -> list[float]:
         """Embed un texte unique avec 3 tentatives et backoff exponentiel."""
         import time
+
         last_exc = None
         for attempt in range(3):
             try:
@@ -53,19 +54,17 @@ class _InferenceClientEmbeddings(Embeddings):
                 return self._postprocess_single(result)
             except Exception as exc:
                 last_exc = exc
-                wait = 2 ** attempt          # 1 s → 2 s → 4 s
+                wait = 2**attempt  # 1 s → 2 s → 4 s
                 logger.warning(
                     f"HF API erreur (tentative {attempt + 1}/3) : {exc} — "
                     f"nouvelle tentative dans {wait}s…"
                 )
                 time.sleep(wait)
-        raise RuntimeError(
-            f"L'API HuggingFace a échoué 3 fois de suite : {last_exc}"
-        )
+        raise RuntimeError(f"L'API HuggingFace a échoué 3 fois de suite : {last_exc}")
 
     # ── Embedding d'un lot de textes en 1 appel API ──────────────────────────
 
-    def _embed_batch(self, texts: List[str]) -> List[List[float]]:
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         """
         Envoie N textes en un seul appel API.
         Beaucoup plus rapide que N appels séquentiels.
@@ -74,6 +73,7 @@ class _InferenceClientEmbeddings(Embeddings):
             RuntimeError si l'API échoue 3 fois de suite.
         """
         import time
+
         import numpy as np
 
         last_exc = None
@@ -83,21 +83,19 @@ class _InferenceClientEmbeddings(Embeddings):
                 break
             except Exception as exc:
                 last_exc = exc
-                wait = 2 ** attempt
+                wait = 2**attempt
                 logger.warning(
                     f"HF API batch erreur (tentative {attempt + 1}/3) : {exc} — "
                     f"retente dans {wait}s…"
                 )
                 time.sleep(wait)
         else:
-            raise RuntimeError(
-                f"L'API HuggingFace batch a échoué 3 fois de suite : {last_exc}"
-            )
+            raise RuntimeError(f"L'API HuggingFace batch a échoué 3 fois de suite : {last_exc}")
 
         # result : np.ndarray de forme [N, seq_len, dim] ou [N, dim]
         arr = np.array(result, dtype=np.float32)
         if arr.ndim == 3:
-            arr = arr.mean(axis=1)      # mean pooling : [N, seq_len, dim] → [N, dim]
+            arr = arr.mean(axis=1)  # mean pooling : [N, seq_len, dim] → [N, dim]
         # arr.ndim == 2 : [N, dim] (déjà poolé côté serveur)
 
         # L2-normalisation vectorisée
@@ -108,9 +106,10 @@ class _InferenceClientEmbeddings(Embeddings):
     # ── Post-traitement résultat single-text ─────────────────────────────────
 
     @staticmethod
-    def _postprocess_single(result) -> List[float]:
+    def _postprocess_single(result) -> list[float]:
         """Normalise le résultat d'un appel single-text (pooling + L2 norm)."""
         import math
+
         vec = result.tolist() if hasattr(result, "tolist") else list(result)
         # L'API peut renvoyer [seq_len × dim] → mean pooling
         if vec and isinstance(vec[0], list):
@@ -123,7 +122,7 @@ class _InferenceClientEmbeddings(Embeddings):
 
     # ── Interface publique ────────────────────────────────────────────────────
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """
         Embed une liste de chunks avec la stratégie la plus rapide disponible :
 
@@ -135,21 +134,19 @@ class _InferenceClientEmbeddings(Embeddings):
 
         n_batches = (len(texts) + self._BATCH_SIZE - 1) // self._BATCH_SIZE
         logger.info(
-            f"  Embedding {len(texts)} chunks "
-            f"en {n_batches} batch(s) de {self._BATCH_SIZE}…"
+            f"  Embedding {len(texts)} chunks en {n_batches} batch(s) de {self._BATCH_SIZE}…"
         )
 
-        results: List[List[float]] = []
+        results: list[list[float]] = []
 
         for i in range(0, len(texts), self._BATCH_SIZE):
-            batch     = texts[i : i + self._BATCH_SIZE]
+            batch = texts[i : i + self._BATCH_SIZE]
             batch_num = i // self._BATCH_SIZE + 1
             try:
                 embeddings = self._embed_batch(batch)
                 results.extend(embeddings)
                 logger.debug(
-                    f"    Batch {batch_num}/{n_batches} "
-                    f"({len(batch)} chunks) → API batch ✓"
+                    f"    Batch {batch_num}/{n_batches} ({len(batch)} chunks) → API batch ✓"
                 )
             except Exception as e:
                 # Fallback : threads parallèles pour ce lot
@@ -163,7 +160,7 @@ class _InferenceClientEmbeddings(Embeddings):
 
         return results
 
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> list[float]:
         """Embed une requête (appel single, toujours rapide)."""
         return self._embed(text)
 
@@ -171,6 +168,7 @@ class _InferenceClientEmbeddings(Embeddings):
 # ============================================================
 # FACTORY — retourne l'instance adaptée à l'environnement
 # ============================================================
+
 
 def _make_local_embeddings() -> Embeddings:
     """
@@ -181,13 +179,14 @@ def _make_local_embeddings() -> Embeddings:
     - batch_size conservé pour l'efficacité
     """
     from langchain_huggingface import HuggingFaceEmbeddings
+
     logger.info(f"Embeddings locaux : {EMBEDDING_MODEL} (CPU, batch_size=32)")
     return HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL,
         model_kwargs={"device": "cpu"},
         encode_kwargs={
             "normalize_embeddings": True,
-            "batch_size":           32,   # compatible toutes versions
+            "batch_size": 32,  # compatible toutes versions
         },
     )
 
@@ -216,7 +215,7 @@ def get_embeddings() -> Embeddings:
             # Valider le token avec un appel de test minimal
             try:
                 candidate = _InferenceClientEmbeddings(token=hf_token, model=_HF_MODEL_ID)
-                candidate._embed("test")          # appel de validation (~100ms)
+                candidate._embed("test")  # appel de validation (~100ms)
                 _embeddings_instance = candidate
                 logger.info("  InferenceClient validé : OK")
             except Exception as e:
@@ -234,6 +233,6 @@ def get_embeddings() -> Embeddings:
     return _embeddings_instance
 
 
-def embed_texts(texts: List[str]) -> List[List[float]]:
+def embed_texts(texts: list[str]) -> list[list[float]]:
     """Utilitaire pour les tests."""
     return get_embeddings().embed_documents(texts)

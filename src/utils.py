@@ -10,6 +10,7 @@ from pathlib import Path
 # CONFIGURATION DU LOGGER GLOBAL
 # ============================================================
 
+
 def setup_logger(name: str = "chatbot-rag") -> logging.Logger:
     """Configure et retourne un logger formaté."""
     logger = logging.getLogger(name)
@@ -19,11 +20,7 @@ def setup_logger(name: str = "chatbot-rag") -> logging.Logger:
 
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(logging.INFO)
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s [%(levelname)s] %(message)s"
-            )
-        )
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
         logger.addHandler(handler)
 
     return logger
@@ -32,6 +29,7 @@ def setup_logger(name: str = "chatbot-rag") -> logging.Logger:
 # ============================================================
 # FORMATAGE DES SOURCES
 # ============================================================
+
 
 def format_sources_for_display(sources: list) -> str:
     """
@@ -70,11 +68,11 @@ def format_context_from_docs(documents: list) -> str:
 
     parts = []
     for i, doc in enumerate(documents, 1):
-        meta      = doc.metadata
-        fichier   = Path(meta.get("source", "Inconnu")).name
-        page      = meta.get("page", "?")
+        meta = doc.metadata
+        fichier = Path(meta.get("source", "Inconnu")).name
+        page = meta.get("page", "?")
         categorie = meta.get("categorie", "").upper()
-        score     = meta.get("similarity_score", 0)
+        score = meta.get("similarity_score", 0)
 
         header = (
             f"### Extrait {i}/{len(documents)} "

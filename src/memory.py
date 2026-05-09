@@ -11,7 +11,7 @@ Améliorations v2 :
 
 import logging
 import re
-from typing import List, Tuple
+
 from config import MEMORY_MAX_EXCHANGES
 
 logger = logging.getLogger(__name__)
@@ -35,9 +35,9 @@ class ConversationMemory:
 
     def __init__(self, max_exchanges: int = MEMORY_MAX_EXCHANGES):
         self.max_exchanges = max_exchanges
-        self._history: List[Tuple[str, str]] = []
+        self._history: list[tuple[str, str]] = []
         # Topics extraits de l'historique (noms, acronymes, entités)
-        self._topics: List[str] = []
+        self._topics: list[str] = []
 
     # ──────────────────────────────────────────────────────────
     # Ajout / suppression
@@ -47,7 +47,7 @@ class ConversationMemory:
         """Ajoute un échange et met à jour les topics."""
         self._history.append((question, answer))
         if len(self._history) > self.max_exchanges:
-            self._history = self._history[-self.max_exchanges:]
+            self._history = self._history[-self.max_exchanges :]
         self._update_topics(question, answer)
         logger.debug(
             f"Mémoire : {len(self._history)}/{self.max_exchanges} échanges | "
@@ -57,7 +57,7 @@ class ConversationMemory:
     def clear(self) -> None:
         """Efface l'historique et les topics."""
         self._history = []
-        self._topics  = []
+        self._topics = []
         logger.info("Historique conversationnel effacé.")
 
     # ──────────────────────────────────────────────────────────
@@ -74,13 +74,34 @@ class ConversationMemory:
         acronyms = re.findall(r"\b[A-Z]{2,6}\b", combined)
         # Mots techniques longs (> 7 chars, pas de stop-words)
         _STOP = {
-            "les", "des", "que", "qui", "dans", "pour", "avec", "sur", "par",
-            "une", "est", "sont", "cette", "votre", "aussi", "mais", "comme",
-            "peut", "doit", "être", "avoir", "fait", "plus", "tout", "bien",
+            "les",
+            "des",
+            "que",
+            "qui",
+            "dans",
+            "pour",
+            "avec",
+            "sur",
+            "par",
+            "une",
+            "est",
+            "sont",
+            "cette",
+            "votre",
+            "aussi",
+            "mais",
+            "comme",
+            "peut",
+            "doit",
+            "être",
+            "avoir",
+            "fait",
+            "plus",
+            "tout",
+            "bien",
         }
         long_words = [
-            w for w in re.findall(r"\b[a-zéèêëàâùûîïôœç]{8,}\b", combined.lower())
-            if w not in _STOP
+            w for w in re.findall(r"\b[a-zéèêëàâùûîïôœç]{8,}\b", combined.lower()) if w not in _STOP
         ]
 
         new_topics = list(dict.fromkeys(acronyms + long_words[:5]))[:8]
@@ -88,7 +109,7 @@ class ConversationMemory:
         all_topics = new_topics + [t for t in self._topics if t not in new_topics]
         self._topics = all_topics[:12]
 
-    def get_topics(self) -> List[str]:
+    def get_topics(self) -> list[str]:
         """Retourne les entités clés de la conversation."""
         return self._topics.copy()
 
@@ -105,7 +126,7 @@ class ConversationMemory:
             return ""
 
         recent = self._history[-2:]
-        lines  = []
+        lines = []
         for q, a in recent:
             lines.append(f"Q: {q.strip()}")
             short_a = a.strip()[:120]
@@ -131,7 +152,7 @@ class ConversationMemory:
         if not self._history:
             return ""
 
-        lines: List[str] = []
+        lines: list[str] = []
 
         # ── Résumé des échanges anciens ──────────────────────
         old = self._history[:-_DETAIL_EXCHANGES] if len(self._history) > _DETAIL_EXCHANGES else []
@@ -144,7 +165,11 @@ class ConversationMemory:
             lines.append("")
 
         # ── Échanges récents en détail ───────────────────────
-        recent = self._history[-_DETAIL_EXCHANGES:] if len(self._history) >= _DETAIL_EXCHANGES else self._history
+        recent = (
+            self._history[-_DETAIL_EXCHANGES:]
+            if len(self._history) >= _DETAIL_EXCHANGES
+            else self._history
+        )
         if recent:
             lines.append("Historique récent :")
             for q, a in recent:
@@ -156,7 +181,7 @@ class ConversationMemory:
                     cut = a_short[:_MAX_ANSWER_CHARS]
                     last_period = max(cut.rfind(". "), cut.rfind(".\n"), cut.rfind(" : "))
                     if last_period > 80:
-                        cut = cut[:last_period + 1]
+                        cut = cut[: last_period + 1]
                     a_short = cut + " […]"
                 lines.append(f"  Assistant   : {a_short}")
                 lines.append("")
@@ -167,7 +192,7 @@ class ConversationMemory:
     # Accesseurs
     # ──────────────────────────────────────────────────────────
 
-    def get_history(self) -> List[Tuple[str, str]]:
+    def get_history(self) -> list[tuple[str, str]]:
         return self._history.copy()
 
     @property

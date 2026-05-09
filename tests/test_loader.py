@@ -2,23 +2,24 @@
 Tests unitaires — src/loader.py
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 from langchain_core.documents import Document
 
 from src.loader import (
+    SUPPORTED_EXTENSIONS,
+    extract_text,
     extract_text_from_pdf,
     extract_text_from_txt,
-    pages_to_documents,
     load_file,
-    extract_text,
-    SUPPORTED_EXTENSIONS,
+    pages_to_documents,
 )
-
 
 # ──────────────────────────────────────────────────────────────
 # extract_text_from_pdf
 # ──────────────────────────────────────────────────────────────
+
 
 class TestExtractPdf:
     def test_returns_list_of_pages(self, test_pdf_path):
@@ -57,6 +58,7 @@ class TestExtractPdf:
 # extract_text_from_txt
 # ──────────────────────────────────────────────────────────────
 
+
 class TestExtractTxt:
     def test_returns_list_of_blocks(self, test_txt_path):
         pages = extract_text_from_txt(test_txt_path)
@@ -84,20 +86,21 @@ class TestExtractTxt:
 # pages_to_documents
 # ──────────────────────────────────────────────────────────────
 
+
 class TestPagesToDocuments:
     def test_returns_langchain_documents(self, test_pdf_path):
         pages = extract_text_from_pdf(test_pdf_path)
-        docs  = pages_to_documents(pages, "technique", "guide.pdf")
+        docs = pages_to_documents(pages, "technique", "guide.pdf")
         assert len(docs) >= 1
         assert all(isinstance(d, Document) for d in docs)
 
     def test_metadata_complete(self, test_pdf_path):
         pages = extract_text_from_pdf(test_pdf_path)
-        docs  = pages_to_documents(pages, "rh", "reglement.pdf")
+        docs = pages_to_documents(pages, "rh", "reglement.pdf")
         for doc in docs:
             assert doc.metadata["categorie"] == "rh"
-            assert doc.metadata["source"]    == "reglement.pdf"
-            assert "page"        in doc.metadata
+            assert doc.metadata["source"] == "reglement.pdf"
+            assert "page" in doc.metadata
             assert "chunk_index" in doc.metadata
 
     def test_empty_pages_returns_empty(self):
@@ -106,8 +109,9 @@ class TestPagesToDocuments:
 
     def test_chunks_respect_size_limit(self, test_pdf_path):
         from config import CHUNK_SIZE
+
         pages = extract_text_from_pdf(test_pdf_path)
-        docs  = pages_to_documents(pages, "technique", "guide.pdf")
+        docs = pages_to_documents(pages, "technique", "guide.pdf")
         # Les chunks peuvent légèrement dépasser CHUNK_SIZE à cause du chevauchement
         assert all(len(d.page_content) <= CHUNK_SIZE * 1.5 for d in docs)
 
@@ -115,6 +119,7 @@ class TestPagesToDocuments:
 # ──────────────────────────────────────────────────────────────
 # extract_text (dispatcher)
 # ──────────────────────────────────────────────────────────────
+
 
 class TestExtractDispatcher:
     def test_pdf_dispatched_correctly(self, test_pdf_path):
@@ -136,6 +141,7 @@ class TestExtractDispatcher:
 # load_file
 # ──────────────────────────────────────────────────────────────
 
+
 class TestLoadFile:
     def test_returns_documents(self, test_pdf_path):
         docs = load_file(test_pdf_path, "technique")
@@ -151,11 +157,14 @@ class TestLoadFile:
 # SUPPORTED_EXTENSIONS
 # ──────────────────────────────────────────────────────────────
 
+
 def test_supported_extensions_contains_pdf():
     assert ".pdf" in SUPPORTED_EXTENSIONS
 
+
 def test_supported_extensions_contains_docx():
     assert ".docx" in SUPPORTED_EXTENSIONS
+
 
 def test_supported_extensions_contains_txt():
     assert ".txt" in SUPPORTED_EXTENSIONS

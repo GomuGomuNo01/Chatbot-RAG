@@ -3,8 +3,9 @@ conftest.py — Fixtures partagées entre tous les tests
 Génère des fichiers de test légers à la volée (PDF, TXT, DOCX).
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture(scope="session")
@@ -12,10 +13,10 @@ def test_pdf_path(tmp_path_factory) -> Path:
     """PDF de test minimal généré avec PyMuPDF."""
     import pymupdf as fitz
 
-    tmp  = tmp_path_factory.mktemp("fixtures")
+    tmp = tmp_path_factory.mktemp("fixtures")
     path = tmp / "test_doc.pdf"
 
-    doc  = fitz.open()
+    doc = fitz.open()
     page = doc.new_page(width=595, height=842)
     page.insert_text(
         (50, 80),
@@ -41,7 +42,7 @@ def test_pdf_path(tmp_path_factory) -> Path:
 @pytest.fixture(scope="session")
 def test_txt_path(tmp_path_factory) -> Path:
     """Fichier texte de test."""
-    tmp  = tmp_path_factory.mktemp("fixtures")
+    tmp = tmp_path_factory.mktemp("fixtures")
     path = tmp / "test_doc.txt"
     path.write_text(
         "Règlement intérieur — Ressources Humaines\n\n"
@@ -63,5 +64,6 @@ def test_txt_path(tmp_path_factory) -> Path:
 def sample_documents(test_pdf_path):
     """Documents LangChain issus du PDF de test."""
     from src.loader import extract_text_from_pdf, pages_to_documents
+
     pages = extract_text_from_pdf(test_pdf_path)
     return pages_to_documents(pages, "technique", test_pdf_path.name)
