@@ -17,7 +17,6 @@ Deux couches complémentaires :
 
 import logging
 import re
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -27,96 +26,94 @@ logger = logging.getLogger(__name__)
 
 ACRONYMS: dict[str, str] = {
     # ── Ressources Humaines / Droit du travail ────────────────
-    "CDI":   "contrat à durée indéterminée",
-    "CDD":   "contrat à durée déterminée",
-    "CTT":   "contrat de travail temporaire",
-    "CDDI":  "contrat à durée déterminée d'insertion",
-    "SMIC":  "salaire minimum interprofessionnel de croissance",
-    "RH":    "ressources humaines",
-    "DRH":   "directeur des ressources humaines",
-    "RTT":   "réduction du temps de travail",
-    "CP":    "congés payés",
-    "AT":    "accident du travail",
-    "MP":    "maladie professionnelle",
-    "IRP":   "institutions représentatives du personnel",
-    "CE":    "comité d'entreprise",
-    "CSE":   "comité social et économique",
-    "DP":    "délégué du personnel",
-    "DS":    "délégué syndical",
-    "PSE":   "plan de sauvegarde de l'emploi",
-    "PEE":   "plan d'épargne entreprise",
+    "CDI": "contrat à durée indéterminée",
+    "CDD": "contrat à durée déterminée",
+    "CTT": "contrat de travail temporaire",
+    "CDDI": "contrat à durée déterminée d'insertion",
+    "SMIC": "salaire minimum interprofessionnel de croissance",
+    "RH": "ressources humaines",
+    "DRH": "directeur des ressources humaines",
+    "RTT": "réduction du temps de travail",
+    "CP": "congés payés",
+    "AT": "accident du travail",
+    "MP": "maladie professionnelle",
+    "IRP": "institutions représentatives du personnel",
+    "CE": "comité d'entreprise",
+    "CSE": "comité social et économique",
+    "DP": "délégué du personnel",
+    "DS": "délégué syndical",
+    "PSE": "plan de sauvegarde de l'emploi",
+    "PEE": "plan d'épargne entreprise",
     "PERCO": "plan d'épargne pour la retraite collectif",
-    "IJSS":  "indemnités journalières de sécurité sociale",
-    "ARE":   "allocation de retour à l'emploi",
-    "AREF":  "allocation de retour à l'emploi formation",
-    "ASS":   "allocation de solidarité spécifique",
-    "RSA":   "revenu de solidarité active",
-    "PASS":  "plafond annuel de la sécurité sociale",
-    "URSSAF":"union de recouvrement des cotisations de sécurité sociale et d'allocations familiales",
-    "CPAM":  "caisse primaire d'assurance maladie",
-    "CARSAT":"caisse d'assurance retraite et de la santé au travail",
-    "OPCO":  "opérateur de compétences",
-    "VAE":   "validation des acquis de l'expérience",
-    "CPF":   "compte personnel de formation",
-    "CIF":   "congé individuel de formation",
-    "DIF":   "droit individuel à la formation",
-    "GPEC":  "gestion prévisionnelle des emplois et des compétences",
-
+    "IJSS": "indemnités journalières de sécurité sociale",
+    "ARE": "allocation de retour à l'emploi",
+    "AREF": "allocation de retour à l'emploi formation",
+    "ASS": "allocation de solidarité spécifique",
+    "RSA": "revenu de solidarité active",
+    "PASS": "plafond annuel de la sécurité sociale",
+    "URSSAF": "union de recouvrement des cotisations de sécurité sociale et d'allocations familiales",
+    "CPAM": "caisse primaire d'assurance maladie",
+    "CARSAT": "caisse d'assurance retraite et de la santé au travail",
+    "OPCO": "opérateur de compétences",
+    "VAE": "validation des acquis de l'expérience",
+    "CPF": "compte personnel de formation",
+    "CIF": "congé individuel de formation",
+    "DIF": "droit individuel à la formation",
+    "GPEC": "gestion prévisionnelle des emplois et des compétences",
     # ── Juridique / Légal ─────────────────────────────────────
-    "TVA":   "taxe sur la valeur ajoutée",
-    "CA":    "chiffre d'affaires",
-    "SAS":   "société par actions simplifiée",
-    "SASU":  "société par actions simplifiée unipersonnelle",
-    "SARL":  "société à responsabilité limitée",
-    "EURL":  "entreprise unipersonnelle à responsabilité limitée",
-    "SA":    "société anonyme",
-    "SCI":   "société civile immobilière",
-    "SNC":   "société en nom collectif",
-    "CGI":   "code général des impôts",
-    "CC":    "code civil",
-    "CT":    "code du travail",
-    "CPP":   "code de procédure pénale",
-    "CPC":   "code de procédure civile",
-    "CPH":   "conseil de prud'hommes",
-    "CNIL":  "commission nationale de l'informatique et des libertés",
-    "RGPD":  "règlement général sur la protection des données",
-    "GDPR":  "general data protection regulation",
-    "CGV":   "conditions générales de vente",
-    "CGU":   "conditions générales d'utilisation",
-    "NDA":   "accord de confidentialité",
-    "SLA":   "accord de niveau de service",
-
+    "TVA": "taxe sur la valeur ajoutée",
+    "CA": "chiffre d'affaires",
+    "SAS": "société par actions simplifiée",
+    "SASU": "société par actions simplifiée unipersonnelle",
+    "SARL": "société à responsabilité limitée",
+    "EURL": "entreprise unipersonnelle à responsabilité limitée",
+    "SA": "société anonyme",
+    "SCI": "société civile immobilière",
+    "SNC": "société en nom collectif",
+    "CGI": "code général des impôts",
+    "CC": "code civil",
+    "CT": "code du travail",
+    "CPP": "code de procédure pénale",
+    "CPC": "code de procédure civile",
+    "CPH": "conseil de prud'hommes",
+    "CNIL": "commission nationale de l'informatique et des libertés",
+    "RGPD": "règlement général sur la protection des données",
+    "GDPR": "general data protection regulation",
+    "CGV": "conditions générales de vente",
+    "CGU": "conditions générales d'utilisation",
+    "NDA": "accord de confidentialité",
+    "SLA": "accord de niveau de service",
     # ── Technique / Informatique ──────────────────────────────
-    "API":   "interface de programmation applicative",
-    "BDD":   "base de données",
-    "SQL":   "structured query language",
-    "ORM":   "object-relational mapping",
-    "CI":    "intégration continue",
-    "CD":    "déploiement continu",
-    "POC":   "preuve de concept",
-    "MVP":   "produit minimum viable",
-    "UI":    "interface utilisateur",
-    "UX":    "expérience utilisateur",
-    "REST":  "representational state transfer",
-    "HTTP":  "hypertext transfer protocol",
+    "API": "interface de programmation applicative",
+    "BDD": "base de données",
+    "SQL": "structured query language",
+    "ORM": "object-relational mapping",
+    "CI": "intégration continue",
+    "CD": "déploiement continu",
+    "POC": "preuve de concept",
+    "MVP": "produit minimum viable",
+    "UI": "interface utilisateur",
+    "UX": "expérience utilisateur",
+    "REST": "representational state transfer",
+    "HTTP": "hypertext transfer protocol",
     "HTTPS": "hypertext transfer protocol sécurisé",
-    "SSH":   "secure shell",
-    "TLS":   "transport layer security",
-    "SSL":   "secure sockets layer",
-    "JWT":   "json web token",
-    "CRUD":  "create read update delete",
-    "MVC":   "model view controller",
-    "OOP":   "programmation orientée objet",
-    "POO":   "programmation orientée objet",
-    "IAM":   "identity and access management",
-    "SSO":   "single sign-on",
-    "MFA":   "authentification multi-facteurs",
-    "DNS":   "domain name system",
-    "VPN":   "réseau privé virtuel",
-    "VM":    "machine virtuelle",
-    "K8S":   "kubernetes",
-    "IaC":   "infrastructure as code",
-    "SRE":   "site reliability engineering",
+    "SSH": "secure shell",
+    "TLS": "transport layer security",
+    "SSL": "secure sockets layer",
+    "JWT": "json web token",
+    "CRUD": "create read update delete",
+    "MVC": "model view controller",
+    "OOP": "programmation orientée objet",
+    "POO": "programmation orientée objet",
+    "IAM": "identity and access management",
+    "SSO": "single sign-on",
+    "MFA": "authentification multi-facteurs",
+    "DNS": "domain name system",
+    "VPN": "réseau privé virtuel",
+    "VM": "machine virtuelle",
+    "K8S": "kubernetes",
+    "IaC": "infrastructure as code",
+    "SRE": "site reliability engineering",
 }
 
 # Marqueurs anaphoriques signalant une question dépendante du contexte
@@ -185,6 +182,7 @@ Question reformulée :"""
 # Couche 1 : expansion des acronymes
 # ──────────────────────────────────────────────────────────────
 
+
 def expand_acronyms(text: str) -> str:
     """
     Remplace les acronymes connus par « ACRONYME (forme longue) ».
@@ -194,6 +192,7 @@ def expand_acronyms(text: str) -> str:
         "c'est quoi un CDI ?"
         → "c'est quoi un CDI (contrat à durée indéterminée) ?"
     """
+
     def _replace(match: re.Match) -> str:
         token = match.group(0)
         upper = token.upper()
@@ -210,6 +209,7 @@ def expand_acronyms(text: str) -> str:
 # ──────────────────────────────────────────────────────────────
 # Couche 2 : réécriture contextuelle via LLM
 # ──────────────────────────────────────────────────────────────
+
 
 def _needs_contextualization(question: str, has_history: bool) -> bool:
     """
@@ -253,6 +253,7 @@ def contextualize_query(
 
     try:
         from langchain_core.messages import HumanMessage
+
         prompt_text = _REWRITE_PROMPT.format(
             context=context_snippet,
             question=question,
@@ -288,6 +289,7 @@ async def contextualize_query_async(
 
     try:
         from langchain_core.messages import HumanMessage
+
         prompt_text = _REWRITE_PROMPT.format(
             context=context_snippet,
             question=question,
@@ -309,6 +311,7 @@ async def contextualize_query_async(
 # ──────────────────────────────────────────────────────────────
 # Décomposition des questions comparatives
 # ──────────────────────────────────────────────────────────────
+
 
 def decompose_comparative_query(question: str) -> list[str]:
     """
@@ -373,6 +376,7 @@ def decompose_comparative_query(question: str) -> list[str]:
 # Pipeline complet : expand + contextualize
 # ──────────────────────────────────────────────────────────────
 
+
 def build_search_query(
     question: str,
     history_text: str,
@@ -386,8 +390,8 @@ def build_search_query(
     La question ORIGINALE est conservée pour la génération LLM ;
     seule la requête de recherche est améliorée.
     """
-    expanded   = expand_acronyms(question)
-    search_q   = contextualize_query(expanded, history_text, llm)
+    expanded = expand_acronyms(question)
+    search_q = contextualize_query(expanded, history_text, llm)
     return search_q
 
 
@@ -397,8 +401,8 @@ async def build_search_query_async(
     llm,
 ) -> str:
     """Version async de build_search_query."""
-    expanded  = expand_acronyms(question)
-    search_q  = await contextualize_query_async(expanded, history_text, llm)
+    expanded = expand_acronyms(question)
+    search_q = await contextualize_query_async(expanded, history_text, llm)
     return search_q
 
 

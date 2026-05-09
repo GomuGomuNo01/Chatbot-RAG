@@ -6,7 +6,7 @@ Tous les paramètres modifiables sont ici.
 import json
 import os
 from pathlib import Path
-from pydantic_settings import BaseSettings
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,13 +15,13 @@ load_dotenv()
 # CHEMINS
 # ============================================================
 
-BASE_DIR   = Path(__file__).parent.resolve()
+BASE_DIR = Path(__file__).parent.resolve()
 
 # Documents PDF par catégorie
-DOCS_DIR            = BASE_DIR / "docs"
-DOCS_TECHNIQUE_DIR  = DOCS_DIR / "technique"
-DOCS_RH_DIR         = DOCS_DIR / "rh"
-DOCS_JURIDIQUE_DIR  = DOCS_DIR / "juridique"
+DOCS_DIR = BASE_DIR / "docs"
+DOCS_TECHNIQUE_DIR = DOCS_DIR / "technique"
+DOCS_RH_DIR = DOCS_DIR / "rh"
+DOCS_JURIDIQUE_DIR = DOCS_DIR / "juridique"
 
 # Index FAISS persisté
 FAISS_INDEX_DIR = BASE_DIR / "data" / "faiss_index"
@@ -44,10 +44,10 @@ for _dir in [
 # ============================================================
 
 # LLM via Groq (gratuit)
-GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_LLM_MODEL = "llama-3.3-70b-versatile"
-GROQ_TEMPERATURE = 0.1        # Faible = réponses précises et stables
-GROQ_MAX_TOKENS  = 1024
+GROQ_TEMPERATURE = 0.1  # Faible = réponses précises et stables
+GROQ_MAX_TOKENS = 1024
 
 # Embeddings locaux (gratuit, multilingue FR/EN)
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -56,52 +56,47 @@ EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 # CHUNKING — Découpage des documents
 # ============================================================
 
-CHUNK_SIZE    = 1000   # Nb de caractères par chunk
-CHUNK_OVERLAP = 200    # Chevauchement pour conserver le contexte
-                       # entre deux chunks consécutifs
+CHUNK_SIZE = 1000  # Nb de caractères par chunk
+CHUNK_OVERLAP = 200  # Chevauchement pour conserver le contexte
+# entre deux chunks consécutifs
 
 # ============================================================
 # RETRIEVAL — Recherche sémantique
 # ============================================================
 
-TOP_K_RESULTS       = 10    # Nb de chunks dans le contexte final (multi_search fusionne N requêtes)
-SIMILARITY_THRESHOLD = 0.12 # Score minimum (1/(1+L2_dist)) — 0.12 ≈ distance L2 ≤ 7.3
-                            # Seuil abaissé pour les questions comparatives multi-requêtes
+TOP_K_RESULTS = 10  # Nb de chunks dans le contexte final (multi_search fusionne N requêtes)
+SIMILARITY_THRESHOLD = 0.12  # Score minimum (1/(1+L2_dist)) — 0.12 ≈ distance L2 ≤ 7.3
+# Seuil abaissé pour les questions comparatives multi-requêtes
 
 # ============================================================
 # MÉMOIRE CONVERSATIONNELLE
 # ============================================================
 
-MEMORY_MAX_EXCHANGES = 7    # Nb d'échanges conservés en mémoire (étendu à 7)
+MEMORY_MAX_EXCHANGES = 7  # Nb d'échanges conservés en mémoire (étendu à 7)
 
 # ============================================================
 # CATÉGORIES DE DOCUMENTS
 # ============================================================
 
 CATEGORIES = {
-    "technique":  {
-        "label":    "Documentation Technique",
-        "dir":      DOCS_TECHNIQUE_DIR,
-        "emoji":    "💻",
-        "couleur":  "#2E86AB"
+    "technique": {
+        "label": "Documentation Technique",
+        "dir": DOCS_TECHNIQUE_DIR,
+        "emoji": "💻",
+        "couleur": "#2E86AB",
     },
-    "rh": {
-        "label":    "Ressources Humaines",
-        "dir":      DOCS_RH_DIR,
-        "emoji":    "👥",
-        "couleur":  "#28A745"
-    },
+    "rh": {"label": "Ressources Humaines", "dir": DOCS_RH_DIR, "emoji": "👥", "couleur": "#28A745"},
     "juridique": {
-        "label":    "Documents Juridiques",
-        "dir":      DOCS_JURIDIQUE_DIR,
-        "emoji":    "⚖️",
-        "couleur":  "#6F42C1"
-    }
+        "label": "Documents Juridiques",
+        "dir": DOCS_JURIDIQUE_DIR,
+        "emoji": "⚖️",
+        "couleur": "#6F42C1",
+    },
 }
 
 # Palette par défaut pour les catégories personnalisées
-_CUSTOM_EMOJIS  = ["📁", "🗂️", "📋", "🔖", "📊", "🗃️", "📌", "🏷️"]
-_CUSTOM_COLORS  = ["#E85D04", "#7209B7", "#0077B6", "#2D6A4F", "#9B2226", "#AE2012"]
+_CUSTOM_EMOJIS = ["📁", "🗂️", "📋", "🔖", "📊", "🗃️", "📌", "🏷️"]
+_CUSTOM_COLORS = ["#E85D04", "#7209B7", "#0077B6", "#2D6A4F", "#9B2226", "#AE2012"]
 
 
 def _load_custom_categories() -> dict:
@@ -176,20 +171,21 @@ def register_custom_category(key: str, label: str, emoji: str, couleur: str) -> 
         json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
+
 # ============================================================
 # STOCKAGE EXTERNE
 # ============================================================
 
 # Cloudflare R2 — stockage des fichiers sources (PDF, DOCX, TXT)
 # Laisser vide en local : le mode filesystem local est utilisé à la place.
-R2_ACCOUNT_ID        = os.getenv("R2_ACCOUNT_ID", "")
-R2_ACCESS_KEY_ID     = os.getenv("R2_ACCESS_KEY_ID", "")
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
-R2_BUCKET_NAME       = os.getenv("R2_BUCKET_NAME", "chatbot-rag-docs")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "chatbot-rag-docs")
 
 # HuggingFace Hub — persistance de l'index FAISS entre les redémarrages
 # Créer un dépôt privé de type "dataset" sur huggingface.co
-HF_TOKEN   = os.getenv("HF_TOKEN", "")
+HF_TOKEN = os.getenv("HF_TOKEN", "")
 HF_REPO_ID = os.getenv("HF_REPO_ID", "")  # ex: "monpseudo/chatbot-rag-index"
 
 
@@ -207,9 +203,9 @@ def is_hf_enabled() -> bool:
 # API FastAPI
 # ============================================================
 
-API_HOST    = os.getenv("API_HOST", "0.0.0.0")
-API_PORT    = int(os.getenv("PORT", 8000))
-API_TITLE   = "Chatbot RAG — Assistant Documentaire"
+API_HOST = os.getenv("API_HOST", "0.0.0.0")
+API_PORT = int(os.getenv("PORT", 8000))
+API_TITLE = "Chatbot RAG — Assistant Documentaire"
 API_VERSION = "1.0.0"
 API_DESCRIPTION = (
     "API REST d'un assistant conversationnel basé sur RAG. "

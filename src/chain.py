@@ -13,47 +13,149 @@ Pipeline amélioré v2 :
 
 import logging
 import re
-from typing import Optional, cast
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
+from typing import cast
+
+from config import GROQ_API_KEY, GROQ_LLM_MODEL, GROQ_MAX_TOKENS, GROQ_TEMPERATURE, SYSTEM_PROMPT
 from langchain_core.output_parsers import StrOutputParser
-from src.retriever import search, multi_search, format_sources
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_groq import ChatGroq
+
 from src.memory import ConversationMemory
-from src.utils import format_context_from_docs
 from src.query_processor import (
-    expand_acronyms,
     build_search_query,
     build_search_query_async,
     decompose_comparative_query,
+    expand_acronyms,
     extract_article_queries,
 )
-from config import (
-    GROQ_API_KEY,
-    GROQ_LLM_MODEL,
-    GROQ_TEMPERATURE,
-    GROQ_MAX_TOKENS,
-    SYSTEM_PROMPT
-)
+from src.retriever import format_sources, multi_search, search
+from src.utils import format_context_from_docs
 
 logger = logging.getLogger(__name__)
 
 # ── Détection de langue ───────────────────────────────────────
 
 _EN_WORDS = {
-    'what','how','does','can','the','are','why','when','where','which','who',
-    'give','me','tell','explain','show','find','list','do','make','get','is',
-    'was','were','will','would','could','should','have','has','had','been',
-    'this','that','these','those','with','from','about','into','through',
-    'during','before','after','above','below','between','each','few','more',
-    'most','other','some','such','than','then','there','they','its','our',
+    "what",
+    "how",
+    "does",
+    "can",
+    "the",
+    "are",
+    "why",
+    "when",
+    "where",
+    "which",
+    "who",
+    "give",
+    "me",
+    "tell",
+    "explain",
+    "show",
+    "find",
+    "list",
+    "do",
+    "make",
+    "get",
+    "is",
+    "was",
+    "were",
+    "will",
+    "would",
+    "could",
+    "should",
+    "have",
+    "has",
+    "had",
+    "been",
+    "this",
+    "that",
+    "these",
+    "those",
+    "with",
+    "from",
+    "about",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "above",
+    "below",
+    "between",
+    "each",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "than",
+    "then",
+    "there",
+    "they",
+    "its",
+    "our",
 }
 _FR_WORDS = {
-    'quoi','comment','pourquoi','quand','où','qui','quel','quelle','quels',
-    'quelles','moi','expliquer','trouver','faire','les','des','une','que',
-    'qu','je','tu','il','nous','vous','ils','elles','est','sont','était',
-    'être','avoir','fait','peut','dois','doit','votre','notre','leur',
-    'leurs','cette','cet','ces','sur','dans','avec','pour','par','mais',
-    'donc','car','si','aussi','comme','plus','très','bien','tout','tous',
+    "quoi",
+    "comment",
+    "pourquoi",
+    "quand",
+    "où",
+    "qui",
+    "quel",
+    "quelle",
+    "quels",
+    "quelles",
+    "moi",
+    "expliquer",
+    "trouver",
+    "faire",
+    "les",
+    "des",
+    "une",
+    "que",
+    "qu",
+    "je",
+    "tu",
+    "il",
+    "nous",
+    "vous",
+    "ils",
+    "elles",
+    "est",
+    "sont",
+    "était",
+    "être",
+    "avoir",
+    "fait",
+    "peut",
+    "dois",
+    "doit",
+    "votre",
+    "notre",
+    "leur",
+    "leurs",
+    "cette",
+    "cet",
+    "ces",
+    "sur",
+    "dans",
+    "avec",
+    "pour",
+    "par",
+    "mais",
+    "donc",
+    "car",
+    "si",
+    "aussi",
+    "comme",
+    "plus",
+    "très",
+    "bien",
+    "tout",
+    "tous",
 }
 
 
@@ -78,6 +180,7 @@ def _lang_instruction(lang: str) -> str:
 # INITIALISATION DU LLM
 # ============================================================
 
+
 def get_llm() -> ChatGroq:
     if not GROQ_API_KEY:
         raise ValueError("GROQ_API_KEY manquante. Vérifie ton fichier .env")
@@ -93,10 +196,14 @@ def get_llm() -> ChatGroq:
 # PROMPT
 # ============================================================
 
+
 def build_prompt() -> ChatPromptTemplate:
-    return ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        ("human", """\
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_PROMPT),
+            (
+                "human",
+                """\
 {history}
 ---
 ## Extraits documentaires disponibles
@@ -104,13 +211,16 @@ def build_prompt() -> ChatPromptTemplate:
 
 ---
 **Question :** {question}{lang_instruction}
-""")
-    ])
+""",
+            ),
+        ]
+    )
 
 
 # ============================================================
 # PIPELINE RAG
 # ============================================================
+
 
 class RAGChain:
     """
@@ -119,10 +229,10 @@ class RAGChain:
     """
 
     def __init__(self):
-        self.llm    = get_llm()
+        self.llm = get_llm()
         self.prompt = build_prompt()
         self.parser = StrOutputParser()
-        self.chain  = self.prompt | self.llm | self.parser
+        self.chain = self.prompt | self.llm | self.parser
         logger.info("RAGChain v2 initialisée.")
 
     # ── Utilitaires internes ──────────────────────────────────
@@ -226,23 +336,27 @@ class RAGChain:
         self,
         question: str,
         search_query: str,
-        categorie: Optional[str],
+        categorie: str | None,
         lang: str,
     ) -> str:
         """Message affiché quand aucun chunk pertinent n'est trouvé."""
         filtre = f" dans la catégorie « {categorie} »" if categorie else ""
         tip = (
-            f"La recherche a porté sur : *{search_query}*\n\n"
-            "Suggestions :\n"
-            "- Reformulez votre question avec plus de mots-clés\n"
-            "- Élargissez ou retirez le filtre de catégorie\n"
-            "- Vérifiez que les documents sont bien indexés"
-        ) if lang == "fr" else (
-            f"Search was performed on: *{search_query}*\n\n"
-            "Suggestions:\n"
-            "- Rephrase with more keywords\n"
-            "- Remove or broaden the category filter\n"
-            "- Check that documents are indexed"
+            (
+                f"La recherche a porté sur : *{search_query}*\n\n"
+                "Suggestions :\n"
+                "- Reformulez votre question avec plus de mots-clés\n"
+                "- Élargissez ou retirez le filtre de catégorie\n"
+                "- Vérifiez que les documents sont bien indexés"
+            )
+            if lang == "fr"
+            else (
+                f"Search was performed on: *{search_query}*\n\n"
+                "Suggestions:\n"
+                "- Rephrase with more keywords\n"
+                "- Remove or broaden the category filter\n"
+                "- Check that documents are indexed"
+            )
         )
         prefix = (
             f"Je n'ai pas trouvé d'information{filtre} correspondant à votre question.\n\n"
@@ -257,12 +371,12 @@ class RAGChain:
         self,
         question: str,
         memory: ConversationMemory,
-        categorie: Optional[str] = None,
+        categorie: str | None = None,
     ) -> dict:
         logger.info(f"Question : {question[:80]}")
-        lang          = _detect_lang(question)
-        history_text  = memory.format_for_prompt()
-        compact_hist  = memory.format_compact()
+        lang = _detect_lang(question)
+        history_text = memory.format_for_prompt()
+        compact_hist = memory.format_compact()
 
         # ── [1+2] Construire les requêtes enrichies ─────────
         queries = self._build_search_queries(question, compact_hist)
@@ -270,9 +384,7 @@ class RAGChain:
 
         # ── [3] Multi-retrieval ──────────────────────────────
         documents = (
-            multi_search(queries, categorie)
-            if len(queries) > 1
-            else search(queries[0], categorie)
+            multi_search(queries, categorie) if len(queries) > 1 else search(queries[0], categorie)
         )
 
         if not documents:
@@ -281,17 +393,19 @@ class RAGChain:
             return {"answer": answer, "sources": [], "question": question}
 
         # ── [4] Contexte + prompt ────────────────────────────
-        context  = format_context_from_docs(documents)
+        context = format_context_from_docs(documents)
         lang_ins = _lang_instruction(lang)
         logger.info(f"Appel LLM — {len(documents)} chunks | lang={lang}")
 
         # ── [5] Génération ───────────────────────────────────
-        answer = self.chain.invoke({
-            "question":         question,   # question ORIGINALE pour la génération
-            "context":          context,
-            "history":          history_text,
-            "lang_instruction": lang_ins,
-        })
+        answer = self.chain.invoke(
+            {
+                "question": question,  # question ORIGINALE pour la génération
+                "context": context,
+                "history": history_text,
+                "lang_instruction": lang_ins,
+            }
+        )
 
         # ── [6] Mémoire + sources ────────────────────────────
         sources = format_sources(documents)
@@ -305,10 +419,10 @@ class RAGChain:
         self,
         question: str,
         memory: ConversationMemory,
-        categorie: Optional[str] = None,
+        categorie: str | None = None,
     ):
         logger.info(f"[STREAM] Question : {question[:80]}")
-        lang         = _detect_lang(question)
+        lang = _detect_lang(question)
         history_text = memory.format_for_prompt()
         compact_hist = memory.format_compact()
 
@@ -318,9 +432,7 @@ class RAGChain:
 
         # ── [3] Multi-retrieval ───────────────────────────────
         documents = (
-            multi_search(queries, categorie)
-            if len(queries) > 1
-            else search(queries[0], categorie)
+            multi_search(queries, categorie) if len(queries) > 1 else search(queries[0], categorie)
         )
 
         if not documents:
@@ -331,18 +443,20 @@ class RAGChain:
             return
 
         # ── [4] Contexte + prompt ─────────────────────────────
-        context  = format_context_from_docs(documents)
+        context = format_context_from_docs(documents)
         lang_ins = _lang_instruction(lang)
         full_ans = ""
         logger.info(f"[STREAM] LLM — {len(documents)} chunks | lang={lang}")
 
         # ── [5] Génération en streaming ───────────────────────
-        async for token in self.chain.astream({
-            "question":         question,
-            "context":          context,
-            "history":          history_text,
-            "lang_instruction": lang_ins,
-        }):
+        async for token in self.chain.astream(
+            {
+                "question": question,
+                "context": context,
+                "history": history_text,
+                "lang_instruction": lang_ins,
+            }
+        ):
             full_ans += token
             yield {"token": token}
 
@@ -357,7 +471,7 @@ class RAGChain:
 # SINGLETON
 # ============================================================
 
-_rag_chain_instance: Optional[RAGChain] = None
+_rag_chain_instance: RAGChain | None = None
 
 
 def get_rag_chain() -> RAGChain:

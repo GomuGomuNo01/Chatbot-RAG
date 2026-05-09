@@ -30,6 +30,9 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM"]
 ignore = [
     "E501",   # longueur de ligne gérée par line-length
     "B008",   # appels de fonctions dans les valeurs par défaut (courant avec FastAPI Depends)
+    "B904",   # raise-without-from-inside-except — FastAPI re-raise patterns légitimes
+    "SIM105", # suppressible-exception — try/except/pass intentionnel dans les chemins optionnels
+    "SIM108", # if-else-block-instead-of-ternary — lisibilité préférée à la concision
 ]
 
 # Règles ignorées par fichier

@@ -13,22 +13,23 @@ import logging
 import sys
 from pathlib import Path
 
+from config import CATEGORIES
+
+from src.indexer import (
+    _file_hash,
+    add_documents_to_index,
+    create_index,
+    filter_new_files,
+    index_exists,
+    load_manifest,
+    save_manifest,
+)
 from src.loader import (
+    SUPPORTED_EXTENSIONS,
     load_all_documents,
     load_category,
     load_file,
-    SUPPORTED_EXTENSIONS,
 )
-from src.indexer import (
-    create_index,
-    add_documents_to_index,
-    filter_new_files,
-    save_manifest,
-    load_manifest,
-    index_exists,
-    _file_hash,
-)
-from config import CATEGORIES
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,9 +42,10 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ──────────────────────────────────────────────────────────────
 
+
 def _collect_files(categorie: str | None = None) -> list:
     """Collecte tous les fichiers supportés d'une ou plusieurs catégories."""
-    cats  = [categorie] if categorie else list(CATEGORIES.keys())
+    cats = [categorie] if categorie else list(CATEGORIES.keys())
     files = []
     for cat in cats:
         directory = Path(CATEGORIES[cat]["dir"])
@@ -57,16 +59,14 @@ def _infer_categorie(file_path: Path) -> str:
     parent = file_path.parent.name
     if parent in CATEGORIES:
         return parent
-    logger.warning(
-        f"Catégorie non reconnue pour '{parent}' "
-        "— fallback sur 'technique'."
-    )
+    logger.warning(f"Catégorie non reconnue pour '{parent}' — fallback sur 'technique'.")
     return "technique"
 
 
 # ──────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -126,7 +126,7 @@ def main() -> None:
             manifest = {str(file_path.resolve()): _file_hash(file_path)}
             save_manifest(manifest)
         else:
-            manifest      = load_manifest()
+            manifest = load_manifest()
             manifest[str(file_path.resolve())] = _file_hash(file_path)
             add_documents_to_index(documents, manifest)
 
@@ -148,12 +148,12 @@ def main() -> None:
 
         # Construire le manifeste initial
         all_files = _collect_files(args.categorie)
-        manifest  = {str(f.resolve()): _file_hash(f) for f in all_files}
+        manifest = {str(f.resolve()): _file_hash(f) for f in all_files}
         save_manifest(manifest)
 
     # ── Mode : ré-indexation incrémentale (défaut) ─────────
     else:
-        all_files           = _collect_files(args.categorie)
+        all_files = _collect_files(args.categorie)
         new_files, manifest = filter_new_files(all_files)
 
         if not new_files:
@@ -162,7 +162,7 @@ def main() -> None:
 
         logger.info(f"{len(new_files)} fichier(s) nouveau(x) ou modifié(s) détecté(s).")
         for file_path in new_files:
-            cat  = _infer_categorie(file_path)
+            cat = _infer_categorie(file_path)
             docs = load_file(file_path, cat)
             documents.extend(docs)
 

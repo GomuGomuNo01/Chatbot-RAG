@@ -5,18 +5,14 @@ Route POST /api/chat — Endpoint principal du chatbot
 import json
 import logging
 import uuid
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from api.schemas import (
-    ChatRequest,
-    ChatResponse,
-    ClearMemoryRequest,
-    SourceResponse,
-    ErrorResponse
-)
+
+from api.schemas import ChatRequest, ChatResponse, ClearMemoryRequest, ErrorResponse, SourceResponse
 from src.chain import get_rag_chain
-from src.memory import ConversationMemory
 from src.indexer import index_exists
+from src.memory import ConversationMemory
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -50,6 +46,7 @@ def _check_categorie(categorie: str | None) -> None:
     if not categorie:
         return
     from config import get_all_categories
+
     cats = get_all_categories()
     if categorie not in cats:
         raise HTTPException(
@@ -82,13 +79,13 @@ def _internal_error(e: Exception, context: str) -> HTTPException:
 # POST /api/chat  (synchrone)
 # ============================================================
 
+
 @router.post(
     "/chat",
     response_model=ChatResponse,
     summary="Poser une question au chatbot",
     description=(
-        "Envoie une question et reçoit une réponse générée "
-        "par RAG avec les sources citées."
+        "Envoie une question et reçoit une réponse générée par RAG avec les sources citées."
     ),
     responses={
         503: {"model": ErrorResponse, "description": "Index non disponible"},
@@ -102,20 +99,20 @@ def chat(request: ChatRequest) -> ChatResponse:
 
     try:
         session_id = request.session_id or "default"
-        memory     = get_session(session_id)
-        rag        = get_rag_chain()
-        result     = rag.ask(
-            question  = request.question,
-            memory    = memory,
-            categorie = request.categorie,
+        memory = get_session(session_id)
+        rag = get_rag_chain()
+        result = rag.ask(
+            question=request.question,
+            memory=memory,
+            categorie=request.categorie,
         )
         sources = [SourceResponse(**src) for src in result["sources"]]
         return ChatResponse(
-            answer     = result["answer"],
-            sources    = sources,
-            question   = result["question"],
-            session_id = session_id,
-            nb_sources = len(sources),
+            answer=result["answer"],
+            sources=sources,
+            question=result["question"],
+            session_id=session_id,
+            nb_sources=len(sources),
         )
 
     except HTTPException:
@@ -128,6 +125,7 @@ def chat(request: ChatRequest) -> ChatResponse:
 # POST /api/chat/stream  (SSE)
 # ============================================================
 
+
 @router.post(
     "/chat/stream",
     summary="Réponse en streaming (SSE)",
@@ -138,8 +136,8 @@ async def chat_stream(request: ChatRequest):
     _check_categorie(request.categorie)
 
     session_id = request.session_id or "default"
-    memory     = get_session(session_id)
-    rag        = get_rag_chain()
+    memory = get_session(session_id)
+    rag = get_rag_chain()
 
     async def generate():
         ref = str(uuid.uuid4())[:8].upper()
@@ -161,9 +159,9 @@ async def chat_stream(request: ChatRequest):
         generate(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control":     "no-cache",
+            "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "Connection":        "keep-alive",
+            "Connection": "keep-alive",
         },
     )
 
@@ -171,6 +169,7 @@ async def chat_stream(request: ChatRequest):
 # ============================================================
 # POST /api/chat/clear
 # ============================================================
+
 
 @router.post(
     "/chat/clear",
@@ -184,7 +183,10 @@ def clear_memory(request: ClearMemoryRequest) -> dict:
             _sessions[session_id].clear()
             logger.info(f"Session effacée : {session_id}")
             return {"message": f"Session '{session_id}' effacée.", "session_id": session_id}
-        return {"message": f"Session '{session_id}' introuvable ou déjà vide.", "session_id": session_id}
+        return {
+            "message": f"Session '{session_id}' introuvable ou déjà vide.",
+            "session_id": session_id,
+        }
     except Exception as e:
         raise _internal_error(e, f"Erreur lors de l'effacement de la session {session_id}")
 
@@ -193,6 +195,7 @@ def clear_memory(request: ClearMemoryRequest) -> dict:
 # GET /api/chat/sessions
 # ============================================================
 
+
 @router.get(
     "/chat/sessions",
     summary="Liste des sessions actives",
@@ -200,8 +203,7 @@ def clear_memory(request: ClearMemoryRequest) -> dict:
 def get_sessions() -> dict:
     return {
         "sessions": [
-            {"session_id": sid, "exchanges": mem.exchange_count}
-            for sid, mem in _sessions.items()
+            {"session_id": sid, "exchanges": mem.exchange_count} for sid, mem in _sessions.items()
         ],
         "total": len(_sessions),
     }

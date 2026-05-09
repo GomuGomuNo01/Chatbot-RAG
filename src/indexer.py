@@ -7,23 +7,23 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import List
 
-from langchain_core.documents import Document
+from config import FAISS_INDEX_DIR
 from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 
 from src.embedder import get_embeddings
-from config import FAISS_INDEX_DIR
 
 logger = logging.getLogger(__name__)
 
-INDEX_PATH    = Path(FAISS_INDEX_DIR)
+INDEX_PATH = Path(FAISS_INDEX_DIR)
 MANIFEST_FILE = INDEX_PATH / "manifest.json"
 
 
 # ============================================================
 # MANIFESTE — suivi des fichiers déjà indexés
 # ============================================================
+
 
 def _file_hash(path: Path) -> str:
     """
@@ -53,20 +53,20 @@ def save_manifest(manifest: dict) -> None:
     MANIFEST_FILE.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
-def filter_new_files(file_paths: List[Path]) -> tuple:
+def filter_new_files(file_paths: list[Path]) -> tuple:
     """
     Identifie les fichiers nouveaux ou modifiés depuis la dernière indexation.
 
     Returns:
         (fichiers_à_indexer, manifeste_mis_à_jour)
     """
-    manifest     = load_manifest()
+    manifest = load_manifest()
     new_manifest = dict(manifest)
-    to_index     = []
+    to_index = []
 
     for path in file_paths:
         key = str(path.resolve())
-        h   = _file_hash(path)
+        h = _file_hash(path)
         if manifest.get(key) != h:
             to_index.append(path)
             new_manifest[key] = h
@@ -82,7 +82,8 @@ def filter_new_files(file_paths: List[Path]) -> tuple:
 # CRÉATION DE L'INDEX
 # ============================================================
 
-def create_index(documents: List[Document]) -> FAISS:
+
+def create_index(documents: list[Document]) -> FAISS:
     """
     Crée un nouvel index FAISS depuis zéro et le sauvegarde sur disque.
     Pousse ensuite l'index vers HuggingFace Hub si configuré.
@@ -97,12 +98,11 @@ def create_index(documents: List[Document]) -> FAISS:
     logger.info(f"Création de l'index FAISS ({len(documents)} chunks)…")
 
     try:
-        embeddings  = get_embeddings()
+        embeddings = get_embeddings()
         vectorstore = FAISS.from_documents(documents=documents, embedding=embeddings)
     except Exception as e:
         raise RuntimeError(
-            f"Échec du calcul des embeddings / construction FAISS "
-            f"({len(documents)} chunks) : {e}"
+            f"Échec du calcul des embeddings / construction FAISS ({len(documents)} chunks) : {e}"
         ) from e
 
     try:
@@ -117,6 +117,7 @@ def create_index(documents: List[Document]) -> FAISS:
     # Synchronisation vers HF Hub (non bloquant si non configuré)
     try:
         from src.hf_store import push_index_to_hub
+
         push_index_to_hub()
     except Exception as e:
         logger.warning(f"HF Hub push ignoré (non bloquant) : {e}", exc_info=True)
@@ -127,6 +128,7 @@ def create_index(documents: List[Document]) -> FAISS:
 # ============================================================
 # CHARGEMENT DE L'INDEX
 # ============================================================
+
 
 def load_index() -> FAISS:
     """
@@ -143,6 +145,7 @@ def load_index() -> FAISS:
         logger.info("Index FAISS absent localement — tentative de pull depuis HF Hub…")
         try:
             from src.hf_store import pull_index_from_hub
+
             pull_index_from_hub()
         except Exception as e:
             logger.warning(f"HF Hub pull ignoré : {e}")
@@ -155,7 +158,7 @@ def load_index() -> FAISS:
 
     logger.info(f"Chargement de l'index FAISS : {INDEX_PATH}")
     try:
-        embeddings  = get_embeddings()
+        embeddings = get_embeddings()
         vectorstore = FAISS.load_local(
             str(INDEX_PATH),
             embeddings,
@@ -175,8 +178,9 @@ def load_index() -> FAISS:
 # MISE À JOUR INCRÉMENTALE
 # ============================================================
 
+
 def add_documents_to_index(
-    new_documents: List[Document],
+    new_documents: list[Document],
     new_manifest: dict | None = None,
 ) -> FAISS:
     """
@@ -211,6 +215,7 @@ def add_documents_to_index(
     # Synchronisation vers HF Hub (non bloquant si non configuré)
     try:
         from src.hf_store import push_index_to_hub
+
         push_index_to_hub()
     except Exception as e:
         logger.warning(f"HF Hub push ignoré (non bloquant) : {e}", exc_info=True)
@@ -221,6 +226,7 @@ def add_documents_to_index(
 # ============================================================
 # UTILITAIRES
 # ============================================================
+
 
 def index_exists() -> bool:
     """Vérifie si un index FAISS existe déjà sur disque."""

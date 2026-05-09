@@ -4,15 +4,14 @@ Les tests du RAGChain mockent le LLM et le retriever pour éviter
 tout appel réseau pendant la CI.
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from src.memory import ConversationMemory
 
-
 # ──────────────────────────────────────────────────────────────
 # ConversationMemory
 # ──────────────────────────────────────────────────────────────
+
 
 class TestConversationMemory:
     def test_initial_state_is_empty(self):
@@ -50,7 +49,7 @@ class TestConversationMemory:
         assert mem.exchange_count == 0
 
     def test_format_for_prompt_empty(self):
-        mem    = ConversationMemory()
+        mem = ConversationMemory()
         result = mem.format_for_prompt()
         assert result == ""
 
@@ -75,6 +74,7 @@ class TestConversationMemory:
 # RAGChain — fallback "je ne sais pas"
 # ──────────────────────────────────────────────────────────────
 
+
 class TestRAGChainFallback:
     """Tests du chemin "aucun document trouvé" sans appel réseau."""
 
@@ -82,10 +82,11 @@ class TestRAGChainFallback:
     @patch("src.chain.search", return_value=[])
     def test_no_docs_returns_fallback_message(self, mock_search, mock_get_llm):
         from src.chain import RAGChain
+
         mock_get_llm.return_value = MagicMock()
 
-        chain  = RAGChain()
-        mem    = ConversationMemory()
+        chain = RAGChain()
+        mem = ConversationMemory()
         result = chain.ask("Question sans résultat", mem)
 
         assert isinstance(result["answer"], str)
@@ -97,10 +98,11 @@ class TestRAGChainFallback:
     @patch("src.chain.search", return_value=[])
     def test_fallback_mentions_category_when_filtered(self, mock_search, mock_get_llm):
         from src.chain import RAGChain
+
         mock_get_llm.return_value = MagicMock()
 
-        chain  = RAGChain()
-        mem    = ConversationMemory()
+        chain = RAGChain()
+        mem = ConversationMemory()
         result = chain.ask("Question filtrée", mem, categorie="juridique")
 
         assert "juridique" in result["answer"]
@@ -109,10 +111,11 @@ class TestRAGChainFallback:
     @patch("src.chain.search", return_value=[])
     def test_fallback_adds_to_memory(self, mock_search, mock_get_llm):
         from src.chain import RAGChain
+
         mock_get_llm.return_value = MagicMock()
 
-        chain  = RAGChain()
-        mem    = ConversationMemory()
+        chain = RAGChain()
+        mem = ConversationMemory()
         chain.ask("Question", mem)
 
         assert mem.exchange_count == 1
@@ -121,10 +124,11 @@ class TestRAGChainFallback:
     @patch("src.chain.search", return_value=[])
     def test_multiple_questions_without_docs(self, mock_search, mock_get_llm):
         from src.chain import RAGChain
+
         mock_get_llm.return_value = MagicMock()
 
         chain = RAGChain()
-        mem   = ConversationMemory(max_exchanges=5)
+        mem = ConversationMemory(max_exchanges=5)
         for i in range(3):
             chain.ask(f"Question {i}", mem)
 
@@ -135,17 +139,19 @@ class TestRAGChainFallback:
 # RAGChain — chemin nominal (avec documents)
 # ──────────────────────────────────────────────────────────────
 
+
 class TestRAGChainWithDocuments:
     """Tests du chemin nominal avec documents mockés et LLM mocké."""
 
     def _make_mock_doc(self, content="Contenu de test", fichier="doc.pdf", page=1):
         from langchain_core.documents import Document
+
         return Document(
             page_content=content,
             metadata={
-                "source":           fichier,
-                "page":             page,
-                "categorie":        "technique",
+                "source": fichier,
+                "page": page,
+                "categorie": "technique",
                 "similarity_score": 0.85,
             },
         )
@@ -168,10 +174,10 @@ class TestRAGChainWithDocuments:
         chain = RAGChain()
         chain.chain = mock_chain  # Remplacer la chaîne complète par le mock
 
-        mem    = ConversationMemory()
+        mem = ConversationMemory()
         result = chain.ask("Question de test", mem)
 
-        assert result["answer"]   == "Voici la réponse de test."
+        assert result["answer"] == "Voici la réponse de test."
         assert len(result["sources"]) >= 1
         assert result["question"] == "Question de test"
 
