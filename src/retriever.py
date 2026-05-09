@@ -186,6 +186,59 @@ def search_by_keyword(
     return results
 
 
+def search_by_phrase(
+    phrase: str,
+    categorie: str | None = None,
+    max_results: int = 3,
+) -> list[Document]:
+    """
+    Recherche un extrait de texte quasi-exact dans le docstore FAISS.
+    Utilisé pour le lookup inverse : l'utilisateur fournit le texte d'un article
+    et demande à quel article il correspond.
+
+    Stratégie : on cherche les 70 premiers caractères distinctifs du texte fourni
+    (suffisant pour identifier un chunk unique dans un corpus légal).
+    Le chunk trouvé contient le texte complet de l'article avec son numéro.
+
+    Args:
+        phrase      : texte légal fourni par l'utilisateur
+        categorie   : filtre optionnel sur la catégorie
+        max_results : nb max de chunks retournés
+
+    Returns:
+        Liste de Documents avec similarity_score=0.99 (match quasi-exact).
+    """
+    vectorstore = get_vectorstore()
+
+    # Prendre les 70 premiers caractères distinctifs (après nettoyage)
+    anchor = phrase.strip()[:70].strip()
+    if len(anchor) < 20:
+        logger.warning(f"[phrase_search] Ancre trop courte ({len(anchor)} chars) — ignoré")
+        return []
+
+    pattern = re.compile(re.escape(anchor), re.IGNORECASE)
+
+    results: list[Document] = []
+    for doc in vectorstore.docstore._dict.values():
+        if not pattern.search(doc.page_content):
+            continue
+        if categorie and doc.metadata.get("categorie") != categorie:
+            continue
+        enriched = Document(
+            page_content=doc.page_content,
+            metadata={**doc.metadata, "similarity_score": 0.99},
+        )
+        results.append(enriched)
+        if len(results) >= max_results:
+            break
+
+    if results:
+        logger.info(f"[phrase_search] Ancre «{anchor[:40]}…» → {len(results)} chunk(s) exact(s)")
+    else:
+        logger.warning(f"[phrase_search] Ancre «{anchor[:40]}…» → 0 chunk trouvé dans le docstore")
+    return results
+
+
 def merge_with_keyword_results(
     semantic_docs: list[Document],
     keyword_docs: list[Document],

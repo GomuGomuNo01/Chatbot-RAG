@@ -29,6 +29,7 @@ from src.query_processor import (
     extract_annotation_queries,
     extract_article_queries,
     extract_legal_concept_queries,
+    extract_reverse_lookup_query,
     extract_tech_concept_queries,
 )
 from src.retriever import (
@@ -37,6 +38,7 @@ from src.retriever import (
     multi_search,
     search,
     search_by_keyword,
+    search_by_phrase,
 )
 from src.utils import format_context_from_docs
 
@@ -270,6 +272,14 @@ class RAGChain:
         expanded = expand_acronyms(question)
         queries: list[str] = [expanded]
 
+        # ── Couche 1b : lookup inverse (texte → article) ──────────────────────
+        # "à quel article correspond ce texte : Le mariage et la filiation…"
+        # On extrait le texte légal fourni et on l'injecte EN TÊTE des requêtes :
+        # son embedding est quasi-identique à celui du chunk cible dans FAISS.
+        reverse_text = extract_reverse_lookup_query(question)
+        if reverse_text and reverse_text not in queries:
+            queries.insert(0, reverse_text)
+
         # ── Couche 2 : références légales directes ────────────────────────────
         # "que dit l'article 4 du code civil" → ajoute "Article 4"
         # Le modèle d'embedding paraphrase aligne mal "que dit l'article 4"
@@ -347,6 +357,11 @@ class RAGChain:
         """
         expanded = expand_acronyms(question)
         queries: list[str] = [expanded]
+
+        # ── Lookup inverse (texte → article) ─────────────────────────────────
+        reverse_text = extract_reverse_lookup_query(question)
+        if reverse_text and reverse_text not in queries:
+            queries.insert(0, reverse_text)
 
         # ── Références légales directes ───────────────────────────────────────
         article_qs = extract_article_queries(question)
@@ -458,6 +473,16 @@ class RAGChain:
             if keyword_docs:
                 documents = merge_with_keyword_results(documents, keyword_docs)
 
+        # ── [3c] Phrase search pour le lookup inverse (texte → article) ─────
+        # "à quel article correspond ce texte : [extrait]"
+        # Scan exact du docstore sur les 70 premiers chars de l'extrait fourni.
+        # Score 0.99 → placé en tête du contexte, le LLM voit l'article en premier.
+        reverse_text = extract_reverse_lookup_query(question)
+        if reverse_text:
+            phrase_docs = search_by_phrase(reverse_text, categorie)
+            if phrase_docs:
+                documents = merge_with_keyword_results(phrase_docs, documents)
+
         if not documents:
             answer = self._no_result_answer(question, queries[0], categorie, lang)
             memory.add_exchange(question, answer)
@@ -514,6 +539,13 @@ class RAGChain:
                 keyword_docs.extend(search_by_keyword(aq, categorie))
             if keyword_docs:
                 documents = merge_with_keyword_results(documents, keyword_docs)
+
+        # ── [3c] Phrase search pour le lookup inverse (texte → article) ──
+        reverse_text = extract_reverse_lookup_query(question)
+        if reverse_text:
+            phrase_docs = search_by_phrase(reverse_text, categorie)
+            if phrase_docs:
+                documents = merge_with_keyword_results(phrase_docs, documents)
 
         if not documents:
             answer = self._no_result_answer(question, queries[0], categorie, lang)

@@ -696,6 +696,80 @@ def extract_annotation_queries(question: str) -> list[str]:
 
 
 # ──────────────────────────────────────────────────────────────
+# Lookup inverse : texte fourni → numéro d'article
+# ──────────────────────────────────────────────────────────────
+
+# Détecte les questions où l'utilisateur fournit un extrait de texte légal
+# et demande dans quel article il se trouve.
+_REVERSE_LOOKUP_RE = re.compile(
+    r"\b(?:"
+    r"[àa]\s+quel(?:s)?\s+article[s]?"
+    r"|dans\s+quel(?:s)?\s+article[s]?"
+    r"|quel\s+(?:est\s+l['''])?article[s]?"
+    r"|d[''']où\s+(?:vient|provient)\s+ce\s+(?:texte|passage|extrait)"
+    r"|quelle\s+(?:est\s+la\s+)?r[eé]f[eé]rence"
+    r"|retrouver?\s+(?:cet?|l['''])\s*article"
+    r"|source\s+de\s+ce\s+(?:texte|passage|extrait)"
+    r"|trouver\s+(?:l[''']article|la\s+r[eé]f[eé]rence)"
+    r"|correspond(?:e)?\s+(?:ce|cet?|à\s+quel)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Séparateurs courants entre le préambule (question) et le texte légal fourni
+_TEXT_SEPARATOR_RE = re.compile(
+    r"(?:"
+    r"ce\s+texte\s*[:\s]+"
+    r"|(?:cet?|l['''])\s*extrait\s*[:\s]+"
+    r"|(?:ce|cet?)\s*passage\s*[:\s]+"
+    r"|texte\s*[:\s]+"
+    r"|extrait\s*[:\s]+"
+    r"|passage\s*[:\s]+"
+    r"|:\s+"
+    r")(.*)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def extract_reverse_lookup_query(question: str) -> str | None:
+    """
+    Détecte les questions de lookup inverse (texte → article) et extrait
+    le texte légal fourni pour l'utiliser comme requête FAISS directe.
+
+    Principe : la question « à quel article correspond ce texte : Le mariage
+    et la filiation… » contient le texte de l'article. En l'extrayant et en
+    l'utilisant directement comme requête, on obtient un score sémantique
+    quasi-parfait ET on peut déclencher un keyword match sur le début du texte.
+
+    Exemples détectés :
+        "à quel article correspond ce texte : [texte légal]"
+        "dans quel article trouve-t-on : [texte légal]"
+        "quel est l'article source de ce passage : [texte légal]"
+
+    Returns:
+        Le texte légal extrait (str) si détecté, None sinon.
+    """
+    if not _REVERSE_LOOKUP_RE.search(question):
+        return None
+
+    # Tenter d'extraire le texte après un séparateur explicite
+    sep_match = _TEXT_SEPARATOR_RE.search(question)
+    if sep_match:
+        candidate = sep_match.group(1).strip().strip('"').strip("«»")
+        if len(candidate) >= 30:
+            logger.info(f"[reverse_lookup] Texte extrait ({len(candidate)} chars)")
+            return candidate
+
+    # Fallback : supprimer la partie interrogative et garder le reste
+    cleaned = _REVERSE_LOOKUP_RE.sub("", question).strip().lstrip(":").strip()
+    if len(cleaned) >= 30:
+        logger.info(f"[reverse_lookup] Texte extrait (fallback, {len(cleaned)} chars)")
+        return cleaned
+
+    return None
+
+
+# ──────────────────────────────────────────────────────────────
 # Nettoyage du bruit dans les PDFs format slides
 # ──────────────────────────────────────────────────────────────
 
