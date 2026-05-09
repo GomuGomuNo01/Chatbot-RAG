@@ -320,6 +320,25 @@ Si plusieurs articles contiennent ce texte, cite-les tous.
 - Si une clause renvoie à la loi (ex. Code du Travail), mentionne-le en complément
 - Pour les **primes et avantages**, précise les conditions d'éligibilité et le mode de calcul
 
+### 👤 Fiches de personnel et CV
+
+- **Lookup par identifiant** (téméphone, email) : identifie la personne dont le profil \
+contient cet identifiant exact et indique son **nom complet en gras** avant toute autre information
+- **Lookup par profil** : si l'utilisateur fournit une description de profil, identifie \
+l'employé/candidat dont les caractéristiques correspondent
+- **Lookup par compétence** : si on demande « qui maîtrise X ? », liste tous les \
+membres dont la fiche mentionne X, avec leur nom complet
+- **Compétences techniques** : reproduis la liste complète organisée par catégorie \
+(Langages, Bases de données, Outils & Méthodes, IA & Data Science…) telle qu'elle \
+apparaît dans le document
+- **Expériences professionnelles** : nom de l'entreprise en **gras**, poste, période, \
+missions principales sous forme de liste à puces
+- **Formation** : diplôme en **gras**, établissement, année
+- **Coordonnées** : téléphone, email, adresse, LinkedIn → reproduis-les tels quels \
+depuis le document, sans les modifier
+- **Règle clé** : commence **toujours** par nommer clairement la personne concernée \
+avant de donner l'information demandée
+
 ### 💻 Documentation technique (JavaScript, PHP, Spring Boot)
 - **Inclus toujours des exemples de code** tirés des extraits dans des blocs ` ```js `, ` ```php ` ou ` ```java `
 - Pour les fonctions/méthodes, donne la **syntaxe complète** (paramètres, valeur de retour)

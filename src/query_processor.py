@@ -1474,3 +1474,243 @@ def extract_tech_concept_queries(question: str) -> list[str]:
     if queries:
         logger.info(f"[tech_concept_queries] Concepts techniques JS/PHP : {queries}")
     return queries
+
+
+# ──────────────────────────────────────────────────────────────
+# Lookup inverse personnel : identifiant → employé/candidat
+# ──────────────────────────────────────────────────────────────
+
+# Détecte un numéro de téléphone dans la question (formats FR)
+_PHONE_RE = re.compile(
+    r"(?:\+33[\s\-\.]?|0[\s\-\.]?)"  # Préfixe FR : +33 ou 0
+    r"[67][\s\-\.]?"  # Indicatif mobile FR (6 ou 7)
+    r"(?:\d[\s\-\.]?){7}\d"  # 8 chiffres restants avec séparateurs optionnels
+    r"|(?:\+33[\s\-\.]?)"  # OU +33 suivi de
+    r"[0-9][\s\-\.]?(?:\d[\s\-\.]?){7}\d",  # tout numéro FR (fixe inclus)
+)
+
+# Détecte une adresse email dans la question
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+
+# Patterns signalant une question de lookup inverse sur le personnel
+_PERSONNEL_REVERSE_RE = re.compile(
+    r"(?:"
+    r"quel\s+(?:est\s+le\s+)?nom\s+(?:de\s+l[''']employ[eé]|du\s+membre|de\s+la\s+personne|du\s+candidat)"
+    r"|[àa]\s+quel\s+(?:employ[eé]|candidat|membre)\s+correspond"
+    r"|quel\s+(?:employ[eé]|candidat|membre)\s+(?:a\s+pour|correspond|possède)"
+    r"|qui\s+(?:a\s+(?:ce|le|cet?)\s+(?:numéro|téléphone|email|mail|adresse))"
+    r"|qui\s+correspond\s+[àa]\s+ce(?:tte)?\s+(?:description|profil)"
+    r"|qui\s+(?:maîtrise|connaît|utilise|travaille\s+avec|a\s+des\s+compétences?\s+en)\s+"
+    r"|qui\s+(?:a\s+travaillé|travaillait|a\s+fait\s+un\s+stage)\s+(?:chez|[àa]|au)\s+"
+    r"|qui\s+est\s+(?:l[''']auteur|le\s+candidat|le\s+développeur|le\s+membre)"
+    r"|retrouver?\s+(?:l[''']employ[eé]|le\s+candidat|la\s+personne)"
+    r"|quel(?:le)?\s+est\s+l[''']email\s+(?:de|du)"
+    r"|quel(?:le)?\s+est\s+(?:l[''']adresse|le\s+numéro)\s+(?:de|du)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _normalize_phone_for_search(phone_raw: str) -> list[str]:
+    """
+    Génère plusieurs variantes d'un numéro de téléphone pour maximiser
+    les chances de match dans le docstore (formats avec/sans espaces, +33 vs 0).
+
+    Exemple :
+        "+33 07 44 27 65 00" → ["+33 07 44 27 65 00", "+33744276500", "0744276500",
+                                 "07 44 27 65 00"]
+    """
+    # Extraire uniquement les chiffres
+    digits_only = re.sub(r"[\s\-\.\(\)\+]", "", phone_raw)
+    if digits_only.startswith("33"):
+        digits_only = digits_only[2:]  # Supprimer indicatif pays
+    elif digits_only.startswith("0"):
+        digits_only = digits_only[1:]  # Supprimer zéro initial
+
+    # Reconstituer les variantes standard
+    variants = [phone_raw]  # Format brut de la question
+    # Format +33 XX XX XX XX
+    by_pairs = " ".join(digits_only[i : i + 2] for i in range(0, len(digits_only), 2))
+    variants.append(f"+33 0{digits_only[0]} {by_pairs[2:].strip()}")
+    # Format 0X XX XX XX XX
+    variants.append(f"0{digits_only[0]} {by_pairs[2:].strip()}")
+    # Format compact sans espaces
+    variants.append(f"+33{digits_only}")
+    variants.append(f"0{digits_only}")
+
+    # Déduplique en préservant l'ordre
+    seen: set[str] = set()
+    result: list[str] = []
+    for v in variants:
+        if v and v not in seen:
+            seen.add(v)
+            result.append(v)
+    return result
+
+
+def extract_personnel_lookup_queries(question: str) -> list[str]:
+    """
+    Détecte les questions de lookup inverse sur des fiches personnel/CV et
+    extrait les identifiants (téléphone, email, profil) pour une recherche exacte.
+
+    Priorité de détection :
+    1. Numéro de téléphone → plusieurs variantes normalisées
+    2. Adresse email → valeur brute
+    3. Description de profil / texte libre → extrait après séparateur ":"
+
+    Exemples :
+        "quel est le nom de l'employé avec ce numéro : +33 07 44 27 65 00"
+            → ["+33 07 44 27 65 00", "+33 0744276500", "07 44 27 65 00", ...]
+
+        "à quel employé correspond cet email : cedrickouadio22@gmail.com"
+            → ["cedrickouadio22@gmail.com"]
+
+        "qui correspond à cette description de profil : Étudiant en Master…"
+            → ["Étudiant en Master…"]
+
+    Retourne une liste vide si aucun identifiant n'est détecté.
+    """
+    queries: list[str] = []
+
+    # ── 1. Téléphone — priorité maximale ─────────────────────────
+    phone_match = _PHONE_RE.search(question)
+    if phone_match:
+        raw = phone_match.group(0).strip()
+        variants = _normalize_phone_for_search(raw)
+        queries.extend(variants)
+        logger.info(f"[personnel_lookup] Téléphone : {raw} → {len(variants)} variante(s)")
+        return queries  # Identifiant exact → on s'arrête ici
+
+    # ── 2. Email ──────────────────────────────────────────────────
+    email_match = _EMAIL_RE.search(question)
+    if email_match:
+        email = email_match.group(0)
+        queries.append(email)
+        logger.info(f"[personnel_lookup] Email : {email}")
+        return queries
+
+    # ── 3. Description de profil (texte libre après ":") ─────────
+    if _PERSONNEL_REVERSE_RE.search(question):
+        sep_match = _TEXT_SEPARATOR_RE.search(question)
+        if sep_match:
+            candidate = sep_match.group(1).strip().strip('"').strip("«»")
+            if len(candidate) >= 20:
+                queries.append(candidate)
+                logger.info(f"[personnel_lookup] Profil extrait ({len(candidate)} chars)")
+                return queries
+
+        # Fallback : retirer la partie interrogative, garder le reste
+        cleaned = _PERSONNEL_REVERSE_RE.sub("", question).strip().lstrip(":").strip()
+        if len(cleaned) >= 10:
+            queries.append(cleaned)
+            logger.info(f"[personnel_lookup] Requête nettoyée : {cleaned[:60]}")
+
+    return queries
+
+
+# ──────────────────────────────────────────────────────────────
+# Enrichissement sémantique — Personnel / CV
+# ──────────────────────────────────────────────────────────────
+
+# Paires (pattern de détection, requête enrichie) pour les questions RH personnel.
+# Complémentaire au lookup inverse exact : couvre les questions sémantiques
+# du type "qui maîtrise Spring Boot ?" ou "quelles sont les compétences de X ?".
+_PERSONNEL_CONCEPTS: list[tuple[re.Pattern, str]] = [
+    (
+        re.compile(r"\bqui\s+maîtrise\b|\bqui\s+connaît\b|\bqui\s+sait\s+faire\b", re.I),
+        "compétences techniques langages maîtrise outils frameworks",
+    ),
+    (
+        re.compile(
+            r"\bcompétences?\s+(?:de|du|d[''']un|en)\b"
+            r"|\btechnologies?\s+(?:de|du|maîtrisées?)\b",
+            re.I,
+        ),
+        "compétences techniques outils langages frameworks bases de données",
+    ),
+    (
+        re.compile(
+            r"\bqui\s+(?:a\s+travaillé|travaillait|a\s+fait\s+un\s+stage)\b"
+            r"|\bexpérience\s+(?:chez|professionnelle|en\s+entreprise)\b",
+            re.I,
+        ),
+        "expériences professionnelles entreprise poste missions période",
+    ),
+    (
+        re.compile(
+            r"\bformation\s+(?:de|du|d[''']un)\b|\bdiplôme\b|\bétudes?\b"
+            r"|\bécole\b|\buniversité\b|\bmaster\b|\blicence\b|\bBTS\b",
+            re.I,
+        ),
+        "formation diplôme école université master licence BTS cursus",
+    ),
+    (
+        re.compile(
+            r"\bprofil\b|\bcandidat\b|\bCV\b|\bcurriculum\b|\bcandidature\b",
+            re.I,
+        ),
+        "profil candidat développeur compétences expériences formation recherche alternance",
+    ),
+    (
+        re.compile(
+            r"\badresse\b.*(?:employ[eé]|candidat|membre)"
+            r"|(?:employ[eé]|candidat|membre).*\badresse\b",
+            re.I,
+        ),
+        "adresse localisation région Île-de-France ville domicile",
+    ),
+    (
+        re.compile(
+            r"\b(?:téléphone|numéro|joindre|contacter)\b.*(?:employ[eé]|candidat|membre)"
+            r"|(?:employ[eé]|candidat|membre).*\b(?:téléphone|numéro|contact)\b",
+            re.I,
+        ),
+        "téléphone numéro contact email coordonnées joindre",
+    ),
+    (
+        re.compile(r"\blangues?\b|\bbilingue\b|\bfrançais\b.*\banglais\b|\bnivelau\s+B\d\b", re.I),
+        "langue français anglais niveau bilingue maternelle B1 B2",
+    ),
+    (
+        re.compile(r"\balternance\b|\bstage\b|\bcontrat\s+pro\b|\bapprentissage\b", re.I),
+        "alternance stage contrat apprentissage formation en entreprise recherche",
+    ),
+    (
+        re.compile(r"\bLinkedIn\b|\bréseaux?\s+professionnel\b|\bprofil\s+LinkedIn\b", re.I),
+        "LinkedIn profil professionnel lien réseau",
+    ),
+]
+
+
+def extract_personnel_concept_queries(question: str) -> list[str]:
+    """
+    Détecte les concepts liés aux fiches personnel/CV et génère des requêtes
+    enrichies avec le vocabulaire RH/candidature correspondant.
+
+    Couvre les questions sémantiques sur :
+    - Compétences : "qui maîtrise Spring Boot ?", "quelles sont ses compétences ?"
+    - Expériences : "qui a travaillé chez IT-CENTREX ?", "son expérience chez…"
+    - Formation : "quel est son diplôme ?", "quelle école ?"
+    - Profil : "quel est son profil ?", "c'est quel type de candidat ?"
+    - Contact : "comment le contacter ?", "quel est son email ?"
+
+    Exemples :
+        "qui maîtrise Python ?"
+            → ["compétences techniques langages maîtrise outils frameworks"]
+
+        "quelle est sa formation ?"
+            → ["formation diplôme école université master licence BTS cursus"]
+
+    Retourne une liste vide si aucun concept personnel n'est détecté.
+    """
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    for pattern, enriched in _PERSONNEL_CONCEPTS:
+        if pattern.search(question) and enriched not in seen:
+            seen.add(enriched)
+            queries.append(enriched)
+
+    if queries:
+        logger.info(f"[personnel_concept_queries] Concepts personnel : {queries}")
+    return queries
