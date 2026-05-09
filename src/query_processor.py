@@ -259,6 +259,11 @@ def contextualize_query(
             question=question,
         )
         result = llm.invoke([HumanMessage(content=prompt_text)])
+        # Sécurité stricte : result.content DOIT être une str.
+        # En cas contraire (MagicMock en test, type inattendu…), on abandonne
+        # la réécriture et on retourne la question originale.
+        if not isinstance(result.content, str):
+            return question
         rewritten = result.content.strip().strip('"').strip("'")
 
         # Sécurité : si la réécriture est vide ou trop longue, on garde l'original
@@ -295,6 +300,8 @@ async def contextualize_query_async(
             question=question,
         )
         result = await llm.ainvoke([HumanMessage(content=prompt_text)])
+        if not isinstance(result.content, str):
+            return question
         rewritten = result.content.strip().strip('"').strip("'")
 
         if not rewritten or len(rewritten) > 400:
