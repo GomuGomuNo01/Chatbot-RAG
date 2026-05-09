@@ -91,7 +91,7 @@ def search(
 
     results_with_scores = vectorstore.similarity_search_with_score(
         query=query,
-        k=k * 3
+        k=k * 5,   # pool élargi (était k*3) — améliore le rappel sur grands corpus
     )
 
     filtered: List[Document] = []
@@ -108,12 +108,14 @@ def search(
         if categorie and doc.metadata.get("categorie") != categorie:
             continue
 
-        # Déduplication douce : max 2 chunks par page d'un même fichier
+        # Déduplication douce : max 3 chunks par page d'un même fichier
+        # (était 2 — trop restrictif sur les grands PDF juridiques avec
+        #  plusieurs articles pertinents par page)
         page_key = (
             doc.metadata.get("source", ""),
             doc.metadata.get("page", "")
         )
-        if page_hits.get(page_key, 0) >= 2:
+        if page_hits.get(page_key, 0) >= 3:
             continue
 
         doc.metadata["similarity_score"] = round(float(similarity), 3)

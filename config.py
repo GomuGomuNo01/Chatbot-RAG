@@ -64,7 +64,7 @@ CHUNK_OVERLAP = 200    # Chevauchement pour conserver le contexte
 # RETRIEVAL — Recherche sémantique
 # ============================================================
 
-TOP_K_RESULTS       = 8     # Nb de chunks dans le contexte final (multi_search fusionne N requêtes)
+TOP_K_RESULTS       = 10    # Nb de chunks dans le contexte final (multi_search fusionne N requêtes)
 SIMILARITY_THRESHOLD = 0.12 # Score minimum (1/(1+L2_dist)) — 0.12 ≈ distance L2 ≤ 7.3
                             # Seuil abaissé pour les questions comparatives multi-requêtes
 

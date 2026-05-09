@@ -400,3 +400,57 @@ async def build_search_query_async(
     expanded  = expand_acronyms(question)
     search_q  = await contextualize_query_async(expanded, history_text, llm)
     return search_q
+
+
+# ──────────────────────────────────────────────────────────────
+# Détection des références à des articles de loi
+# ──────────────────────────────────────────────────────────────
+
+# "article 4", "l'article L. 1234-5", "articles R. 123-4", etc.
+_ARTICLE_NUM_RE = re.compile(
+    r"\barticles?\s+([A-Z]*\.?\s*\d+(?:[–\-]\d+)*)",
+    re.IGNORECASE,
+)
+# "et l'article N" / "à l'article N" après une première mention
+_ARTICLE_AND_RE = re.compile(
+    r"(?:et|à|ou)\s+(?:l[aes']?\s+)?articles?\s+([A-Z]*\.?\s*\d+(?:[–\-]\d+)*)",
+    re.IGNORECASE,
+)
+
+
+def extract_article_queries(question: str) -> list[str]:
+    """
+    Détecte les références à des articles de loi dans la question et génère
+    des requêtes ciblées à ajouter au multi-retrieval.
+
+    Principe : le modèle d'embedding paraphrase ne fait pas bien la
+    correspondance entre « que dit l'article 4 » et le chunk « Article 4 \\n
+    Le juge qui refusera… ». En ajoutant une requête directe « Article 4 »,
+    on garantit un hit quasi-certain dans l'espace vectoriel.
+
+    Exemples :
+        "que dit l'article 4 du code civil"          → ["Article 4"]
+        "quelles règles pour les articles 4 et 5 ?"  → ["Article 4", "Article 5"]
+        "article L. 1234-5 du code du travail"       → ["Article L. 1234-5"]
+        "expliquez les articles R. 123-1 et R. 123-2"→ ["Article R. 123-1", "Article R. 123-2"]
+
+    Retourne une liste vide si aucune référence légale n'est trouvée.
+    """
+    refs: list[str] = []
+    for m in _ARTICLE_NUM_RE.finditer(question):
+        refs.append(m.group(1).strip())
+    for m in _ARTICLE_AND_RE.finditer(question):
+        refs.append(m.group(1).strip())
+
+    # Normalise : "Article N" et déduplique (ordre préservé)
+    seen: set[str] = set()
+    queries: list[str] = []
+    for ref in refs:
+        normalized = f"Article {ref}"
+        if normalized not in seen:
+            seen.add(normalized)
+            queries.append(normalized)
+
+    if queries:
+        logger.info(f"[article_queries] Références légales détectées : {queries}")
+    return queries

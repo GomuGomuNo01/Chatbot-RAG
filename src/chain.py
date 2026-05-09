@@ -25,6 +25,7 @@ from src.query_processor import (
     build_search_query,
     build_search_query_async,
     decompose_comparative_query,
+    extract_article_queries,
 )
 from config import (
     GROQ_API_KEY,
@@ -149,7 +150,17 @@ class RAGChain:
         expanded = expand_acronyms(question)
         queries: list[str] = [expanded]
 
-        # ── Couche 2 : décomposition comparative ──────────────────────────────
+        # ── Couche 2 : références légales directes ────────────────────────────
+        # "que dit l'article 4 du code civil" → ajoute "Article 4"
+        # Le modèle d'embedding paraphrase aligne mal "que dit l'article 4"
+        # avec le chunk "Article 4\nLe juge qui refusera…". Une requête directe
+        # "Article 4" produit un hit quasi-certain dans l'espace vectoriel.
+        article_qs = extract_article_queries(question)
+        for aq in article_qs:
+            if aq not in queries:
+                queries.append(aq)
+
+        # ── Couche 3 : décomposition comparative ──────────────────────────────
         # "différence entre CDI et CDD" → 3 sous-requêtes indépendantes
         # IMPORTANT : on passe `question` (original) et non `expanded` pour éviter
         # une double expansion : decompose_comparative_query appelle expand_acronyms()
@@ -159,13 +170,13 @@ class RAGChain:
             if sq not in queries:
                 queries.append(sq)
 
-        # ── Couche 3 : réécriture contextuelle (synchrone pour ask()) ─────────
+        # ── Couche 4 : réécriture contextuelle (synchrone pour ask()) ─────────
         # Résout "les deux" → "CDI et CDD", "il" → "le CDI", etc.
         if not is_stream:
             rewritten = build_search_query(question, history_compact, self.llm)
             if rewritten and rewritten != expanded and rewritten not in queries:
                 queries.append(rewritten)
-                # ── Couche 4 : décomposer aussi la requête réécrite ───────────
+                # ── Couche 5 : décomposer aussi la requête réécrite ───────────
                 # Ex. : "les deux" → "différence CDI CDD" → décomposition
                 sub_rewritten = decompose_comparative_query(rewritten)
                 for sq in sub_rewritten:
@@ -185,6 +196,12 @@ class RAGChain:
         """
         expanded = expand_acronyms(question)
         queries: list[str] = [expanded]
+
+        # ── Références légales directes ───────────────────────────────────────
+        article_qs = extract_article_queries(question)
+        for aq in article_qs:
+            if aq not in queries:
+                queries.append(aq)
 
         # ── Décomposition comparative ─────────────────────────────────────────
         # Passe `question` (original) — decompose_comparative_query expand en interne
