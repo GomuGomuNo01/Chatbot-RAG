@@ -701,10 +701,10 @@ def extract_annotation_queries(question: str) -> list[str]:
 
 # Patterns récurrents dans les PDFs de type présentation/cours
 _SLIDE_NOISE_PATTERNS: list[re.Pattern] = [
-    re.compile(r"\b\d{2}:\d{2}:\d{2}\b"),                      # timestamps (08:16:59)
+    re.compile(r"\b\d{2}:\d{2}:\d{2}\b"),  # timestamps (08:16:59)
     re.compile(r"Programmation Web\s+\d{4}[\-–]\d{4}", re.I),  # "Programmation Web 2012-2013"
-    re.compile(r"^\s*\d{1,3}\s*$", re.MULTILINE),              # numéros de page seuls
-    re.compile(r"^[\s\-–_=]{3,}$", re.MULTILINE),              # lignes de séparation vides
+    re.compile(r"^\s*\d{1,3}\s*$", re.MULTILINE),  # numéros de page seuls
+    re.compile(r"^[\s\-–_=]{3,}$", re.MULTILINE),  # lignes de séparation vides
 ]
 
 
