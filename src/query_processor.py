@@ -114,6 +114,58 @@ ACRONYMS: dict[str, str] = {
     "K8S": "kubernetes",
     "IaC": "infrastructure as code",
     "SRE": "site reliability engineering",
+    # ── Web / JavaScript ──────────────────────────────────────
+    "DOM": "document object model",
+    "JS": "javascript",
+    "TS": "typescript",
+    "HTML": "hypertext markup language",
+    "CSS": "cascading style sheets",
+    "AJAX": "asynchronous javascript and xml",
+    "SPA": "single page application",
+    "PWA": "progressive web application",
+    "CSR": "client-side rendering",
+    "SSR": "server-side rendering",
+    "JSX": "javascript xml",
+    "ESM": "ecmascript module",
+    "CJS": "commonjs module",
+    "BOM": "browser object model",
+    # ── Java / Spring Boot ────────────────────────────────────
+    "JVM": "java virtual machine",
+    "JDK": "java development kit",
+    "JRE": "java runtime environment",
+    "JPA": "java persistence api",
+    "JDBC": "java database connectivity",
+    "JMS": "java message service",
+    "JNDI": "java naming and directory interface",
+    "JAR": "java archive",
+    "WAR": "web application archive",
+    "IoC": "inversion of control",
+    "DI": "dependency injection",
+    "AOP": "aspect oriented programming",
+    "POJO": "plain old java object",
+    "DTO": "data transfer object",
+    "DAO": "data access object",
+    "ORM": "object relational mapping",
+    "AMQP": "advanced message queuing protocol",
+    "AOT": "ahead of time compilation",
+    "GraalVM": "graal virtual machine",
+    # ── Architecture / Patterns ───────────────────────────────
+    "DAO": "data access object",
+    "DTO": "data transfer object",
+    "BFF": "backend for frontend",
+    "CQRS": "command query responsibility segregation",
+    "DDD": "domain driven design",
+    "TDD": "test driven development",
+    "BDD": "behavior driven development",
+    "SOLID": "single responsibility open closed liskov substitution interface segregation dependency inversion",
+    # ── Données / Bases ───────────────────────────────────────
+    "JSON": "javascript object notation",
+    "XML": "extensible markup language",
+    "YAML": "yaml ain't markup language",
+    "TOML": "tom's obvious minimal language",
+    "CSV": "comma separated values",
+    "NoSQL": "not only sql",
+    "RDBMS": "relational database management system",
 }
 
 # Marqueurs anaphoriques signalant une question dépendante du contexte
@@ -188,22 +240,30 @@ def expand_acronyms(text: str) -> str:
     Remplace les acronymes connus par « ACRONYME (forme longue) ».
     Travaille sur les mots entiers uniquement (pas dans une sous-chaîne).
 
+    Supporte :
+    - Acronymes tout majuscules  : CDI, JPA, REST, DOM
+    - Acronymes mixed-case connus : IoC, GraalVM, NoSQL
+    - Acronymes avec chiffres    : K8S, HTML5
+
     Exemple :
-        "c'est quoi un CDI ?"
-        → "c'est quoi un CDI (contrat à durée indéterminée) ?"
+        "c'est quoi un CDI ?"        → "c'est quoi un CDI (contrat à durée indéterminée) ?"
+        "configurer IoC avec Spring"  → "configurer IoC (inversion of control) avec Spring"
     """
 
     def _replace(match: re.Match) -> str:
         token = match.group(0)
-        upper = token.upper()
-        if upper in ACRONYMS:
-            expanded = f"{token} ({ACRONYMS[upper]})"
+        # Cherche d'abord le token exact (pour les mixed-case comme IoC, NoSQL)
+        # puis sa version uppercase (pour les acronymes standards)
+        key = token if token in ACRONYMS else token.upper()
+        if key in ACRONYMS:
+            expanded = f"{token} ({ACRONYMS[key]})"
             logger.debug(f"Acronyme étendu : {token} → {expanded}")
             return expanded
         return token
 
-    # Pattern : séquences de 2-6 lettres majuscules/chiffres en mot entier
-    return re.sub(r"\b[A-Z][A-Z0-9]{1,5}\b", _replace, text)
+    # Pattern élargi : majuscule suivie de lettres/chiffres (2-9 chars total)
+    # Capture : CDI, JPA, REST, DOM, IoC, GraalVM, NoSQL, K8S, HTML5
+    return re.sub(r"\b[A-Z][A-Za-z0-9]{1,8}\b", _replace, text)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -465,3 +525,122 @@ def extract_article_queries(question: str) -> list[str]:
     if queries:
         logger.info(f"[article_queries] Références légales détectées : {queries}")
     return queries
+
+
+# ──────────────────────────────────────────────────────────────
+# Détection des annotations Java / Spring Boot (@Annotation)
+# ──────────────────────────────────────────────────────────────
+
+# Capture @AnnotationName (éventuellement suivi de parenthèses)
+_ANNOTATION_RE = re.compile(r"@([A-Z][A-Za-z0-9]+)(?:\([^)]*\))?")
+
+# Annotations Spring Boot fréquentes : génère aussi des sous-requêtes enrichies
+_SPRING_ANNOTATION_CONTEXT: dict[str, str] = {
+    "SpringBootApplication": "spring boot application main class configuration",
+    "RestController": "rest controller http endpoints web mvc",
+    "Controller": "mvc controller web layer",
+    "Service": "service layer business logic component",
+    "Repository": "repository data access layer database",
+    "Component": "spring component bean dependency injection",
+    "Autowired": "dependency injection autowiring beans",
+    "Bean": "spring bean factory configuration",
+    "Configuration": "spring configuration class beans",
+    "Value": "property injection configuration value",
+    "ConfigurationProperties": "configuration properties binding external config",
+    "EnableAutoConfiguration": "auto-configuration spring boot",
+    "Transactional": "transaction management database",
+    "Entity": "jpa entity database table mapping",
+    "Table": "jpa table mapping database",
+    "Column": "jpa column mapping database field",
+    "Id": "jpa primary key entity identifier",
+    "GeneratedValue": "jpa auto-generated primary key",
+    "OneToMany": "jpa one to many relationship",
+    "ManyToOne": "jpa many to one relationship",
+    "ManyToMany": "jpa many to many relationship",
+    "RequestMapping": "http request mapping url route",
+    "GetMapping": "http get request handler endpoint",
+    "PostMapping": "http post request handler endpoint",
+    "PutMapping": "http put request handler endpoint",
+    "DeleteMapping": "http delete request handler endpoint",
+    "PathVariable": "url path variable rest api",
+    "RequestBody": "http request body deserialization",
+    "ResponseBody": "http response body serialization",
+    "RequestParam": "http request parameter query string",
+    "ExceptionHandler": "exception handling error management",
+    "Scheduled": "scheduled task cron job",
+    "Async": "asynchronous method execution",
+    "EnableScheduling": "enable scheduling configuration",
+    "EnableAsync": "enable async configuration",
+    "Profile": "spring profile environment configuration",
+    "ConditionalOnProperty": "conditional bean creation configuration",
+    "SpringBootTest": "integration test spring boot",
+    "Test": "unit test junit",
+    "MockBean": "mock bean test",
+}
+
+
+def extract_annotation_queries(question: str) -> list[str]:
+    """
+    Détecte les annotations Java/Spring Boot dans la question et génère
+    des requêtes ciblées pour améliorer le retrieval sur la doc Spring Boot.
+
+    Principe : le modèle d'embedding paraphrase aligne mal "comment utiliser
+    @RestController" avec le chunk qui définit RestController. Une requête
+    directe "@RestController rest controller http endpoints" garantit un hit.
+
+    Exemples :
+        "comment utiliser @RestController ?"
+        → ["@RestController rest controller http endpoints web mvc"]
+
+        "@Autowired vs @Bean quelle différence ?"
+        → ["@Autowired dependency injection autowiring beans",
+           "@Bean spring bean factory configuration"]
+
+    Retourne une liste vide si aucune annotation n'est trouvée.
+    """
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    for m in _ANNOTATION_RE.finditer(question):
+        name = m.group(1)
+        if name in seen:
+            continue
+        seen.add(name)
+
+        context = _SPRING_ANNOTATION_CONTEXT.get(name, "")
+        if context:
+            queries.append(f"@{name} {context}")
+        else:
+            queries.append(f"@{name} annotation")
+
+    if queries:
+        logger.info(f"[annotation_queries] Annotations détectées : {queries}")
+    return queries
+
+
+# ──────────────────────────────────────────────────────────────
+# Nettoyage du bruit dans les PDFs format slides
+# ──────────────────────────────────────────────────────────────
+
+# Patterns récurrents dans les PDFs de type présentation/cours
+_SLIDE_NOISE_PATTERNS: list[re.Pattern] = [
+    re.compile(r"\b\d{2}:\d{2}:\d{2}\b"),                      # timestamps (08:16:59)
+    re.compile(r"Programmation Web\s+\d{4}[\-–]\d{4}", re.I),  # "Programmation Web 2012-2013"
+    re.compile(r"^\s*\d{1,3}\s*$", re.MULTILINE),              # numéros de page seuls
+    re.compile(r"^[\s\-–_=]{3,}$", re.MULTILINE),              # lignes de séparation vides
+]
+
+
+def clean_slide_text(text: str) -> str:
+    """
+    Supprime le bruit récurrent des PDFs format slides/cours
+    (timestamps, footers répétitifs, numéros de page isolés).
+
+    Utilisé dans loader.py pour améliorer la qualité des chunks
+    issus de documents de type présentation.
+    """
+    for pattern in _SLIDE_NOISE_PATTERNS:
+        text = pattern.sub("", text)
+    # Nettoyer les lignes vides multiples générées par les suppressions
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()

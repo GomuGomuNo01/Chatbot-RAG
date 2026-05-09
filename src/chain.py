@@ -26,6 +26,7 @@ from src.query_processor import (
     build_search_query_async,
     decompose_comparative_query,
     expand_acronyms,
+    extract_annotation_queries,
     extract_article_queries,
 )
 from src.retriever import format_sources, multi_search, search
@@ -270,6 +271,17 @@ class RAGChain:
             if aq not in queries:
                 queries.append(aq)
 
+        # ── Couche 2b : annotations Java/Spring Boot (@Annotation) ───────────
+        # "@RestController comment l'utiliser" → ajoute une requête enrichie
+        # "@RestController rest controller http endpoints web mvc"
+        # Le modèle d'embedding ne fait pas bien le lien entre la question
+        # et le chunk de doc qui décrit l'annotation. La requête enrichie
+        # contient les termes-clés du contexte Spring Boot correspondant.
+        annotation_qs = extract_annotation_queries(question)
+        for aq in annotation_qs:
+            if aq not in queries:
+                queries.append(aq)
+
         # ── Couche 3 : décomposition comparative ──────────────────────────────
         # "différence entre CDI et CDD" → 3 sous-requêtes indépendantes
         # IMPORTANT : on passe `question` (original) et non `expanded` pour éviter
@@ -310,6 +322,12 @@ class RAGChain:
         # ── Références légales directes ───────────────────────────────────────
         article_qs = extract_article_queries(question)
         for aq in article_qs:
+            if aq not in queries:
+                queries.append(aq)
+
+        # ── Annotations Java/Spring Boot ──────────────────────────────────────
+        annotation_qs = extract_annotation_queries(question)
+        for aq in annotation_qs:
             if aq not in queries:
                 queries.append(aq)
 

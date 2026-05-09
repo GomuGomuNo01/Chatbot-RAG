@@ -22,18 +22,53 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 # ============================================================
 
 
+def _is_slide_pdf(pages_raw: list[str], sample: int = 10) -> bool:
+    """
+    Heuristique : détecte les PDFs de type présentation/cours.
+    Critères : pages courtes (< 400 chars en moyenne) ET bruit récurrent
+    (timestamps, footers identiques sur plusieurs pages).
+    """
+    import re
+
+    if not pages_raw:
+        return False
+    sample_pages = pages_raw[: min(sample, len(pages_raw))]
+    avg_len = sum(len(p) for p in sample_pages) / len(sample_pages)
+    if avg_len > 600:
+        return False  # Trop dense pour être des slides
+    # Cherche un footer répété sur ≥ 30% des pages
+    footer_re = re.compile(r"\b\d{2}:\d{2}:\d{2}\b|Programmation Web", re.I)
+    hits = sum(1 for p in sample_pages if footer_re.search(p))
+    return hits >= max(2, len(sample_pages) * 0.3)
+
+
 def extract_text_from_pdf(pdf_path: Path) -> list[dict]:
     """
     Extrait le texte page par page depuis un PDF.
     Retourne une liste de dicts {text, page_num, file_path}.
+
+    Pour les PDFs de type slides/cours (pages courtes, bruit répété),
+    un nettoyage automatique supprime les timestamps et footers parasites
+    avant indexation.
     """
+    from src.query_processor import clean_slide_text
+
     pages = []
     try:
         size_kb = pdf_path.stat().st_size // 1024
         doc = fitz.open(str(pdf_path))
         total_pages = len(doc)
+
+        # Pré-lecture pour détecter le format slides
+        raw_texts = [doc[i].get_text("text").strip() for i in range(min(15, total_pages))]
+        is_slides = _is_slide_pdf(raw_texts)
+        if is_slides:
+            logger.info(f"  PDF slides détecté : {pdf_path.name} — nettoyage du bruit activé")
+
         for page_num in range(total_pages):
             text = doc[page_num].get_text("text").strip()
+            if is_slides:
+                text = clean_slide_text(text)
             if len(text) >= 50:
                 pages.append(
                     {
