@@ -13,7 +13,7 @@ import logging
 import sys
 from pathlib import Path
 
-from config import CATEGORIES
+from config import get_all_categories
 
 from src.indexer import (
     _file_hash,
@@ -44,20 +44,22 @@ logger = logging.getLogger(__name__)
 
 
 def _collect_files(categorie: str | None = None) -> list:
-    """Collecte tous les fichiers supportés d'une ou plusieurs catégories."""
-    cats = [categorie] if categorie else list(CATEGORIES.keys())
+    """Collecte tous les fichiers supportés d'une ou plusieurs catégories (natives + custom)."""
+    all_cats = get_all_categories()
+    cat_keys = [categorie] if categorie else list(all_cats.keys())
     files = []
-    for cat in cats:
-        directory = Path(CATEGORIES[cat]["dir"])
+    for cat in cat_keys:
+        directory = Path(all_cats[cat]["dir"])
         for ext in SUPPORTED_EXTENSIONS:
             files.extend(sorted(directory.glob(f"*{ext}")))
     return files
 
 
 def _infer_categorie(file_path: Path) -> str:
-    """Déduit la catégorie depuis le dossier parent du fichier."""
+    """Déduit la catégorie depuis le dossier parent du fichier (natives + custom)."""
     parent = file_path.parent.name
-    if parent in CATEGORIES:
+    all_cats = get_all_categories()
+    if parent in all_cats:
         return parent
     logger.warning(f"Catégorie non reconnue pour '{parent}' — fallback sur 'technique'.")
     return "technique"
@@ -76,7 +78,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--categorie",
-        choices=list(CATEGORIES.keys()),
+        choices=list(get_all_categories().keys()),
         default=None,
         metavar="CAT",
         help="Indexer seulement cette catégorie (technique | rh | juridique)",

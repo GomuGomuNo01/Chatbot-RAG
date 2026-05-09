@@ -696,6 +696,83 @@ def extract_annotation_queries(question: str) -> list[str]:
 
 
 # ──────────────────────────────────────────────────────────────
+# Lookup inverse : texte fourni → numéro d'article
+# ──────────────────────────────────────────────────────────────
+
+# Détecte les questions où l'utilisateur fournit un extrait de texte légal
+# et demande dans quel article il se trouve.
+# NOTE : pas de \b au début — `à` n'est pas un char ASCII \w,
+#        donc \b avant `à` ne matche pas en milieu de phrase.
+_REVERSE_LOOKUP_RE = re.compile(
+    r"(?:"
+    r"[àa]\s+quel(?:s)?\s+article[s]?"
+    r"|dans\s+quel(?:s)?\s+article[s]?"
+    r"|quel\s+(?:est\s+l['''])?article[s]?\b"
+    r"|d[''']où\s+(?:vient|provient)\s+ce\s+(?:texte|passage|extrait)"
+    r"|quelle\s+(?:est\s+la\s+)?r[eé]f[eé]rence"
+    r"|retrouver?\s+(?:cet?|l['''])\s*article"
+    r"|source\s+de\s+ce\s+(?:texte|passage|extrait)"
+    r"|trouver\s+(?:l[''']article|la\s+r[eé]f[eé]rence)"
+    r"|correspond(?:e)?\s+(?:ce|cet?|à\s+quel)"
+    r"|quel(?:le)?\s+est\s+l[''']article\s+(?:correspondant|source|qui\s+dit)"
+    r")",
+    re.IGNORECASE,
+)
+
+# Séparateurs courants entre le préambule (question) et le texte légal fourni
+_TEXT_SEPARATOR_RE = re.compile(
+    r"(?:"
+    r"ce\s+texte\s*[:\s]+"
+    r"|(?:cet?|l['''])\s*extrait\s*[:\s]+"
+    r"|(?:ce|cet?)\s*passage\s*[:\s]+"
+    r"|texte\s*[:\s]+"
+    r"|extrait\s*[:\s]+"
+    r"|passage\s*[:\s]+"
+    r"|:\s+"
+    r")(.*)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def extract_reverse_lookup_query(question: str) -> str | None:
+    """
+    Détecte les questions de lookup inverse (texte → article) et extrait
+    le texte légal fourni pour l'utiliser comme requête FAISS directe.
+
+    Principe : la question « à quel article correspond ce texte : Le mariage
+    et la filiation… » contient le texte de l'article. En l'extrayant et en
+    l'utilisant directement comme requête, on obtient un score sémantique
+    quasi-parfait ET on peut déclencher un keyword match sur le début du texte.
+
+    Exemples détectés :
+        "à quel article correspond ce texte : [texte légal]"
+        "dans quel article trouve-t-on : [texte légal]"
+        "quel est l'article source de ce passage : [texte légal]"
+
+    Returns:
+        Le texte légal extrait (str) si détecté, None sinon.
+    """
+    if not _REVERSE_LOOKUP_RE.search(question):
+        return None
+
+    # Tenter d'extraire le texte après un séparateur explicite
+    sep_match = _TEXT_SEPARATOR_RE.search(question)
+    if sep_match:
+        candidate = sep_match.group(1).strip().strip('"').strip("«»")
+        if len(candidate) >= 30:
+            logger.info(f"[reverse_lookup] Texte extrait ({len(candidate)} chars)")
+            return candidate
+
+    # Fallback : supprimer la partie interrogative et garder le reste
+    cleaned = _REVERSE_LOOKUP_RE.sub("", question).strip().lstrip(":").strip()
+    if len(cleaned) >= 30:
+        logger.info(f"[reverse_lookup] Texte extrait (fallback, {len(cleaned)} chars)")
+        return cleaned
+
+    return None
+
+
+# ──────────────────────────────────────────────────────────────
 # Nettoyage du bruit dans les PDFs format slides
 # ──────────────────────────────────────────────────────────────
 
@@ -869,6 +946,83 @@ _LEGAL_CONCEPTS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\bextorsion\b", re.I),
         "extorsion violence menace contrainte bien signature peine crime",
     ),
+    # ── Droit pénal — compléments ────────────────────────────────
+    (
+        re.compile(r"\bviol\b|\bagression\s+sexuelle\b|\batteinte\s+sexuelle\b", re.I),
+        "viol agression sexuelle atteinte mineur consentement peine crime",
+    ),
+    (
+        re.compile(r"\bescroquerie\b", re.I),
+        "escroquerie tromperie manœuvres frauduleuses remise bien peine",
+    ),
+    (
+        re.compile(r"\babus\s+de\s+confiance\b", re.I),
+        "abus confiance détournement bien remis usage déterminé peine",
+    ),
+    (
+        re.compile(r"\bterrorisme\b|\bacte\s+terroriste\b", re.I),
+        "terrorisme acte infraction association malfaiteurs financement peine",
+    ),
+    (
+        re.compile(r"\bcrime[s]?\b|\bcrim(?:inel|inelle|inels)\b", re.I),
+        "crime classification infraction peine réclusion cour d'assises",
+    ),
+    (
+        re.compile(r"\bd[eé]lit[s]?\b", re.I),
+        "délit infraction tribunal correctionnel peine emprisonnement amende",
+    ),
+    (
+        re.compile(r"\bcontravention[s]?\b", re.I),
+        "contravention infraction tribunal police amende classe",
+    ),
+    # ── Droit civil — compléments ────────────────────────────────
+    (
+        re.compile(r"\bPACS\b|\bpacte\s+civil\s+de\s+solidarit[eé]\b", re.I),
+        "PACS pacte civil solidarité enregistrement effets rupture régime",
+    ),
+    (
+        re.compile(r"\bfiliation\b|\b[eé]tablissement\s+de\s+la\s+filiation\b", re.I),
+        "filiation reconnaissance légitimité paternité maternité acte naissance",
+    ),
+    (
+        re.compile(r"\bobligation\s+alimentaire\b|\bpension\s+alimentaire\b", re.I),
+        "obligation alimentaire pension alimentaire créancier débiteur calcul",
+    ),
+    (
+        re.compile(r"\bbail\b|\blocataire\b|\bpropri[eé]taire\b|\blocatif\b", re.I),
+        "bail loyer locataire bailleur congé préavis dépôt garantie charges",
+    ),
+    (
+        re.compile(r"\bcopropri[eé]t[eé]\b|\bsyndicat\s+de\s+copropri[eé]taires\b", re.I),
+        "copropriété lot tantièmes assemblée générale syndic charges règlement",
+    ),
+    (
+        re.compile(
+            r"\bcontrat\s+de\s+vente\b|\bvente\s+(?:immobili[eè]re|d[''']un\s+bien)\b", re.I
+        ),
+        "contrat vente prix livraison transfert propriété garanties défauts",
+    ),
+    # ── Droit du travail — compléments ──────────────────────────
+    (
+        re.compile(r"\b35\s*heures?\b|\bdur[eé]e\s+l[eé]gale\b|\btemps\s+de\s+travail\b", re.I),
+        "durée légale travail 35 heures semaine dépassement contingent annuel",
+    ),
+    (
+        re.compile(r"\bt[eé]l[eé]travail\b|\btravail\s+[aà]\s+distance\b", re.I),
+        "télétravail accord conditions matériel frais prise en charge employeur",
+    ),
+    (
+        re.compile(r"\bapprentissage\b|\bcontrat\s+d[''']apprentissage\b", re.I),
+        "apprentissage contrat apprenti maître d'apprentissage rémunération formation",
+    ),
+    (
+        re.compile(r"\bformation\s+professionnelle\b|\bCPF\b", re.I),
+        "formation professionnelle CPF plan développement compétences financement OPCO",
+    ),
+    (
+        re.compile(r"\bconvention\s+de\s+forfait\b|\bforfait\s+jours?\b", re.I),
+        "convention forfait jours cadre accord collectif renonciation RTT",
+    ),
     # ── Droits fondamentaux (DDHC / Constitution) ────────────────
     (
         re.compile(r"\blibert[eé]\s+d[''']expression\b", re.I),
@@ -886,6 +1040,163 @@ _LEGAL_CONCEPTS: list[tuple[re.Pattern, str]] = [
         re.compile(r"\bpr[eé]somption\s+d[''']innocence\b", re.I),
         "présomption innocence droits défense principe fondamental accusé",
     ),
+    (
+        re.compile(r"\bsouverainet[eé]\b|\bsouverain\b", re.I),
+        "souveraineté nationale peuple délégation représentants élections",
+    ),
+    (
+        re.compile(r"\blibert[eé]\s+(?:individuelle|personnelle|fondamentale)\b", re.I),
+        "liberté individuelle droits naturels inaliénables déclaration",
+    ),
+    (
+        re.compile(r"\bdr(?:oit|oits)\s+de\s+l[''']homme\b|\bDDHC\b", re.I),
+        "droits de l'homme citoyen 1789 déclaration principes naturels liberté égalité",
+    ),
+    # ── Droit constitutionnel (Constitution du 4 octobre 1958) ──
+    (
+        re.compile(r"\b49[\s\-]3\b|\barticle\s+49\b", re.I),
+        "article 49 engagement responsabilité gouvernement texte vote confiance censure",
+    ),
+    (
+        re.compile(r"\bmotion\s+de\s+censure\b", re.I),
+        "motion censure Assemblée nationale renversement gouvernement vote",
+    ),
+    (
+        re.compile(r"\bdissolution\b|\bdissoudre\s+l[''']Assembl[eé]e\b", re.I),
+        "dissolution Assemblée nationale Président République décret élections législatives",
+    ),
+    (
+        re.compile(r"\br[eé]vision\s+constitutionnelle\b|\bmodifier\s+la\s+Constitution\b", re.I),
+        "révision Constitution article 89 initiative parlement référendum congrès",
+    ),
+    (
+        re.compile(r"\b[eé]tat\s+d[''']urgence\b|\barticle\s+16\b", re.I),
+        "état urgence pouvoirs exceptionnels article 16 Président République menace",
+    ),
+    (
+        re.compile(r"\bConseil\s+constitutionnel\b", re.I),
+        "Conseil constitutionnel contrôle conformité loi Constitution QPC membres",
+    ),
+    (
+        re.compile(r"\bQuestion\s+[Pp]rioritaire\s+de\s+[Cc]onstitutionnalit[eé]\b|\bQPC\b", re.I),
+        "QPC question prioritaire constitutionnalité droits fondamentaux contrôle",
+    ),
+    (
+        re.compile(r"\bPremier\s+ministre\b|\bchef\s+du\s+gouvernement\b", re.I),
+        "Premier ministre chef gouvernement nomination responsabilité Assemblée",
+    ),
+    (
+        re.compile(r"\bPr[eé]sident\s+de\s+la\s+R[eé]publique\b|\bpr[eé]sidentiel\b", re.I),
+        "Président République pouvoirs élection quinquennat promulgation loi",
+    ),
+    (
+        re.compile(r"\bs[eé]paration\s+des\s+pouvoirs?\b", re.I),
+        "séparation pouvoirs exécutif législatif judiciaire équilibre Constitution",
+    ),
+    (
+        re.compile(r"\bparlement\b|\bAssembl[eé]e\s+nationale\b|\bS[eé]nat\b", re.I),
+        "Parlement Assemblée nationale Sénat vote loi bicamérisme navette",
+    ),
+    # ── Convention collective (RH) ────────────────────────────────
+    (
+        re.compile(r"\bgrille\s+salariale\b|\bclassification\s+(?:profession|\s)", re.I),
+        "grille salariale classification coefficient catégorie emploi échelon",
+    ),
+    (
+        re.compile(r"\bsal(?:aire|aris[eé]s?)\s+(?:minimum|de\s+base|brut|net)\b", re.I),
+        "salaire minimum base brut net coefficient classification grille rémunération",
+    ),
+    (
+        re.compile(r"\bprime\s+(?:d[''']anciennet[eé]|de\s+treizi[eè]me|annuelle)\b", re.I),
+        "prime ancienneté treizième mois annuelle conditions calcul versement",
+    ),
+    (
+        re.compile(r"\bconvention\s+collective\b", re.I),
+        "convention collective accord branche entreprise salaires classification préavis",
+    ),
+    (
+        re.compile(
+            r"\bpr[eé]avis\s+(?:de\s+)?(?:d[eé]mission|licenciement)\b.*convention\b"
+            r"|convention\b.*\bpr[eé]avis\b",
+            re.I,
+        ),
+        "préavis démission licenciement durée convention collective catégorie cadre",
+    ),
+    (
+        re.compile(r"\bmutuelle\b|\bcompl[eé]mentaire\s+sant[eé]\b|\bprevoyance\b", re.I),
+        "mutuelle complémentaire santé prévoyance cotisation employeur salarié",
+    ),
+    (
+        re.compile(r"\bretraite\s+compl[eé]mentaire\b|\bARRCO\b|\bAGIRC\b", re.I),
+        "retraite complémentaire ARRCO AGIRC points cotisation taux",
+    ),
+    (
+        re.compile(
+            r"\bavantage[s]?\s+en\s+nature\b|\bticketing?\s+restaurant\b|\bvéhicule\s+de\s+fonction\b",
+            re.I,
+        ),
+        "avantages en nature ticket restaurant véhicule de fonction évaluation cotisations",
+    ),
+    (
+        re.compile(r"\bintéressement\b|\bparticipation\b|\bépargne\s+salariale\b", re.I),
+        "intéressement participation épargne salariale accord bénéfices répartition",
+    ),
+    (
+        re.compile(
+            r"\bclassification\s+(?:convention|convention\s+collective|emploi|poste)\b"
+            r"|niveau\s+(?:de\s+classification|d[''']emploi)\b",
+            re.I,
+        ),
+        "classification emploi poste niveau coefficient critères classement",
+    ),
+    # ── Sanctions / pénalités (tous codes) ──────────────────────
+    (
+        re.compile(
+            r"\bsanction[s]?\b|\bque\s+risque[nt]?\b|\brisque[nt]?\s+(?:de|quoi)\b"
+            r"|\bpuni[e]?\s+(?:de|par)\b",
+            re.I,
+        ),
+        "peine sanction amende emprisonnement réclusion contravention délit crime encourt",
+    ),
+    (
+        re.compile(r"\bamende[s]?\b|\bpeine\s+d[''']amende\b", re.I),
+        "amende montant sanction pécuniaire contraventionnelle délictuelle peine",
+    ),
+    (
+        re.compile(
+            r"\bpeine[s]?\s+(?:de\s+prison|encourues?|applicables?)\b|\bem(?:prison)?nement\b",
+            re.I,
+        ),
+        "peine emprisonnement réclusion criminelle durée maximum crime délit",
+    ),
+    # ── Procédures (toutes catégories) ───────────────────────────
+    (
+        re.compile(
+            r"\bcomment\s+(?:faire|procéder|engager|saisir|contester|obtenir|demander)\b",
+            re.I,
+        ),
+        "procédure étapes démarche conditions délai formulaire compétence recours",
+    ),
+    (
+        re.compile(
+            r"\brecours\b|\bappel\b.*(?:jugement|décision)\b|\bcontester\s+une\b",
+            re.I,
+        ),
+        "recours appel cassation voies recours délai compétence juridiction",
+    ),
+    # ── Droit constitutionnel — compléments ─────────────────────
+    (
+        re.compile(r"\bla[ï]cit[eé]\b|\bséparation\s+(?:Église|église|religion)\b", re.I),
+        "laïcité séparation Église État République principe constitutionnel loi",
+    ),
+    (
+        re.compile(r"\br[eé]f[eé]rendum\b", re.I),
+        "référendum consultation populaire article 11 article 89 Constitution vote",
+    ),
+    (
+        re.compile(r"\bcensure\s+du\s+gouvernement\b|\brenverser\s+le\s+gouvernement\b", re.I),
+        "censure gouvernement motion Assemblée nationale vote majorité article 49",
+    ),
 ]
 
 
@@ -894,9 +1205,8 @@ def extract_legal_concept_queries(question: str) -> list[str]:
     Détecte les concepts juridiques dans la question et génère des requêtes
     enrichies avec le vocabulaire légal technique correspondant.
 
-    Améliore le retrieval sur les codes juridiques (Code Civil, Code du Travail,
-    Code Pénal, Constitution, DDHC) en injectant des termes du domaine légal
-    souvent absents dans la question brute de l'utilisateur.
+    Couvre : Code du Travail, Code Civil, Code Pénal, Constitution 1958,
+    DDHC 1789 et Convention collective (RH).
 
     Principe : la question « comment se passe un licenciement ? » ne contient
     pas les termes « cause réelle sérieuse » ou « préavis » qui apparaissent dans
@@ -910,6 +1220,9 @@ def extract_legal_concept_queries(question: str) -> list[str]:
         "qu'est-ce qu'une garde à vue ?"
             → ["garde à vue droits durée renouvellement notification avocat silence"]
 
+        "quelle est la grille salariale ?"
+            → ["grille salariale classification coefficient catégorie emploi échelon"]
+
     Retourne une liste vide si aucun concept juridique n'est détecté.
     """
     queries: list[str] = []
@@ -922,4 +1235,482 @@ def extract_legal_concept_queries(question: str) -> list[str]:
 
     if queries:
         logger.info(f"[legal_concept_queries] Concepts juridiques : {queries}")
+    return queries
+
+
+# ──────────────────────────────────────────────────────────────
+# Enrichissement sémantique des concepts techniques (JS / PHP)
+# ──────────────────────────────────────────────────────────────
+
+# Paires (pattern de détection dans la question, requête enrichie pour FAISS)
+# Complémentaire aux annotations Spring Boot — couvre le JS (Cours_Javascript.pdf)
+# et PHP (Php.pdf) dont les concepts ne bénéficient d'aucun enrichissement natif.
+_TECH_CONCEPTS: list[tuple[re.Pattern, str]] = [
+    # ── JavaScript ───────────────────────────────────────────────
+    (
+        re.compile(r"\bclosure[s]?\b", re.I),
+        "closure portée variable fonction contexte lexical environnement",
+    ),
+    (
+        re.compile(r"\bhoisting\b|\bremonté[eés]?\b.*(?:var|déclaration)\b", re.I),
+        "hoisting remontée déclaration variable var let const portée",
+    ),
+    (
+        re.compile(r"\bpromesse[s]?\b|\bpromise[s]?\b", re.I),
+        "promise promesse then catch finally resolve reject état pending",
+    ),
+    (
+        re.compile(r"\basync\b.*\bawait\b|\bawait\b.*\basync\b|\basync\/await\b", re.I),
+        "async await promesse asynchrone fonction mot-clé JavaScript",
+    ),
+    (
+        re.compile(r"\bDOM\b|\bdocument\s+object\s+model\b|\bmanipulation\s+(?:du\s+)?DOM\b", re.I),
+        "DOM document object model manipulation élément nœud sélecteur",
+    ),
+    (
+        re.compile(r"\b(?:gestionnaire\s+d['''])?[eé]v[eé]nement[s]?\b|\baddEventListener\b", re.I),
+        "événement addEventListener gestionnaire callback clic souris clavier",
+    ),
+    (
+        re.compile(r"\bprototype\b", re.I),
+        "prototype héritage chaîne objet JavaScript __proto__ Object",
+    ),
+    (
+        re.compile(r"\bmodule[s]?\s+(?:ES6|javascript|js)\b|\bimport\b.*\bfrom\b", re.I),
+        "module import export ES6 CommonJS ESM default named",
+    ),
+    (
+        re.compile(r"\bfetch\b|\bXMLHttpRequest\b", re.I),
+        "fetch XMLHttpRequest requête HTTP API JSON asynchrone réponse",
+    ),
+    (
+        re.compile(r"\blocal\s*storage\b|\bsession\s*storage\b", re.I),
+        "localStorage sessionStorage stockage navigateur clé valeur persistance",
+    ),
+    (
+        re.compile(r"\bdestructuration\b|\bdestructuring\b", re.I),
+        "destructuration tableau objet affectation ES6 spread rest",
+    ),
+    (
+        re.compile(r"\bclasse[s]?\s+(?:javascript|js|ES6)\b|\bclass\b.*\bextends\b", re.I),
+        "classe ES6 constructeur héritage extends super méthodes JavaScript",
+    ),
+    (
+        re.compile(r"\bportée\b|\bscope\b", re.I),
+        "portée scope variable let const var bloc fonction globale",
+    ),
+    (
+        re.compile(r"\bcallback[s]?\b|\bfonction\s+de\s+rappel\b", re.I),
+        "callback fonction rappel asynchrone paramètre exécution",
+    ),
+    (
+        re.compile(r"\bspread\b|\brest\b.*param[eè]tres?\b|\bop[eé]rateur\s+\.\.\.", re.I),
+        "spread rest opérateur décomposition tableau objet paramètres",
+    ),
+    # ── PHP ──────────────────────────────────────────────────────
+    (
+        re.compile(r"\bPDO\b|\bbase\s+de\s+donn[eé]es\s+PHP\b|\bconnexion\s+PHP\b", re.I),
+        "PDO connexion base données PHP requête préparée prepare execute fetch",
+    ),
+    (
+        re.compile(r"\bsession[s]?\s+PHP\b|\b\$_SESSION\b|\bsession_start\b", re.I),
+        "session PHP $_SESSION session_start stockage variable côté serveur",
+    ),
+    (
+        re.compile(r"\bcookie[s]?\s+PHP\b|\bsetcookie\b|\b\$_COOKIE\b", re.I),
+        "cookie PHP setcookie $_COOKIE lecture expiration sécurité",
+    ),
+    (
+        re.compile(r"\btableau[x]?\s+PHP\b|\barray\b.*\bPHP\b|\bPHP\b.*\barray\b", re.I),
+        "tableau array PHP fonctions array_map array_filter sort count",
+    ),
+    (
+        re.compile(r"\bclasse[s]?\s+PHP\b|\bhéritage\s+PHP\b|\bextends\b.*PHP\b", re.I),
+        "classe PHP héritage extends constructeur __construct méthodes public private",
+    ),
+    (
+        re.compile(r"\bformulaire[s]?\s+PHP\b|\b\$_POST\b|\b\$_GET\b", re.I),
+        "formulaire PHP $_POST $_GET traitement validation données utilisateur",
+    ),
+    (
+        re.compile(r"\bnamespace[s]?\s+PHP\b|\buse\b.*\\\w", re.I),
+        "namespace PHP espace noms autoload use Composer PSR",
+    ),
+    (
+        re.compile(r"\binclude\b.*PHP\b|\brequire\b.*PHP\b|\bPHP\b.*\binclude\b", re.I),
+        "include require include_once require_once fichier PHP modularité",
+    ),
+    (
+        re.compile(r"\binterface\s+PHP\b|\btrait[s]?\s+PHP\b|\babstrait[e]?\b.*PHP\b", re.I),
+        "interface trait classe abstraite PHP contrat implémentation",
+    ),
+    (
+        re.compile(r"\bgestion\s+(?:d['''])?erreur[s]?\s+PHP\b|\btry\b.*\bcatch\b.*PHP\b", re.I),
+        "exception erreur PHP try catch finally throw Exception gestion",
+    ),
+    # ── JavaScript — compléments ─────────────────────────────────
+    (
+        re.compile(
+            r"\blet\b.*\bconst\b|\bconst\b.*\blet\b|\bvar\b.*\blet\b"
+            r"|\blet\s+vs\b|\bconst\s+vs\b|\bdiff[eé]rence\s+let\b",
+            re.I,
+        ),
+        "let const var portée bloc hoisting redéclaration mutation immuable",
+    ),
+    (
+        re.compile(r"\barrow\s+function[s]?\b|\bfonction[s]?\s+fl[eè]che\b|\b=>\b", re.I),
+        "arrow function flèche syntaxe this contexte lexical ES6 raccourci",
+    ),
+    (
+        re.compile(
+            r"\bquerySelectorAll?\b|\bgetElementById\b|\bgetElementsByClassName\b"
+            r"|\bsélectionner\s+(?:un\s+)?élément\b",
+            re.I,
+        ),
+        "querySelector getElementById sélecteur CSS DOM élément manipulation",
+    ),
+    (
+        re.compile(r"\bevent\s+loop\b|\bboucle\s+(?:des\s+)?événements?\b", re.I),
+        "event loop boucle événements pile appels microtâches macrotâches asynchrone",
+    ),
+    (
+        re.compile(r"\bgénérateur[s]?\b|\byield\b|\bfunction\s*\*", re.I),
+        "générateur function generator yield itération séquence paresseux",
+    ),
+    (
+        re.compile(r"\bWeakMap\b|\bWeakSet\b|\bMap\b.*\bSet\b|\bSet\b.*\bMap\b", re.I),
+        "Map Set WeakMap WeakSet collection clé valeur itérable unicité",
+    ),
+    # ── PHP — compléments ─────────────────────────────────────────
+    (
+        re.compile(r"\bprint_r\b|\bvar_dump\b|\bvar_export\b|\bdébogage\s+PHP\b", re.I),
+        "print_r var_dump débogage affichage variable structure PHP",
+    ),
+    (
+        re.compile(
+            r"\bfonction[s]?\s+PHP\b|\bPHP\b.*\bfonction[s]?\b|\bfunction\s+\w+\s*\(.*PHP\b",
+            re.I,
+        ),
+        "function PHP paramètres valeur retour portée récursivité callback",
+    ),
+    (
+        re.compile(
+            r"\bsécurit[eé]\s+PHP\b|\binjection\s+SQL\b|\bXSS\b|\bCSRF\b|\bfiltrer\s+PHP\b",
+            re.I,
+        ),
+        "sécurité PHP injection SQL XSS CSRF filter_input htmlspecialchars protection",
+    ),
+    (
+        re.compile(r"\bcomposeur\b|\bComposer\b|\bautoload\b|\bPSR\b", re.I),
+        "Composer autoload PSR dépendances packages PHP vendor namespace",
+    ),
+    # ── Spring Boot — compléments ─────────────────────────────────
+    (
+        re.compile(r"\bSpring\s+Security\b|\bauthentification\s+Spring\b|\bauthorization\b", re.I),
+        "Spring Security authentication authorization filter chain UserDetailsService JWT",
+    ),
+    (
+        re.compile(r"\bactuator\b|\bmonitoring\s+Spring\b|\bhealth\s+check\b", re.I),
+        "actuator endpoint health metrics monitoring Spring Boot production",
+    ),
+    (
+        re.compile(r"\bauto[- ]?configuration\b|\bauto[- ]?config\b|\bstarter\b", re.I),
+        "auto-configuration Spring Boot condition conditional bean starter dependency",
+    ),
+    (
+        re.compile(
+            r"\bapplication\.(?:properties|yml|yaml)\b|\bspring\.datasource\b"
+            r"|\bconfiguration\s+externe\b",
+            re.I,
+        ),
+        "application properties yaml configuration externe datasource Spring Boot",
+    ),
+    (
+        re.compile(
+            r"\bSpring\s+Data\b|\bRepository\s+JPA\b|\bCrudRepository\b|\bJpaRepository\b", re.I
+        ),
+        "Spring Data JPA Repository CrudRepository findBy requête méthode dérivée",
+    ),
+    (
+        re.compile(
+            r"\bexception\s+handler\b|\bgestion\s+erreur\s+Spring\b|\bControllerAdvice\b", re.I
+        ),
+        "ExceptionHandler ControllerAdvice gestion erreur globale HTTP status Spring",
+    ),
+]
+
+
+def extract_tech_concept_queries(question: str) -> list[str]:
+    """
+    Détecte les concepts techniques JavaScript/PHP dans la question et génère
+    des requêtes enrichies avec le vocabulaire technique correspondant.
+
+    Couvre les documents :
+    - Cours_Javascript.pdf : closures, DOM, promesses, async/await, classes ES6…
+    - Php.pdf : PDO, sessions, tableaux, classes PHP, formulaires…
+
+    Principe identique à extract_legal_concept_queries : la question
+    « comment créer une promesse ? » ne contient pas les mots « then », « catch »,
+    « resolve » qui apparaissent dans les chunks du cours. La requête enrichie
+    les injecte pour améliorer la similarité vectorielle.
+
+    Exemples :
+        "comment fonctionne async/await ?"
+            → ["async await promesse asynchrone fonction mot-clé JavaScript"]
+
+        "comment se connecter à une BDD en PHP ?"
+            → ["PDO connexion base données PHP requête préparée prepare execute fetch"]
+
+    Retourne une liste vide si aucun concept technique n'est détecté.
+    """
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    for pattern, enriched in _TECH_CONCEPTS:
+        if pattern.search(question) and enriched not in seen:
+            seen.add(enriched)
+            queries.append(enriched)
+
+    if queries:
+        logger.info(f"[tech_concept_queries] Concepts techniques JS/PHP : {queries}")
+    return queries
+
+
+# ──────────────────────────────────────────────────────────────
+# Lookup inverse personnel : identifiant → employé/candidat
+# ──────────────────────────────────────────────────────────────
+
+# Détecte un numéro de téléphone dans la question (formats FR)
+_PHONE_RE = re.compile(
+    r"(?:\+33[\s\-\.]?|0[\s\-\.]?)"  # Préfixe FR : +33 ou 0
+    r"[67][\s\-\.]?"  # Indicatif mobile FR (6 ou 7)
+    r"(?:\d[\s\-\.]?){7}\d"  # 8 chiffres restants avec séparateurs optionnels
+    r"|(?:\+33[\s\-\.]?)"  # OU +33 suivi de
+    r"[0-9][\s\-\.]?(?:\d[\s\-\.]?){7}\d",  # tout numéro FR (fixe inclus)
+)
+
+# Détecte une adresse email dans la question
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+
+# Patterns signalant une question de lookup inverse sur le personnel
+_PERSONNEL_REVERSE_RE = re.compile(
+    r"(?:"
+    r"quel\s+(?:est\s+le\s+)?nom\s+(?:de\s+l[''']employ[eé]|du\s+membre|de\s+la\s+personne|du\s+candidat)"
+    r"|[àa]\s+quel\s+(?:employ[eé]|candidat|membre)\s+correspond"
+    r"|quel\s+(?:employ[eé]|candidat|membre)\s+(?:a\s+pour|correspond|possède)"
+    r"|qui\s+(?:a\s+(?:ce|le|cet?)\s+(?:numéro|téléphone|email|mail|adresse))"
+    r"|qui\s+correspond\s+[àa]\s+ce(?:tte)?\s+(?:description|profil)"
+    r"|qui\s+(?:maîtrise|connaît|utilise|travaille\s+avec|a\s+des\s+compétences?\s+en)\s+"
+    r"|qui\s+(?:a\s+travaillé|travaillait|a\s+fait\s+un\s+stage)\s+(?:chez|[àa]|au)\s+"
+    r"|qui\s+est\s+(?:l[''']auteur|le\s+candidat|le\s+développeur|le\s+membre)"
+    r"|retrouver?\s+(?:l[''']employ[eé]|le\s+candidat|la\s+personne)"
+    r"|quel(?:le)?\s+est\s+l[''']email\s+(?:de|du)"
+    r"|quel(?:le)?\s+est\s+(?:l[''']adresse|le\s+numéro)\s+(?:de|du)"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _normalize_phone_for_search(phone_raw: str) -> list[str]:
+    """
+    Génère plusieurs variantes d'un numéro de téléphone pour maximiser
+    les chances de match dans le docstore (formats avec/sans espaces, +33 vs 0).
+
+    Exemple :
+        "+33 07 44 27 65 00" → ["+33 07 44 27 65 00", "+33744276500", "0744276500",
+                                 "07 44 27 65 00"]
+    """
+    # Extraire uniquement les chiffres
+    digits_only = re.sub(r"[\s\-\.\(\)\+]", "", phone_raw)
+    if digits_only.startswith("33"):
+        digits_only = digits_only[2:]  # Supprimer indicatif pays
+    elif digits_only.startswith("0"):
+        digits_only = digits_only[1:]  # Supprimer zéro initial
+
+    # Reconstituer les variantes standard
+    variants = [phone_raw]  # Format brut de la question
+    # Format +33 XX XX XX XX
+    by_pairs = " ".join(digits_only[i : i + 2] for i in range(0, len(digits_only), 2))
+    variants.append(f"+33 0{digits_only[0]} {by_pairs[2:].strip()}")
+    # Format 0X XX XX XX XX
+    variants.append(f"0{digits_only[0]} {by_pairs[2:].strip()}")
+    # Format compact sans espaces
+    variants.append(f"+33{digits_only}")
+    variants.append(f"0{digits_only}")
+
+    # Déduplique en préservant l'ordre
+    seen: set[str] = set()
+    result: list[str] = []
+    for v in variants:
+        if v and v not in seen:
+            seen.add(v)
+            result.append(v)
+    return result
+
+
+def extract_personnel_lookup_queries(question: str) -> list[str]:
+    """
+    Détecte les questions de lookup inverse sur des fiches personnel/CV et
+    extrait les identifiants (téléphone, email, profil) pour une recherche exacte.
+
+    Priorité de détection :
+    1. Numéro de téléphone → plusieurs variantes normalisées
+    2. Adresse email → valeur brute
+    3. Description de profil / texte libre → extrait après séparateur ":"
+
+    Exemples :
+        "quel est le nom de l'employé avec ce numéro : +33 07 44 27 65 00"
+            → ["+33 07 44 27 65 00", "+33 0744276500", "07 44 27 65 00", ...]
+
+        "à quel employé correspond cet email : cedrickouadio22@gmail.com"
+            → ["cedrickouadio22@gmail.com"]
+
+        "qui correspond à cette description de profil : Étudiant en Master…"
+            → ["Étudiant en Master…"]
+
+    Retourne une liste vide si aucun identifiant n'est détecté.
+    """
+    queries: list[str] = []
+
+    # ── 1. Téléphone — priorité maximale ─────────────────────────
+    phone_match = _PHONE_RE.search(question)
+    if phone_match:
+        raw = phone_match.group(0).strip()
+        variants = _normalize_phone_for_search(raw)
+        queries.extend(variants)
+        logger.info(f"[personnel_lookup] Téléphone : {raw} → {len(variants)} variante(s)")
+        return queries  # Identifiant exact → on s'arrête ici
+
+    # ── 2. Email ──────────────────────────────────────────────────
+    email_match = _EMAIL_RE.search(question)
+    if email_match:
+        email = email_match.group(0)
+        queries.append(email)
+        logger.info(f"[personnel_lookup] Email : {email}")
+        return queries
+
+    # ── 3. Description de profil (texte libre après ":") ─────────
+    if _PERSONNEL_REVERSE_RE.search(question):
+        sep_match = _TEXT_SEPARATOR_RE.search(question)
+        if sep_match:
+            candidate = sep_match.group(1).strip().strip('"').strip("«»")
+            if len(candidate) >= 20:
+                queries.append(candidate)
+                logger.info(f"[personnel_lookup] Profil extrait ({len(candidate)} chars)")
+                return queries
+
+        # Fallback : retirer la partie interrogative, garder le reste
+        cleaned = _PERSONNEL_REVERSE_RE.sub("", question).strip().lstrip(":").strip()
+        if len(cleaned) >= 10:
+            queries.append(cleaned)
+            logger.info(f"[personnel_lookup] Requête nettoyée : {cleaned[:60]}")
+
+    return queries
+
+
+# ──────────────────────────────────────────────────────────────
+# Enrichissement sémantique — Personnel / CV
+# ──────────────────────────────────────────────────────────────
+
+# Paires (pattern de détection, requête enrichie) pour les questions RH personnel.
+# Complémentaire au lookup inverse exact : couvre les questions sémantiques
+# du type "qui maîtrise Spring Boot ?" ou "quelles sont les compétences de X ?".
+_PERSONNEL_CONCEPTS: list[tuple[re.Pattern, str]] = [
+    (
+        re.compile(r"\bqui\s+maîtrise\b|\bqui\s+connaît\b|\bqui\s+sait\s+faire\b", re.I),
+        "compétences techniques langages maîtrise outils frameworks",
+    ),
+    (
+        re.compile(
+            r"\bcompétences?\s+(?:de|du|d[''']un|en)\b"
+            r"|\btechnologies?\s+(?:de|du|maîtrisées?)\b",
+            re.I,
+        ),
+        "compétences techniques outils langages frameworks bases de données",
+    ),
+    (
+        re.compile(
+            r"\bqui\s+(?:a\s+travaillé|travaillait|a\s+fait\s+un\s+stage)\b"
+            r"|\bexpérience\s+(?:chez|professionnelle|en\s+entreprise)\b",
+            re.I,
+        ),
+        "expériences professionnelles entreprise poste missions période",
+    ),
+    (
+        re.compile(
+            r"\bformation\s+(?:de|du|d[''']un)\b|\bdiplôme\b|\bétudes?\b"
+            r"|\bécole\b|\buniversité\b|\bmaster\b|\blicence\b|\bBTS\b",
+            re.I,
+        ),
+        "formation diplôme école université master licence BTS cursus",
+    ),
+    (
+        re.compile(
+            r"\bprofil\b|\bcandidat\b|\bCV\b|\bcurriculum\b|\bcandidature\b",
+            re.I,
+        ),
+        "profil candidat développeur compétences expériences formation recherche alternance",
+    ),
+    (
+        re.compile(
+            r"\badresse\b.*(?:employ[eé]|candidat|membre)"
+            r"|(?:employ[eé]|candidat|membre).*\badresse\b",
+            re.I,
+        ),
+        "adresse localisation région Île-de-France ville domicile",
+    ),
+    (
+        re.compile(
+            r"\b(?:téléphone|numéro|joindre|contacter)\b.*(?:employ[eé]|candidat|membre)"
+            r"|(?:employ[eé]|candidat|membre).*\b(?:téléphone|numéro|contact)\b",
+            re.I,
+        ),
+        "téléphone numéro contact email coordonnées joindre",
+    ),
+    (
+        re.compile(r"\blangues?\b|\bbilingue\b|\bfrançais\b.*\banglais\b|\bnivelau\s+B\d\b", re.I),
+        "langue français anglais niveau bilingue maternelle B1 B2",
+    ),
+    (
+        re.compile(r"\balternance\b|\bstage\b|\bcontrat\s+pro\b|\bapprentissage\b", re.I),
+        "alternance stage contrat apprentissage formation en entreprise recherche",
+    ),
+    (
+        re.compile(r"\bLinkedIn\b|\bréseaux?\s+professionnel\b|\bprofil\s+LinkedIn\b", re.I),
+        "LinkedIn profil professionnel lien réseau",
+    ),
+]
+
+
+def extract_personnel_concept_queries(question: str) -> list[str]:
+    """
+    Détecte les concepts liés aux fiches personnel/CV et génère des requêtes
+    enrichies avec le vocabulaire RH/candidature correspondant.
+
+    Couvre les questions sémantiques sur :
+    - Compétences : "qui maîtrise Spring Boot ?", "quelles sont ses compétences ?"
+    - Expériences : "qui a travaillé chez IT-CENTREX ?", "son expérience chez…"
+    - Formation : "quel est son diplôme ?", "quelle école ?"
+    - Profil : "quel est son profil ?", "c'est quel type de candidat ?"
+    - Contact : "comment le contacter ?", "quel est son email ?"
+
+    Exemples :
+        "qui maîtrise Python ?"
+            → ["compétences techniques langages maîtrise outils frameworks"]
+
+        "quelle est sa formation ?"
+            → ["formation diplôme école université master licence BTS cursus"]
+
+    Retourne une liste vide si aucun concept personnel n'est détecté.
+    """
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    for pattern, enriched in _PERSONNEL_CONCEPTS:
+        if pattern.search(question) and enriched not in seen:
+            seen.add(enriched)
+            queries.append(enriched)
+
+    if queries:
+        logger.info(f"[personnel_concept_queries] Concepts personnel : {queries}")
     return queries

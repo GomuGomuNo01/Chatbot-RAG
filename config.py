@@ -3,6 +3,7 @@ config.py — Configuration centralisée du projet
 Tous les paramètres modifiables sont ici.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -47,7 +48,7 @@ for _dir in [
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_LLM_MODEL = "llama-3.3-70b-versatile"
 GROQ_TEMPERATURE = 0.1  # Faible = réponses précises et stables
-GROQ_MAX_TOKENS = 1024
+GROQ_MAX_TOKENS = 2048  # Était 1024 — les articles longs ou comparaisons tronquaient la réponse
 
 # Embeddings locaux (gratuit, multilingue FR/EN)
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
@@ -57,22 +58,69 @@ EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 # ============================================================
 
 CHUNK_SIZE = 1000  # Nb de caractères par chunk
-CHUNK_OVERLAP = 200  # Chevauchement pour conserver le contexte
-# entre deux chunks consécutifs
+CHUNK_OVERLAP = 300  # Chevauchement 30 % — réduit la perte d'info aux frontières de chunks
+# (était 200 → un article coupé en deux perdait son contexte d'en-tête)
+CHUNK_MIN_LENGTH = 50  # Longueur minimale d'un chunk (filtre les micro-chunks parasites)
+
+# Séparateurs ordonnés utilisés par RecursiveCharacterTextSplitter
+# Centralisés ici pour que get_chunk_config_fingerprint() les inclue dans l'empreinte
+CHUNK_SEPARATORS = [
+    # ── Codes légaux (Code Civil, Code du Travail, Code Pénal) ──
+    "\n\nArticle ",
+    "\n\nChapitre ",
+    "\n\nTitre ",
+    "\n\nSection ",
+    "\n\nSous-section ",
+    "\n\nAnnexe ",
+    # ── Documents techniques (Markdown) ─────────────────────────
+    "\n# ",
+    "\n## ",
+    "\n### ",
+    # ── Séparateurs universels ───────────────────────────────────
+    "\n\n",
+    "\n",
+    ". ",
+    "! ",
+    "? ",
+    " ",
+    "",
+]
+
+
+def get_chunk_config_fingerprint() -> str:
+    """
+    Empreinte MD5 de la configuration de chunking.
+    Change dès que CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_SEPARATORS ou CHUNK_MIN_LENGTH est modifié.
+    Utilisée pour détecter un index FAISS obsolète au démarrage et déclencher une ré-indexation.
+    """
+    key = json.dumps(
+        {
+            "chunk_size": CHUNK_SIZE,
+            "chunk_overlap": CHUNK_OVERLAP,
+            "separators": CHUNK_SEPARATORS,
+            "min_length": CHUNK_MIN_LENGTH,
+        },
+        sort_keys=True,
+    )
+    return hashlib.md5(key.encode()).hexdigest()
+
 
 # ============================================================
 # RETRIEVAL — Recherche sémantique
 # ============================================================
 
-TOP_K_RESULTS = 10  # Nb de chunks dans le contexte final (multi_search fusionne N requêtes)
-SIMILARITY_THRESHOLD = 0.12  # Score minimum (1/(1+L2_dist)) — 0.12 ≈ distance L2 ≤ 7.3
-# Seuil abaissé pour les questions comparatives multi-requêtes
+TOP_K_RESULTS = 15  # Nb de chunks dans le contexte final (était 10)
+# Augmenté pour les questions comparatives, multi-articles ou documents denses
+SIMILARITY_THRESHOLD = 0.10  # Score minimum (1/(1+L2_dist)) — était 0.12
+# Abaissé pour ne pas exclure des chunks pertinents sur documents très spécialisés
+# (terminologie juridique ou technique rare → scores naturellement plus bas)
 
 # ============================================================
 # MÉMOIRE CONVERSATIONNELLE
 # ============================================================
 
-MEMORY_MAX_EXCHANGES = 7  # Nb d'échanges conservés en mémoire (étendu à 7)
+MEMORY_MAX_EXCHANGES = 8  # Nb d'échanges conservés en mémoire (était 7)
+# +1 échange → meilleur suivi des conversations longues sur un même document
 
 # ============================================================
 # CATÉGORIES DE DOCUMENTS
@@ -247,10 +295,82 @@ Choisis le format adapté à la complexité de la réponse :
 | Procédure / étapes ordonnées | Liste numérotée `1. 2. 3.` |
 | Points clés / énumération | Liste à puces `- item` |
 | Comparaison de 3+ éléments | Tableau Markdown |
+| Grille salariale / classification / barème | Tableau Markdown avec toutes les lignes disponibles |
 | Valeur importante / terme clé | **gras** |
-| Commande / code / chemin de fichier | `bloc de code` |
+| Code source (JS, PHP, Java, SQL…) | Bloc de code avec la langue précisée ` ```js `, ` ```php `, ` ```java ` |
 | Réponse > 3 points | Phrase de synthèse en tête, puis développement |
 | Réponse ≤ 2 lignes | Réponse directe, sans structure superflue |
+
+## Directives par type de document
+
+### 📄 Documents juridiques (Code civil, Code du Travail, Code Pénal, Constitution, DDHC)
+- Cite **toujours le numéro d'article** concerné en gras : **Article 6**, **Article L1232-1**
+- Indique la **source légale** entre parenthèses si plusieurs codes sont présents : *(Code civil)*, *(Code du travail)*
+- Pour une question sur un article précis, reproduis **l'intégralité du texte** disponible dans les extraits, sans le tronquer
+- Si un article renvoie à un autre article, mentionne-le
+- Pour les questions constitutionnelles, distingue les pouvoirs concernés (exécutif, législatif, judiciaire)
+- **Lookup inverse (texte → article)** : si l'utilisateur fournit un extrait de texte et demande \
+à quel article il correspond, identifie le numéro d'article qui précède cet extrait dans les chunks \
+disponibles, et indique sa source (ex. : *Code civil*, *Code du travail*). \
+Si plusieurs articles contiennent ce texte, cite-les tous.
+
+### 👥 Convention collective (RH)
+- Reproduis les **grilles salariales et classifications** sous forme de tableau Markdown complet avec toutes les colonnes (coefficient, niveau, échelon, salaire minimum)
+- Pour les **durées** (préavis, période d'essai, congés), précise la catégorie professionnelle concernée (cadre, non-cadre, technicien…)
+- Si une clause renvoie à la loi (ex. Code du Travail), mentionne-le en complément
+- Pour les **primes et avantages**, précise les conditions d'éligibilité et le mode de calcul
+
+### 👤 Fiches de personnel et CV
+
+- **Lookup par identifiant** (téméphone, email) : identifie la personne dont le profil \
+contient cet identifiant exact et indique son **nom complet en gras** avant toute autre information
+- **Lookup par profil** : si l'utilisateur fournit une description de profil, identifie \
+l'employé/candidat dont les caractéristiques correspondent
+- **Lookup par compétence** : si on demande « qui maîtrise X ? », liste tous les \
+membres dont la fiche mentionne X, avec leur nom complet
+- **Compétences techniques** : reproduis la liste complète organisée par catégorie \
+(Langages, Bases de données, Outils & Méthodes, IA & Data Science…) telle qu'elle \
+apparaît dans le document
+- **Expériences professionnelles** : nom de l'entreprise en **gras**, poste, période, \
+missions principales sous forme de liste à puces
+- **Formation** : diplôme en **gras**, établissement, année
+- **Coordonnées** : téléphone, email, adresse, LinkedIn → reproduis-les tels quels \
+depuis le document, sans les modifier
+- **Règle clé** : commence **toujours** par nommer clairement la personne concernée \
+avant de donner l'information demandée
+
+### 💻 Documentation technique (JavaScript, PHP, Spring Boot)
+- **Inclus toujours des exemples de code** tirés des extraits dans des blocs ` ```js `, ` ```php ` ou ` ```java `
+- Pour les fonctions/méthodes, donne la **syntaxe complète** (paramètres, valeur de retour)
+- Pour les annotations Spring Boot, explique leur rôle et montre un exemple d'usage
+- Si une notion fait appel à un prérequis (ex. : async/await nécessite de comprendre les Promises), mentionne-le
+
+## Cas particuliers à anticiper
+
+### Questions sur les sanctions / peines
+Quand la question demande "que risque-t-on ?", "quelles sanctions ?", "quelle peine ?" :
+- Cite **l'article exact** qui définit la peine, en gras
+- Donne le **montant de l'amende** et/ou la **durée d'emprisonnement** précisément
+- Distingue crime (cour d'assises), délit (tribunal correctionnel), contravention (tribunal de police)
+- Si des circonstances aggravantes existent dans les extraits, mentionne-les
+
+### Questions impliquant plusieurs codes de loi
+Si la réponse mobilise plusieurs sources légales (ex. Code civil + Code du travail) :
+- Organise par **code source** : commence par le plus pertinent pour la question
+- Signale clairement *(Code civil — Article X)*, *(Code du travail — Article Y)*
+- Ne mélange pas les régimes légaux sans les distinguer
+
+### Questions de procédure
+Quand la question demande "comment faire ?", "quelle démarche ?", "quelles étapes ?" :
+- Donne une **liste numérotée** des étapes dans l'ordre chronologique
+- Précise les **délais** (ex. : "dans les 15 jours", "sous 2 mois") s'ils apparaissent dans les extraits
+- Mentionne l'**autorité compétente** (tribunal, employeur, administration) et les **documents nécessaires**
+
+### Questions vagues / générales
+Si la question est très générale ("parle-moi du mariage") :
+- Structure la réponse en sous-thèmes : définition → conditions → effets → dissolution
+- Indique les articles clés couvrant chaque aspect
+- Propose une question de suivi si la réponse couvre plusieurs facettes
 
 ## Exigences qualité
 
@@ -258,4 +378,5 @@ Choisis le format adapté à la complexité de la réponse :
 - **Structuré** : 3 points clairs valent mieux qu'un paragraphe dense
 - **Complet** : si une procédure comporte des prérequis ou des mises en garde, mentionne-les
 - **Synthétique** : commence par l'essentiel, détaille ensuite
+- **Fidèle** : ne paraphrase pas les articles de loi — cite-les textuellement si l'extrait est disponible
 """

@@ -73,10 +73,12 @@ def format_context_from_docs(documents: list) -> str:
         page = meta.get("page", "?")
         categorie = meta.get("categorie", "").upper()
         score = meta.get("similarity_score", 0)
+        # Score ≥ 0.95 = match exact (keyword ou phrase search) → label EXACT
+        # Score < 0.95 = similarité sémantique → afficher en pourcentage
+        score_label = "EXACT" if score >= 0.95 else f"{int(score * 100)}%"
 
         header = (
-            f"### Extrait {i}/{len(documents)} "
-            f"[{categorie} · {fichier} · p.{page} · {int(score * 100)}%]"
+            f"### Extrait {i}/{len(documents)} [{categorie} · {fichier} · p.{page} · {score_label}]"
         )
         parts.append(f"{header}\n{doc.page_content.strip()}")
 

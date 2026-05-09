@@ -1068,15 +1068,31 @@ async def delete_category(
 @router.post(
     "/documents/{categorie}/{filename}/reindex",
     response_model=ReindexFileResponse,
-    summary="Ré-indexe un document spécifique (reconstruction complète de l'index)",
+    summary="Ré-indexe un document spécifique (reconstruction complète de l'index en arrière-plan)",
+    description=(
+        "Vérifie la disponibilité du fichier, puis lance une reconstruction complète de l'index "
+        "en arrière-plan. Retourne immédiatement. Suivez l'avancement via GET /api/index/status."
+    ),
 )
-async def reindex_file(categorie: str, filename: str) -> ReindexFileResponse:
+async def reindex_file(
+    categorie: str,
+    filename: str,
+    background_tasks: BackgroundTasks,
+) -> ReindexFileResponse:
     from pathlib import Path as P
 
-    from src.indexer import _file_hash, create_index, save_manifest
     from src.loader import SUPPORTED_EXTENSIONS as EXT
-    from src.loader import load_file
-    from src.retriever import reset_vectorstore
+
+    # Refuser si une indexation est déjà en cours
+    with _status_lock:
+        if _indexation_status["running"]:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Une indexation est déjà en cours. "
+                    "Attendez qu'elle se termine avant de ré-indexer un document."
+                ),
+            )
 
     cats = _get_categories()
     if categorie not in cats:
@@ -1100,10 +1116,13 @@ async def reindex_file(categorie: str, filename: str) -> ReindexFileResponse:
     if not dest.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"Document « {filename} » introuvable dans la catégorie « {cats[categorie]['label']} ».",
+            detail=(
+                f"Document « {filename} » introuvable dans la catégorie "
+                f"« {cats[categorie]['label']} »."
+            ),
         )
 
-    # ── Reconstruction complète de l'index ───────────────────
+    # ── Collecter tous les fichiers à indexer ────────────────
     all_files: list = []
     for cat_key, cat_cfg in cats.items():
         directory = P(cat_cfg["dir"])
@@ -1113,39 +1132,21 @@ async def reindex_file(categorie: str, filename: str) -> ReindexFileResponse:
             if f.suffix.lower() in EXT:
                 all_files.append((f, cat_key))
 
-    all_docs = []
-    file_chunks = 0
-    for file_path, cat_key in all_files:
-        try:
-            docs = load_file(file_path, cat_key)
-            all_docs.extend(docs)
-            if file_path.name == filename and cat_key == categorie:
-                file_chunks = len(docs)
-        except Exception as e:
-            logger.warning(f"Impossible de charger {file_path.name} : {e}")
-
-    if not all_docs:
-        raise HTTPException(status_code=500, detail="Aucun contenu extrait. Vérifiez le fichier.")
-
-    try:
-        create_index(all_docs)
-        manifest = {str(f.resolve()): _file_hash(f) for f, _ in all_files}
-        save_manifest(manifest)
-        reset_vectorstore()
-        logger.info(
-            f"Ré-indexation de {filename} : {file_chunks} chunks, index total {len(all_docs)} chunks."
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erreur d'indexation : {e}")
+    # ── Déléguer la reconstruction à un thread d'arrière-plan ─
+    background_tasks.add_task(_run_reindex_all_background)
+    logger.info(
+        f"[reindex-file] Ré-indexation de « {filename} » lancée en arrière-plan "
+        f"({len(all_files)} fichier(s) total)."
+    )
 
     return ReindexFileResponse(
         nom=filename,
         categorie=categorie,
-        chunks=file_chunks,
-        total_chunks=len(all_docs),
+        chunks=0,
+        total_chunks=0,
         total_files=len(all_files),
         message=(
-            f"« {filename} » ré-indexé : {file_chunks} chunks. "
-            f"Index total : {len(all_docs)} chunks depuis {len(all_files)} fichier(s)."
+            f"Ré-indexation de « {filename} » lancée en arrière-plan. "
+            "Suivez l'avancement via GET /api/index/status."
         ),
     )

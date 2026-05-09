@@ -7,7 +7,13 @@ import logging
 from pathlib import Path
 
 import pymupdf as fitz
-from config import CATEGORIES, CHUNK_OVERLAP, CHUNK_SIZE
+from config import (
+    CHUNK_MIN_LENGTH,
+    CHUNK_OVERLAP,
+    CHUNK_SEPARATORS,
+    CHUNK_SIZE,
+    get_all_categories,
+)
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tqdm import tqdm
@@ -36,8 +42,8 @@ def _is_slide_pdf(pages_raw: list[str], sample: int = 10) -> bool:
     avg_len = sum(len(p) for p in sample_pages) / len(sample_pages)
     if avg_len > 600:
         return False  # Trop dense pour être des slides
-    # Cherche un footer répété sur ≥ 30% des pages
-    footer_re = re.compile(r"\b\d{2}:\d{2}:\d{2}\b|Programmation Web", re.I)
+    # Cherche un footer répété sur ≥ 30% des pages (timestamps, années, entêtes de cours)
+    footer_re = re.compile(r"\b\d{2}:\d{2}:\d{2}\b|\b\d{4}[\-–]\d{4}\b|Programmation Web", re.I)
     hits = sum(1 for p in sample_pages if footer_re.search(p))
     return hits >= max(2, len(sample_pages) * 0.3)
 
@@ -216,16 +222,25 @@ def pages_to_documents(
     """
     Convertit les pages/blocs extraits en Documents LangChain
     avec métadonnées complètes.
+
+    Séparateurs ordonnés du plus fort au plus faible :
+    1. Frontières d'articles légaux  → coupe AVANT "Article X" (Code Civil/Travail/Pénal)
+    2. Frontières de chapitres/titres → Chapitre, Titre, Section, Annexe
+    3. Sections Markdown (# ##)       → pour les docs techniques (Spring Boot, README…)
+    4. Doubles sauts de ligne         → paragraphes
+    5. Simple saut de ligne           → listes, items
+    6. Ponctuation forte              → phrase
+    7. Espace / caractère             → découpage de dernier recours
     """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ".", "!", "?", " ", ""],
+        separators=CHUNK_SEPARATORS,
     )
     documents = []
     for page in pages:
         for chunk_idx, chunk in enumerate(splitter.split_text(page["text"])):
-            if len(chunk.strip()) < 30:
+            if len(chunk.strip()) < CHUNK_MIN_LENGTH:  # filtre les micro-chunks parasites
                 continue
             documents.append(
                 Document(
@@ -264,8 +279,8 @@ def load_file(file_path: Path, categorie: str) -> list[Document]:
 
 
 def load_category(categorie: str) -> list[Document]:
-    """Charge tous les fichiers supportés d'une catégorie."""
-    config = CATEGORIES.get(categorie)
+    """Charge tous les fichiers supportés d'une catégorie (native ou personnalisée)."""
+    config = get_all_categories().get(categorie)
     if not config:
         raise ValueError(f"Catégorie inconnue : {categorie}")
 
@@ -291,12 +306,13 @@ def load_category(categorie: str) -> list[Document]:
 
 
 def load_all_documents() -> list[Document]:
-    """Charge et découpe tous les documents de toutes les catégories."""
+    """Charge et découpe tous les documents de toutes les catégories (natives + personnalisées)."""
     logger.info("=== CHARGEMENT DES DOCUMENTS ===")
     all_docs = []
-    for categorie in CATEGORIES:
+    all_cats = get_all_categories()
+    for categorie in all_cats:
         docs = load_category(categorie)
         all_docs.extend(docs)
         logger.info(f"  '{categorie}' : {len(docs)} chunks")
-    logger.info(f"Total : {len(all_docs)} chunks depuis {len(CATEGORIES)} catégorie(s)")
+    logger.info(f"Total : {len(all_docs)} chunks depuis {len(all_cats)} catégorie(s)")
     return all_docs

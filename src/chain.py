@@ -29,8 +29,19 @@ from src.query_processor import (
     extract_annotation_queries,
     extract_article_queries,
     extract_legal_concept_queries,
+    extract_personnel_concept_queries,
+    extract_personnel_lookup_queries,
+    extract_reverse_lookup_query,
+    extract_tech_concept_queries,
 )
-from src.retriever import format_sources, multi_search, search
+from src.retriever import (
+    format_sources,
+    merge_with_keyword_results,
+    multi_search,
+    search,
+    search_by_keyword,
+    search_by_phrase,
+)
 from src.utils import format_context_from_docs
 
 logger = logging.getLogger(__name__)
@@ -250,10 +261,14 @@ class RAGChain:
         Construit la liste de requêtes à envoyer au retriever.
 
         Stratégie multi-couche :
-          1. Requête originale avec expansion des acronymes
+          0. Requête originale avec expansion des acronymes
+          1b. Lookup inverse légal : texte fourni → article (mis en tête)
+          1c. Lookup inverse personnel : téléphone/email/profil → employé (mis en tête)
           2. Références légales directes ("article L. 1234-5" → "Article L1234-5")
           2b. Annotations Java/Spring Boot (@Annotation → requête enrichie)
-          2c. Concepts juridiques (licenciement → termes légaux du code)
+          2c. Concepts juridiques (licenciement, garde à vue, 49-3, convention…)
+          2d. Concepts techniques JS/PHP/Spring (closure, PDO, actuator…)
+          2e. Concepts personnel/CV (compétences, formation, expériences…)
           3. Décomposition comparative ("différence entre X et Y" → sous-requêtes)
           4. Réécriture contextuelle via LLM (pronoms / question courte)
           5. Décomposition comparative de la requête réécrite
@@ -262,6 +277,23 @@ class RAGChain:
         """
         expanded = expand_acronyms(question)
         queries: list[str] = [expanded]
+
+        # ── Couche 1b : lookup inverse légal (texte → article) ───────────────
+        # "à quel article correspond ce texte : Le mariage et la filiation…"
+        # On extrait le texte légal fourni et on l'injecte EN TÊTE des requêtes :
+        # son embedding est quasi-identique à celui du chunk cible dans FAISS.
+        reverse_text = extract_reverse_lookup_query(question)
+        if reverse_text and reverse_text not in queries:
+            queries.insert(0, reverse_text)
+
+        # ── Couche 1c : lookup inverse personnel (téléphone/email/profil → employé) ──
+        # "quel est le nom de l'employé avec ce numéro : +33 07 44 27 65 00"
+        # Les variantes normalisées du numéro sont injectées en tête pour que
+        # search_by_phrase() retrouve la fiche même si le format diffère légèrement.
+        personnel_phrases = extract_personnel_lookup_queries(question)
+        for pp in personnel_phrases:
+            if pp not in queries:
+                queries.insert(0, pp)
 
         # ── Couche 2 : références légales directes ────────────────────────────
         # "que dit l'article 4 du code civil" → ajoute "Article 4"
@@ -287,12 +319,31 @@ class RAGChain:
         # ── Couche 2c : concepts juridiques ───────────────────────────────────
         # "licenciement abusif ?" → ajoute les termes légaux du Code du Travail
         # "garde à vue ?"        → termes procéduraux du Code Pénal
-        # Améliore le rappel sur les codes juridiques : les chunks contiennent
-        # un vocabulaire technique absent de la question brute de l'utilisateur.
+        # "grille salariale ?"   → termes de la convention collective
+        # "49-3 ?"               → termes constitutionnels
         legal_qs = extract_legal_concept_queries(question)
         for lq in legal_qs:
             if lq not in queries:
                 queries.append(lq)
+
+        # ── Couche 2d : concepts techniques JS / PHP ───────────────────────────
+        # "closure en JS ?"      → termes du cours JavaScript
+        # "connexion PDO PHP ?"  → termes du cours PHP
+        # Améliore le rappel sur les cours techniques : les chunks contiennent
+        # un vocabulaire précis (then, catch, __construct…) absent de la question.
+        tech_qs = extract_tech_concept_queries(question)
+        for tq in tech_qs:
+            if tq not in queries:
+                queries.append(tq)
+
+        # ── Couche 2e : concepts personnel / CV ───────────────────────────────
+        # "qui maîtrise Spring Boot ?"  → requête enrichie vocabulaire compétences
+        # "quelle est sa formation ?"   → vocabulaire diplôme/école
+        # Couvre les fiches personnel et CV indexés dans les catégories custom.
+        personnel_qs = extract_personnel_concept_queries(question)
+        for pq in personnel_qs:
+            if pq not in queries:
+                queries.append(pq)
 
         # ── Couche 3 : décomposition comparative ──────────────────────────────
         # "différence entre CDI et CDD" → 3 sous-requêtes indépendantes
@@ -331,6 +382,17 @@ class RAGChain:
         expanded = expand_acronyms(question)
         queries: list[str] = [expanded]
 
+        # ── Lookup inverse légal (texte → article) ───────────────────────────
+        reverse_text = extract_reverse_lookup_query(question)
+        if reverse_text and reverse_text not in queries:
+            queries.insert(0, reverse_text)
+
+        # ── Lookup inverse personnel (téléphone/email/profil → employé) ──────
+        personnel_phrases = extract_personnel_lookup_queries(question)
+        for pp in personnel_phrases:
+            if pp not in queries:
+                queries.insert(0, pp)
+
         # ── Références légales directes ───────────────────────────────────────
         article_qs = extract_article_queries(question)
         for aq in article_qs:
@@ -348,6 +410,18 @@ class RAGChain:
         for lq in legal_qs:
             if lq not in queries:
                 queries.append(lq)
+
+        # ── Concepts techniques JS / PHP ──────────────────────────────────────
+        tech_qs = extract_tech_concept_queries(question)
+        for tq in tech_qs:
+            if tq not in queries:
+                queries.append(tq)
+
+        # ── Concepts personnel / CV ───────────────────────────────────────────
+        personnel_qs = extract_personnel_concept_queries(question)
+        for pq in personnel_qs:
+            if pq not in queries:
+                queries.append(pq)
 
         # ── Décomposition comparative ─────────────────────────────────────────
         # Passe `question` (original) — decompose_comparative_query expand en interne
@@ -418,10 +492,45 @@ class RAGChain:
         queries = self._build_search_queries(question, compact_hist)
         logger.info(f"Requêtes retrieval : {queries}")
 
-        # ── [3] Multi-retrieval ──────────────────────────────
+        # ── [3] Multi-retrieval sémantique ──────────────────────
         documents = (
             multi_search(queries, categorie) if len(queries) > 1 else search(queries[0], categorie)
         )
+
+        # ── [3b] Keyword search pour les articles de loi ────────
+        # Le modèle d'embedding ne distingue pas "Article L1272-4"
+        # de "Article L1272-3" — numéros opaques sémantiquement.
+        # Scan exact du docstore → hit garanti si l'article est indexé.
+        article_qs = extract_article_queries(question)
+        if article_qs:
+            keyword_docs: list = []
+            for aq in article_qs:
+                keyword_docs.extend(search_by_keyword(aq, categorie))
+            if keyword_docs:
+                documents = merge_with_keyword_results(documents, keyword_docs)
+
+        # ── [3c] Phrase search pour le lookup inverse légal (texte → article) ──
+        # "à quel article correspond ce texte : [extrait]"
+        # Scan exact du docstore sur les 70 premiers chars de l'extrait fourni.
+        # Score 0.99 → placé en tête du contexte, le LLM voit l'article en premier.
+        reverse_text = extract_reverse_lookup_query(question)
+        if reverse_text:
+            phrase_docs = search_by_phrase(reverse_text, categorie)
+            if phrase_docs:
+                documents = merge_with_keyword_results(phrase_docs, documents)
+
+        # ── [3d] Phrase search pour le lookup inverse personnel ───────────────
+        # "quel est le nom de l'employé avec ce numéro : +33 07 44 27 65 00"
+        # On essaie chaque variante normalisée du numéro/email dans le docstore.
+        # Dès qu'un hit est trouvé, on l'injecte en tête — la fiche de l'employé
+        # concerné apparaît en premier dans le contexte LLM.
+        personnel_phrases = extract_personnel_lookup_queries(question)
+        if personnel_phrases:
+            for phrase in personnel_phrases:
+                p_docs = search_by_phrase(phrase, categorie)
+                if p_docs:
+                    documents = merge_with_keyword_results(p_docs, documents)
+                    break  # Un hit suffit — on évite les doublons
 
         if not documents:
             answer = self._no_result_answer(question, queries[0], categorie, lang)
@@ -466,10 +575,35 @@ class RAGChain:
         queries = await self._build_search_queries_async(question, compact_hist)
         logger.info(f"[STREAM] Requêtes retrieval : {queries}")
 
-        # ── [3] Multi-retrieval ───────────────────────────────
+        # ── [3] Multi-retrieval sémantique ───────────────────────
         documents = (
             multi_search(queries, categorie) if len(queries) > 1 else search(queries[0], categorie)
         )
+
+        # ── [3b] Keyword search pour les articles de loi ─────────
+        article_qs = extract_article_queries(question)
+        if article_qs:
+            keyword_docs: list = []
+            for aq in article_qs:
+                keyword_docs.extend(search_by_keyword(aq, categorie))
+            if keyword_docs:
+                documents = merge_with_keyword_results(documents, keyword_docs)
+
+        # ── [3c] Phrase search pour le lookup inverse légal (texte → article) ──
+        reverse_text = extract_reverse_lookup_query(question)
+        if reverse_text:
+            phrase_docs = search_by_phrase(reverse_text, categorie)
+            if phrase_docs:
+                documents = merge_with_keyword_results(phrase_docs, documents)
+
+        # ── [3d] Phrase search pour le lookup inverse personnel ───────────────
+        personnel_phrases = extract_personnel_lookup_queries(question)
+        if personnel_phrases:
+            for phrase in personnel_phrases:
+                p_docs = search_by_phrase(phrase, categorie)
+                if p_docs:
+                    documents = merge_with_keyword_results(p_docs, documents)
+                    break
 
         if not documents:
             answer = self._no_result_answer(question, queries[0], categorie, lang)
