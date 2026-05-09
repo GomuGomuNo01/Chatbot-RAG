@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 
 import pymupdf as fitz
-from config import CATEGORIES, CHUNK_OVERLAP, CHUNK_SIZE
+from config import CATEGORIES, CHUNK_MIN_LENGTH, CHUNK_OVERLAP, CHUNK_SEPARATORS, CHUNK_SIZE
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tqdm import tqdm
@@ -229,32 +229,12 @@ def pages_to_documents(
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=[
-            # ── Codes légaux (Code Civil, Code du Travail, Code Pénal) ──
-            "\n\nArticle ",  # "Article 6", "Article L1272-4", "Article 111-1"
-            "\n\nChapitre ",  # "Chapitre Ier", "Chapitre II"
-            "\n\nTitre ",  # "Titre I", "Titre II"
-            "\n\nSection ",  # "Section 1", "Section 2"
-            "\n\nSous-section ",
-            "\n\nAnnexe ",
-            # ── Documents techniques (Markdown) ─────────────────────────
-            "\n# ",  # Titre H1
-            "\n## ",  # Titre H2
-            "\n### ",  # Titre H3
-            # ── Séparateurs universels ───────────────────────────────────
-            "\n\n",  # Paragraphes
-            "\n",  # Lignes
-            ". ",  # Phrases
-            "! ",
-            "? ",
-            " ",  # Mots
-            "",  # Caractères (dernier recours)
-        ],
+        separators=CHUNK_SEPARATORS,
     )
     documents = []
     for page in pages:
         for chunk_idx, chunk in enumerate(splitter.split_text(page["text"])):
-            if len(chunk.strip()) < 50:  # était 30 — évite les micro-chunks parasites
+            if len(chunk.strip()) < CHUNK_MIN_LENGTH:  # filtre les micro-chunks parasites
                 continue
             documents.append(
                 Document(

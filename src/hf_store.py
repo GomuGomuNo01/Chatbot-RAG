@@ -21,7 +21,7 @@ from config import FAISS_INDEX_DIR, HF_REPO_ID, HF_TOKEN, is_hf_enabled
 logger = logging.getLogger(__name__)
 
 _INDEX_PATH = Path(FAISS_INDEX_DIR)
-_INDEX_FILES = ["index.faiss", "index.pkl", "manifest.json"]
+_INDEX_FILES = ["index.faiss", "index.pkl", "manifest.json", "chunk_config.json"]
 _HF_SUBDIR = "faiss_index"
 
 

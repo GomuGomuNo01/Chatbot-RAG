@@ -8,7 +8,7 @@ import json
 import logging
 from pathlib import Path
 
-from config import FAISS_INDEX_DIR
+from config import FAISS_INDEX_DIR, get_chunk_config_fingerprint
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 INDEX_PATH = Path(FAISS_INDEX_DIR)
 MANIFEST_FILE = INDEX_PATH / "manifest.json"
+CHUNK_CONFIG_FILE = INDEX_PATH / "chunk_config.json"
 
 
 # ============================================================
@@ -79,6 +80,52 @@ def filter_new_files(file_paths: list[Path]) -> tuple:
 
 
 # ============================================================
+# EMPREINTE DE CONFIGURATION — détection d'index obsolète
+# ============================================================
+
+
+def save_chunk_config() -> None:
+    """
+    Persiste l'empreinte MD5 de la configuration de chunking dans chunk_config.json.
+    Appelé après chaque (re)indexation réussie, avant le push HF Hub.
+    """
+    INDEX_PATH.mkdir(parents=True, exist_ok=True)
+    fingerprint = get_chunk_config_fingerprint()
+    CHUNK_CONFIG_FILE.write_text(
+        json.dumps({"fingerprint": fingerprint}, indent=2), encoding="utf-8"
+    )
+    logger.info(f"Config chunking sauvegardée (empreinte : {fingerprint[:8]}…)")
+
+
+def is_chunk_config_stale() -> bool:
+    """
+    Compare l'empreinte stockée dans chunk_config.json avec la configuration actuelle.
+
+    Returns:
+        True  → la config a changé depuis la dernière indexation → ré-indexation nécessaire.
+        False → config inchangée, index toujours valide.
+        False → fichier absent (1er démarrage) → pas de ré-indexation forcée.
+    """
+    if not CHUNK_CONFIG_FILE.exists():
+        logger.debug("chunk_config.json absent — premier démarrage, pas de vérification.")
+        return False
+    try:
+        stored = json.loads(CHUNK_CONFIG_FILE.read_text(encoding="utf-8"))
+        stored_fp = stored.get("fingerprint", "")
+        current_fp = get_chunk_config_fingerprint()
+        if stored_fp != current_fp:
+            logger.warning(
+                f"Configuration de chunking modifiée (stockée={stored_fp[:8]}… "
+                f"actuelle={current_fp[:8]}…) — ré-indexation nécessaire."
+            )
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"Lecture chunk_config.json échouée : {e} — vérification ignorée.")
+        return False
+
+
+# ============================================================
 # CRÉATION DE L'INDEX
 # ============================================================
 
@@ -113,6 +160,9 @@ def create_index(documents: list[Document]) -> FAISS:
         raise RuntimeError(
             f"Impossible de sauvegarder l'index FAISS dans {INDEX_PATH} : {e}"
         ) from e
+
+    # Persister l'empreinte de configuration pour la détection d'index obsolète
+    save_chunk_config()
 
     # Synchronisation vers HF Hub (non bloquant si non configuré)
     try:

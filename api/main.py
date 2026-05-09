@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
             is_r2_enabled,
         )
 
-        from src.indexer import index_exists
+        from src.indexer import index_exists, is_chunk_config_stale
         from src.loader import SUPPORTED_EXTENSIONS as _EXT
 
         # ── 1. Restaurer les fichiers sources depuis Cloudflare R2 ────────────
@@ -105,22 +105,47 @@ async def lifespan(app: FastAPI):
 
         # ── 3. Pré-charger l'index ou lancer une reconstruction automatique ──
         if index_exists():
-            # Pré-chargement optionnel : accélère la 1ère requête mais non critique.
-            # Encapsulé séparément du try global pour éviter un crash OOM silencieux
-            # (le kernel tue le process avant que l'exception ne soit catchée).
-            # Si les embeddings échouent (HF_TOKEN absent, modèle local manquant),
-            # on continue — l'index se chargera lazily à la première requête.
-            try:
-                from src.retriever import get_vectorstore
-
-                get_vectorstore()
-                logger.info("[startup] ✓ Index FAISS pré-chargé")
-            except Exception as preload_err:
+            # Vérifier si la configuration de chunking a changé depuis la dernière indexation.
+            # Si oui, l'index existant est obsolète : ré-indexation en arrière-plan.
+            stale = is_chunk_config_stale()
+            if stale:
                 logger.warning(
-                    f"[startup] · Pré-chargement index ignoré ({type(preload_err).__name__}) "
-                    "— chargement différé à la première requête. "
-                    "Vérifiez que HF_TOKEN est défini si vous utilisez requirements-prod.txt."
+                    "[startup] ⚠ Config chunking modifiée — index FAISS obsolète. "
+                    "Ré-indexation automatique en cours…"
                 )
+                try:
+                    import threading
+
+                    from api.routes.documents import _run_reindex_all_background
+
+                    t = threading.Thread(
+                        target=_run_reindex_all_background,
+                        daemon=True,
+                        name="startup-stale-reindex",
+                    )
+                    t.start()
+                    logger.info(
+                        "[startup] ✓ Ré-indexation lancée en arrière-plan (config obsolète)"
+                    )
+                except Exception as e:
+                    logger.warning(f"[startup] ✗ Ré-indexation auto échouée : {e}", exc_info=True)
+            else:
+                # Pré-chargement optionnel : accélère la 1ère requête mais non critique.
+                # Encapsulé séparément du try global pour éviter un crash OOM silencieux
+                # (le kernel tue le process avant que l'exception ne soit catchée).
+                # Si les embeddings échouent (HF_TOKEN absent, modèle local manquant),
+                # on continue — l'index se chargera lazily à la première requête.
+                try:
+                    from src.retriever import get_vectorstore
+
+                    get_vectorstore()
+                    logger.info("[startup] ✓ Index FAISS pré-chargé")
+                except Exception as preload_err:
+                    logger.warning(
+                        f"[startup] · Pré-chargement index ignoré ({type(preload_err).__name__}) "
+                        "— chargement différé à la première requête. "
+                        "Vérifiez que HF_TOKEN est défini si vous utilisez requirements-prod.txt."
+                    )
         else:
             # Vérifier si des documents locaux sont présents
             cats = get_all_categories()

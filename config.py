@@ -3,6 +3,7 @@ config.py — Configuration centralisée du projet
 Tous les paramètres modifiables sont ici.
 """
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -59,6 +60,50 @@ EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 CHUNK_SIZE = 1000  # Nb de caractères par chunk
 CHUNK_OVERLAP = 300  # Chevauchement 30 % — réduit la perte d'info aux frontières de chunks
 # (était 200 → un article coupé en deux perdait son contexte d'en-tête)
+CHUNK_MIN_LENGTH = 50  # Longueur minimale d'un chunk (filtre les micro-chunks parasites)
+
+# Séparateurs ordonnés utilisés par RecursiveCharacterTextSplitter
+# Centralisés ici pour que get_chunk_config_fingerprint() les inclue dans l'empreinte
+CHUNK_SEPARATORS = [
+    # ── Codes légaux (Code Civil, Code du Travail, Code Pénal) ──
+    "\n\nArticle ",
+    "\n\nChapitre ",
+    "\n\nTitre ",
+    "\n\nSection ",
+    "\n\nSous-section ",
+    "\n\nAnnexe ",
+    # ── Documents techniques (Markdown) ─────────────────────────
+    "\n# ",
+    "\n## ",
+    "\n### ",
+    # ── Séparateurs universels ───────────────────────────────────
+    "\n\n",
+    "\n",
+    ". ",
+    "! ",
+    "? ",
+    " ",
+    "",
+]
+
+
+def get_chunk_config_fingerprint() -> str:
+    """
+    Empreinte MD5 de la configuration de chunking.
+    Change dès que CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_SEPARATORS ou CHUNK_MIN_LENGTH est modifié.
+    Utilisée pour détecter un index FAISS obsolète au démarrage et déclencher une ré-indexation.
+    """
+    key = json.dumps(
+        {
+            "chunk_size": CHUNK_SIZE,
+            "chunk_overlap": CHUNK_OVERLAP,
+            "separators": CHUNK_SEPARATORS,
+            "min_length": CHUNK_MIN_LENGTH,
+        },
+        sort_keys=True,
+    )
+    return hashlib.md5(key.encode()).hexdigest()
+
 
 # ============================================================
 # RETRIEVAL — Recherche sémantique
