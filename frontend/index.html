@@ -275,6 +275,22 @@
 
   </div>
 
+  <!-- ═══════════════════ MODAL CONFIRMATION (oui / non) ═══════════════════ -->
+  <div class="modal-backdrop" id="confirmModal" hidden aria-modal="true" role="alertdialog" aria-labelledby="confirmModalTitle">
+    <div class="modal modal--confirm">
+      <div class="modal__header">
+        <h2 class="modal__title" id="confirmModalTitle">Confirmer</h2>
+      </div>
+      <div class="confirm-modal-body">
+        <p id="confirmModalMessage"></p>
+      </div>
+      <div class="modal__footer modal__footer--confirm">
+        <button class="btn btn--ghost" id="confirmModalNo">Annuler</button>
+        <button class="btn btn--primary" id="confirmModalYes">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══════════════════ MODAL PROGRESSION INDEXATION ═══════════════════ -->
   <div class="modal-backdrop" id="reindexProgressModal" hidden aria-modal="true" role="dialog" aria-labelledby="reindexProgressTitle">
     <div class="modal modal--reindex">

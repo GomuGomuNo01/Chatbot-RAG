@@ -1453,6 +1453,29 @@ a    { color: var(--clr-primary); }
 }
 
 /* ================================================================
+   MODALE CONFIRMATION (oui / non)
+   ================================================================ */
+.modal--confirm { max-width: 400px; }
+
+.confirm-modal-body {
+  padding: 20px 24px 4px;
+}
+.confirm-modal-body p {
+  font-size: 0.9375rem; color: var(--clr-text); margin: 0; line-height: 1.55;
+}
+
+.modal__footer--confirm {
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+
+/* Bouton action destructive (suppression) */
+.btn--danger { background: var(--clr-error); color: #fff; border: none; }
+@media (hover: hover) {
+  .btn--danger:hover:not(:disabled) { background: #991b1b; transform: translateY(-1px); }
+}
+.btn--danger:active:not(:disabled) { transform: translateY(1px); transition-duration: 80ms; }
+
+/* ================================================================
    MODALE PROGRESSION INDEXATION
    ================================================================ */
 .modal--reindex { max-width: 440px; }

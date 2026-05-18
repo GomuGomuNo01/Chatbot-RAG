@@ -806,6 +806,55 @@ class App {
     el.hidden    = false;
   }
 
+  // ─── Modal de confirmation générique ────────────────────────────────────
+
+  /**
+   * Affiche un modal oui/non et retourne une Promise<boolean>.
+   * @param {string} title      - Titre du modal
+   * @param {string} message    - Corps (HTML accepté)
+   * @param {string} [yesLabel] - Libellé bouton de confirmation
+   * @param {string} [noLabel]  - Libellé bouton d'annulation
+   * @param {boolean} [danger]  - Vrai → bouton oui en rouge
+   */
+  _confirm(title, message, yesLabel = null, noLabel = null, danger = false) {
+    return new Promise(resolve => {
+      const isFr   = i18n.lang !== 'en';
+      const modal  = document.getElementById('confirmModal');
+      const yesBtn = document.getElementById('confirmModalYes');
+      const noBtn  = document.getElementById('confirmModalNo');
+
+      document.getElementById('confirmModalTitle').textContent   = title;
+      document.getElementById('confirmModalMessage').innerHTML   = message;
+      yesBtn.textContent = yesLabel || (isFr ? 'Confirmer' : 'Confirm');
+      noBtn.textContent  = noLabel  || (isFr ? 'Annuler'   : 'Cancel');
+      yesBtn.className   = `btn ${danger ? 'btn--danger' : 'btn--primary'}`;
+
+      modal.hidden = false;
+      document.body.classList.add('modal-open');
+      noBtn.focus(); // focus "Annuler" par défaut (actions potentiellement destructives)
+
+      const close = result => {
+        modal.hidden = true;
+        document.body.classList.remove('modal-open');
+        yesBtn.removeEventListener('click', onYes);
+        noBtn.removeEventListener('click',  onNo);
+        modal.removeEventListener('click',  onBackdrop);
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      };
+
+      const onYes      = () => close(true);
+      const onNo       = () => close(false);
+      const onBackdrop = e => { if (e.target === modal) close(false); };
+      const onKey      = e => { if (e.key === 'Escape') close(false); };
+
+      yesBtn.addEventListener('click',   onYes);
+      noBtn.addEventListener('click',    onNo);
+      modal.addEventListener('click',    onBackdrop);
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
   // ─── Re-indexation manuelle ───────────────────────────────────────────
 
   _openReindexProgressModal() {
@@ -919,7 +968,20 @@ class App {
   }
 
   async _handleReindex() {
-    // Fermer le modal upload pour laisser le modal de progression prendre toute la scène
+    const isFr = i18n.lang !== 'en';
+    const confirmed = await this._confirm(
+      isFr ? 'Relancer l\'indexation' : 'Relaunch indexation',
+      isFr
+        ? 'Reconstruire l\'index complet de tous vos documents ?<br><small style="opacity:.8">L\'opération peut prendre plusieurs minutes.</small>'
+        : 'Rebuild the full index of all your documents?<br><small style="opacity:.8">This may take several minutes.</small>',
+      isFr ? 'Relancer' : 'Relaunch'
+    );
+    if (!confirmed) return;
+    await this._runReindex();
+  }
+
+  /** Logique pure de ré-indexation : ouvre le modal bloquant, appelle l'API, attend la fin. */
+  async _runReindex() {
     this._closeUploadModal();
     this._openReindexProgressModal();
 
@@ -947,7 +1009,17 @@ class App {
   // ─── Suppression / Ré-indexation ──────────────────────────────────────
 
   async _deleteDocument(workspace, filename) {
-    if (!confirm(i18n.t('delete.doc.confirm', { name: filename }))) return;
+    const isFr = i18n.lang !== 'en';
+    const confirmed = await this._confirm(
+      isFr ? 'Supprimer le document' : 'Delete document',
+      isFr
+        ? `Supprimer <strong>${this._esc(filename)}</strong> ?<br><small style="opacity:.8">L'index sera automatiquement mis à jour après la suppression.</small>`
+        : `Delete <strong>${this._esc(filename)}</strong>?<br><small style="opacity:.8">The index will be automatically updated after deletion.</small>`,
+      isFr ? 'Supprimer' : 'Delete',
+      isFr ? 'Annuler'   : 'Cancel',
+      true // bouton danger (rouge)
+    );
+    if (!confirmed) return;
 
     const item = document.querySelector(
       `.doc-item[data-ws="${CSS.escape(workspace)}"][data-file="${CSS.escape(filename)}"]`
@@ -955,36 +1027,37 @@ class App {
     if (item) item.style.opacity = '0.4';
 
     try {
-      const result = await apiDeleteDocument(workspace, filename);
-      if (result.background) {
-        this._showToast(i18n.t('delete.doc.pending', { name: filename }), 'ok');
-        this._waitForIndexation().then(async () => {
-          this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
-          await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
-          await this._checkHealth();
-        }).catch(err => {
-          this._showToast(`${i18n.t('delete.doc.error')} ${err.message}`, 'error');
-        });
-      } else {
-        this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
-      }
-      await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
-      await this._checkHealth();
+      await apiDeleteDocument(workspace, filename);
+      this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
     } catch (err) {
       if (err.status === 404) {
-        // File already absent on disk — treat as deleted and refresh list
+        // Fichier déjà absent — on considère la suppression comme réussie
         this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
-        await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
-        await this._checkHealth();
       } else {
         if (item) item.style.opacity = '1';
         this._showToast(`${i18n.t('delete.doc.error')} ${err.message}`, 'error');
+        return; // abandon : pas de reindex si la suppression a échoué
       }
     }
+
+    // Mettre à jour la liste immédiatement, puis lancer la ré-indexation (modal bloquant)
+    await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
+    await this._checkHealth();
+    await this._runReindex();
   }
 
   async _deleteWorkspace(key, label) {
-    if (!confirm(i18n.t('delete.ws.confirm', { label }))) return;
+    const isFr = i18n.lang !== 'en';
+    const confirmed = await this._confirm(
+      isFr ? 'Supprimer le workspace' : 'Delete workspace',
+      isFr
+        ? `Supprimer <strong>${this._esc(label)}</strong> et tous ses documents ?<br><small style="opacity:.8">Cette action est irréversible.</small>`
+        : `Delete <strong>${this._esc(label)}</strong> and all its documents?<br><small style="opacity:.8">This action cannot be undone.</small>`,
+      isFr ? 'Supprimer' : 'Delete',
+      isFr ? 'Annuler'   : 'Cancel',
+      true
+    );
+    if (!confirmed) return;
     try {
       const result = await apiDeleteWorkspace(key);
 
