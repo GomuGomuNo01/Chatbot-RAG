@@ -294,7 +294,8 @@ def is_hf_enabled() -> bool:
 # ============================================================
 
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
-API_PORT = int(os.getenv("PORT", 8000))
+# Port 7860 : défaut HF Spaces. Sur Render, PORT est injecté automatiquement.
+API_PORT = int(os.getenv("PORT", 7860))
 API_TITLE = "DocAssist — Assistant Documentaire RAG"
 API_VERSION = "2.0.0"
 API_DESCRIPTION = (
