@@ -7,10 +7,15 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
-# Secrets
+# Secrets — ne jamais inclure dans l'image Docker
 .env
 
-# Index FAISS inclus dans l'image (Option A — index pré-généré committé dans Git)
+# Données locales — restaurées au runtime depuis R2 + HF Hub
+data/
+docs/
+
+# Index FAISS local — reconstruit au démarrage depuis HF Hub
+# (si committé dans git, supprimer les lignes ci-dessus)
 # data/faiss_index/
 
 # IDE
@@ -22,8 +27,16 @@ __pycache__/
 .git/
 .gitignore
 
-# Docs (optionnel — à retirer si vous voulez inclure les PDFs dans l'image)
-# docs/
+# CI / déploiement
+.github/
+render.yaml
 
-# Logs
+# Logs et fichiers temporaires
 *.log
+*.jsonl
+analysis_results.json
+extraction_results.json
+
+# Tests
+tests/
+pytest.ini

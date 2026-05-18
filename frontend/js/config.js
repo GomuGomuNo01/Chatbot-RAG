@@ -1,18 +1,15 @@
 /**
  * config.js — Configuration de l'URL de l'API
  *
- * ▶ LOCAL  : rien à changer, /api est résolu par FastAPI sur localhost
- * ▶ RENDER : renseigne RENDER_URL après le déploiement, puis pousse.
- *            Ex : https://chatbot-rag-xxxx.onrender.com
+ * FastAPI sert à la fois le frontend (fichiers statiques) et l'API (/api)
+ * sur le même domaine, quelle que soit la plateforme de déploiement :
+ *
+ *   ▶ LOCAL         : http://localhost:7860  →  /api
+ *   ▶ HF Spaces     : https://user-space.hf.space  →  /api
+ *   ▶ Render        : https://chatbot-rag-xxxx.onrender.com  →  /api
+ *   ▶ Autre         : même origine  →  /api
+ *
+ * Aucune URL en dur n'est nécessaire — même origine dans tous les cas.
  */
 
-const RENDER_URL = 'https://chatbot-rag-xodz.onrender.com';   // ← coller ici l'URL Render après déploiement
-
-const API_BASE = (() => {
-  const { hostname } = window.location;
-  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
-  if (isLocal) return '/api';
-  if (RENDER_URL) return `${RENDER_URL.replace(/\/$/, '')}/api`;
-  // Fallback : même origine (utile si le frontend et l'API partagent le même domaine)
-  return '/api';
-})();
+const API_BASE = '/api';
