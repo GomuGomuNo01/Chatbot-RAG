@@ -174,6 +174,7 @@ async def lifespan(app: FastAPI):
     # Shutdown propre : effacer le verrou pour ne pas créer de faux positif au prochain démarrage
     try:
         from api.routes.documents import _clear_lock
+
         _clear_lock()
     except Exception:
         pass
