@@ -143,7 +143,7 @@ def _set_error(err: str) -> None:
 
 def _load_files_parallel(files: list, max_workers: int = 4) -> tuple:
     """Charge et chunke en parallèle. files = [(Path, workspace_key), …]."""
-    from src.loader import load_file
+    from src.loader import get_and_clear_truncation_notices, load_file
 
     n = len(files)
     if n == 0:
@@ -176,6 +176,10 @@ def _load_files_parallel(files: list, max_workers: int = 4) -> tuple:
                 msg = f"« {path.name} » ({ws}) : erreur d'extraction — {e}"
                 warnings.append(msg)
                 logger.warning(f"[load] {msg}", exc_info=True)
+
+    # Récupère les avertissements de troncature PDF (PDFs > MAX_PDF_PAGES pages)
+    truncation_notices = get_and_clear_truncation_notices()
+    warnings.extend(truncation_notices)
 
     all_docs: list = []
     for idx in range(n):
