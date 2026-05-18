@@ -141,7 +141,7 @@ def _set_error(err: str) -> None:
 # ============================================================
 
 
-def _load_files_parallel(files: list, max_workers: int = 4) -> tuple:
+def _load_files_parallel(files: list, max_workers: int = 2) -> tuple:
     """Charge et chunke en parallèle. files = [(Path, workspace_key), …]."""
     from src.loader import get_and_clear_truncation_notices, load_file
 
@@ -235,7 +235,7 @@ def _run_upload_indexation(saved_files: list, manifest_updates: dict) -> None:
         manifest.update(manifest_updates)
 
         t0 = _time.perf_counter()
-        all_docs, file_warnings = _load_files_parallel(saved_files, max_workers=4)
+        all_docs, file_warnings = _load_files_parallel(saved_files, max_workers=2)
         logger.info(f"[BG-upload] Extraction : {_time.perf_counter() - t0:.1f}s")
 
         if not all_docs:
@@ -306,7 +306,7 @@ def _run_reindex_all_background() -> None:
             return
 
         t0 = _time.perf_counter()
-        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=4)
+        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=2)
         logger.info(f"[BG-reindex] Extraction : {_time.perf_counter() - t0:.1f}s")
 
         if not all_docs:
@@ -369,7 +369,7 @@ def _run_rebuild_after_delete(all_files: list) -> None:
             logger.info("[BG-delete] Index vidé — aucun document restant.")
             return
 
-        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=4)
+        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=2)
         if not all_docs:
             _set_error("Aucun contenu extractible dans les documents restants.")
             return
