@@ -518,6 +518,7 @@ class App {
   }
 
   _closeUploadModal() {
+    if (this._uploadInProgress) return; // bloqué pendant upload/indexation
     document.getElementById('uploadModal').hidden = true;
     document.body.classList.remove('modal-open');
   }
@@ -694,6 +695,12 @@ class App {
     if (overlayTxt) overlayTxt.textContent = i18n.t('upload.sending');
     document.getElementById('submitUploadBtn').disabled = true;
     document.getElementById('cancelUploadBtn').disabled = true;
+    document.getElementById('modalCloseBtn').disabled   = true;
+
+    // Garde : empêche de quitter la page pendant l'upload/indexation
+    this._uploadInProgress = true;
+    this._uploadBeforeUnloadHandler = e => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', this._uploadBeforeUnloadHandler);
 
     try {
       const result = await apiUploadFiles(this._uploadFiles, this._uploadWorkspace, progress => {
@@ -759,7 +766,13 @@ class App {
       overlay.hidden = true;
       this._showFeedback(`⚠️ ${err.message}`, 'error');
     } finally {
+      this._uploadInProgress = false;
+      if (this._uploadBeforeUnloadHandler) {
+        window.removeEventListener('beforeunload', this._uploadBeforeUnloadHandler);
+        this._uploadBeforeUnloadHandler = null;
+      }
       document.getElementById('cancelUploadBtn').disabled = false;
+      document.getElementById('modalCloseBtn').disabled   = false;
       if (overlayTxt) overlayTxt.textContent = i18n.t('upload.indexing');
     }
   }
