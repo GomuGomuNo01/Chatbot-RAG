@@ -12,6 +12,7 @@ Refonte v2 :
 import html as _html
 import logging
 import re
+import threading
 from pathlib import Path
 
 import pymupdf as fitz
@@ -29,6 +30,24 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+
+# Plafond de pages PDF traité par fichier (plan Render free = 512 Mo).
+# Au-delà, les pages suivantes sont ignorées et un warning est propagé.
+MAX_PDF_PAGES = 400
+
+# Notices de troncature collectées pendant le traitement — thread-safe.
+# Vidé par get_and_clear_truncation_notices() après chaque session d'indexation.
+_truncation_notices: list[str] = []
+_truncation_lock = threading.Lock()
+
+
+def get_and_clear_truncation_notices() -> list[str]:
+    """Retourne et vide la liste des avertissements de troncature PDF."""
+    with _truncation_lock:
+        notices = list(_truncation_notices)
+        _truncation_notices.clear()
+    return notices
+
 
 # ============================================================
 # NETTOYAGE GÉNÉRIQUE (slides, footers répétés)
@@ -107,13 +126,26 @@ def extract_text_from_pdf(pdf_path: Path) -> list[dict]:
         doc = fitz.open(str(pdf_path))
         total_pages = len(doc)
 
-        raw_texts = [_extract_page_text(doc[i]) for i in range(min(15, total_pages))]
+        # Plafonnement : évite les OOM sur plans à mémoire limitée (ex. Render free 512 Mo).
+        truncated = total_pages > MAX_PDF_PAGES
+        pages_to_process = min(total_pages, MAX_PDF_PAGES)
+        if truncated:
+            msg = (
+                f"« {pdf_path.name} » : {total_pages} pages détectées — seules les "
+                f"{MAX_PDF_PAGES} premières ont été indexées (limite mémoire). "
+                "Divisez le fichier en parties plus petites pour indexer la suite."
+            )
+            logger.warning(f"  PDF : {msg}")
+            with _truncation_lock:
+                _truncation_notices.append(msg)
+
+        raw_texts = [_extract_page_text(doc[i]) for i in range(min(15, pages_to_process))]
         sample_chars = sum(len(t) for t in raw_texts)
         slide_mode = _is_slide_like(raw_texts)
         if slide_mode:
             logger.info(f"  PDF slides détecté : {pdf_path.name} — nettoyage automatique activé")
 
-        for page_num in range(total_pages):
+        for page_num in range(pages_to_process):
             text = _extract_page_text(doc[page_num])
             if slide_mode:
                 text = _clean_text(text)
@@ -132,7 +164,10 @@ def extract_text_from_pdf(pdf_path: Path) -> list[dict]:
                     f"  PDF : {pdf_path.name} — aucune page exploitable (protégé ? images ?)"
                 )
         else:
-            logger.info(f"  PDF : {pdf_path.name} — {len(pages)}/{total_pages} page(s) utile(s)")
+            suffix = f" (tronqué à {MAX_PDF_PAGES}/{total_pages})" if truncated else ""
+            logger.info(
+                f"  PDF : {pdf_path.name} — {len(pages)}/{pages_to_process} page(s) utile(s){suffix}"
+            )
 
     except Exception as e:
         size_kb = pdf_path.stat().st_size // 1024 if pdf_path.exists() else "?"
