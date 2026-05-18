@@ -44,11 +44,11 @@ class _FastEmbedEmbeddings(Embeddings):
         if not texts:
             return []
         prefixed = [f"passage: {t}" for t in texts] if _IS_E5_MODEL else texts
-        return [v.tolist() for v in self._model.embed(prefixed, batch_size=32)]
+        return [list(map(float, v)) for v in self._model.embed(prefixed, batch_size=32)]
 
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"query: {text}" if _IS_E5_MODEL else text
-        return list(self._model.embed([prefixed]))[0].tolist()
+        return list(map(float, list(self._model.embed([prefixed]))[0]))
 
 
 # ============================================================
