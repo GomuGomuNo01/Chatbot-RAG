@@ -145,17 +145,32 @@ def _detect_query_type(query: str) -> float:
     """
     Retourne le poids BM25 adapté au type de requête.
 
-    - Noms propres (majuscules) ou références d'articles  → BM25 fort (0.60)
+    - Acronymes tout-majuscules (PHP, SQL, API…)           → BM25 très fort (0.65)
+    - Noms propres (majuscules) ou références d'articles   → BM25 fort (0.60)
     - Questions conceptuelles / explicatives               → FAISS fort (BM25 0.30)
-    - Requêtes mixtes                                      → défaut config (0.45)
+    - Requêtes mixtes                                      → défaut config
     """
+    # Acronymes tout-caps : correspondance lexicale exacte cruciale (PHP, SQL, CSS, API…)
+    if _re.search(r"\b[A-Z]{2,}\b", query):
+        return 0.65
+    # Références légales ou noms propres (commence par majuscule + minuscules)
     if _re.search(r"\bL?\d{3,}[-–]\d+\b", query) or _re.search(
         r"\b[A-Z][a-zéèêëàâùûü]{2,}\b", query
     ):
         return 0.60
+    # Questions conceptuelles / définitions → sémantique (FAISS) prioritaire
     if any(
         w in query.lower()
-        for w in ("comment", "pourquoi", "qu'est", "différence", "expliqu", "définition")
+        for w in (
+            "comment",
+            "pourquoi",
+            "qu'est",
+            "différence",
+            "expliqu",
+            "définition",
+            "signifi",
+            "acronyme",
+        )
     ):
         return 0.30
     return HYBRID_BM25_WEIGHT
