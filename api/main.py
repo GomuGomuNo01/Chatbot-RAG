@@ -92,6 +92,22 @@ async def lifespan(app: FastAPI):
         elif not is_hf_enabled():
             logger.info("[startup] HF Hub non configuré.")
 
+        # 3b. Détection d'indexation interrompue (crash/OOM lors d'un run précédent)
+        try:
+            from api.routes.documents import _LOCK_FILE, _set_error as _set_idx_error
+
+            if _LOCK_FILE.exists():
+                _LOCK_FILE.unlink()
+                _set_idx_error(
+                    "Indexation interrompue par un redémarrage du service (mémoire insuffisante ?). "
+                    "Relancez l'indexation manuellement."
+                )
+                logger.warning(
+                    "[startup] Lock d'indexation détecté — la dernière indexation n'a pas abouti."
+                )
+        except Exception as e:
+            logger.warning(f"[startup] Vérification lock ignorée : {e}")
+
         # 4. Pré-chargement / auto-reindex
         if index_exists():
             if is_chunk_config_stale():
@@ -154,6 +170,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    # Shutdown propre : effacer le verrou pour ne pas créer de faux positif au prochain démarrage
+    try:
+        from api.routes.documents import _clear_lock
+        _clear_lock()
+    except Exception:
+        pass
     logger.info("[shutdown] DocAssist — Arrêt propre.")
 
 
