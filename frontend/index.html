@@ -275,6 +275,27 @@
 
   </div>
 
+  <!-- ═══════════════════ MODAL PROGRESSION INDEXATION ═══════════════════ -->
+  <div class="modal-backdrop" id="reindexProgressModal" hidden aria-modal="true" role="dialog" aria-labelledby="reindexProgressTitle">
+    <div class="modal modal--reindex">
+      <div class="modal__header">
+        <h2 class="modal__title" id="reindexProgressTitle">Indexation en cours…</h2>
+      </div>
+      <div class="reindex-modal-body">
+        <div class="reindex-spinner-wrap" id="reindexSpinnerWrap">
+          <div class="upload-spinner reindex-spinner"></div>
+        </div>
+        <p class="reindex-status-line" id="reindexStatusLine">Préparation…</p>
+        <div class="reindex-steps" id="reindexStepsList"></div>
+        <div class="reindex-stats" id="reindexStats" hidden></div>
+      </div>
+      <div class="modal__footer modal__footer--reindex">
+        <p class="reindex-warn-msg" id="reindexWarnMsg">⚠️ Ne fermez pas cette fenêtre pendant l'indexation.</p>
+        <button class="btn btn--primary" id="reindexProgressCloseBtn" hidden>Fermer</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/config.js"></script>
   <script src="js/i18n.js"></script>
   <script src="js/api.js"></script>

@@ -101,9 +101,17 @@ class App {
     sidebarOverlay.addEventListener('click', _closeSidebar);
 
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && sidebar.classList.contains('sidebar--open')) {
-        _closeSidebar();
-        menuBtn.focus();
+      if (e.key === 'Escape') {
+        // Bloquer ESC si indexation en cours
+        const rim = document.getElementById('reindexProgressModal');
+        if (rim && !rim.hidden && rim._isIndexing) return;
+        // Fermer le modal de progression si terminé
+        if (rim && !rim.hidden && !rim._isIndexing) { this._closeReindexProgressModal(); return; }
+        // Fermer la sidebar sur mobile
+        if (sidebar.classList.contains('sidebar--open')) {
+          _closeSidebar();
+          menuBtn.focus();
+        }
       }
     });
 
@@ -436,6 +444,20 @@ class App {
     });
   }
 
+  /** Flash les documents qui viennent d'être ajoutés (absents de prevDocNames). */
+  _highlightNewDocs(prevDocNames) {
+    const list = document.getElementById('documentList');
+    if (!list) return;
+    list.querySelectorAll('.doc-item').forEach(item => {
+      const key = `${item.dataset.ws}::${item.dataset.file}`;
+      if (!prevDocNames.has(key)) {
+        item.classList.add('doc-item--new');
+        // Retirer la classe après la fin de l'animation pour ne pas re-flasher
+        item.addEventListener('animationend', () => item.classList.remove('doc-item--new'), { once: true });
+      }
+    });
+  }
+
   // ─── Modal upload ──────────────────────────────────────────────────────
 
   _bindUploadModal() {
@@ -471,6 +493,14 @@ class App {
 
     submitBtn.addEventListener('click', () => this._handleUpload());
     document.getElementById('reindexBtn').addEventListener('click', () => this._handleReindex());
+
+    // ── Modal progression indexation ──
+    const reindexModal = document.getElementById('reindexProgressModal');
+    document.getElementById('reindexProgressCloseBtn').addEventListener('click', () => this._closeReindexProgressModal());
+    // Clic sur le backdrop : ignoré pendant l'indexation, ferme après
+    reindexModal.addEventListener('click', e => {
+      if (e.target === reindexModal) this._closeReindexProgressModal();
+    });
   }
 
   async _openUploadModal() {
@@ -715,8 +745,10 @@ class App {
         );
       }
 
+      const prevDocNames = new Set(this.documents.map(d => `${d.workspace}::${d.nom}`));
       await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
       await this._checkHealth();
+      if (nb_ok > 0) this._highlightNewDocs(prevDocNames);
       this._uploadFiles = [];
       document.getElementById('fileList').innerHTML = '';
       this._refreshSubmitBtn();
@@ -732,7 +764,7 @@ class App {
     }
   }
 
-  _waitForIndexation(timeoutMs = 480000) {
+  _waitForIndexation(timeoutMs = 480000, onProgress = null) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       const poll = setInterval(async () => {
@@ -743,6 +775,7 @@ class App {
         }
         try {
           const status = await apiIndexStatus();
+          if (onProgress) onProgress(status);
           if (!status.running) {
             clearInterval(poll);
             if (status.error) reject(new Error(status.error));
@@ -762,33 +795,139 @@ class App {
 
   // ─── Re-indexation manuelle ───────────────────────────────────────────
 
-  async _handleReindex() {
-    const btn = document.getElementById('reindexBtn');
-    const originalText = btn.textContent;
+  _openReindexProgressModal() {
+    const isFr = i18n.lang !== 'en';
+    document.getElementById('reindexProgressTitle').textContent =
+      isFr ? 'Indexation en cours…' : 'Indexing in progress…';
+    document.getElementById('reindexStatusLine').textContent =
+      isFr ? 'Démarrage de l\'indexation…' : 'Starting indexation…';
+    document.getElementById('reindexStepsList').innerHTML = '';
+    document.getElementById('reindexStats').hidden = true;
+    document.getElementById('reindexStats').className = 'reindex-stats';
+    document.getElementById('reindexProgressCloseBtn').hidden = true;
+    document.getElementById('reindexWarnMsg').hidden = false;
+    document.getElementById('reindexSpinnerWrap').className = 'reindex-spinner-wrap';
 
-    btn.disabled    = true;
-    btn.textContent = i18n.t('reindex.running');
-    document.getElementById('uploadFeedback').hidden = true;
+    const modal = document.getElementById('reindexProgressModal');
+    modal._isIndexing = true;
+    modal.hidden = false;
+    document.body.classList.add('modal-open');
+    this._reindexModalOpen = true;
+
+    // Ajouter la première étape
+    this._addReindexStep(isFr ? 'Connexion au serveur…' : 'Connecting to server…', 'active');
+
+    // Garde beforeunload : avertit si l'utilisateur tente de quitter
+    this._beforeUnloadHandler = e => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', this._beforeUnloadHandler);
+  }
+
+  _addReindexStep(text, state = 'active') {
+    const stepsList = document.getElementById('reindexStepsList');
+    // Marquer les étapes actives précédentes comme terminées
+    stepsList.querySelectorAll('.reindex-step--active').forEach(el => {
+      el.classList.replace('reindex-step--active', 'reindex-step--done');
+      el.querySelector('.reindex-step__icon').textContent = '✅';
+    });
+    const step = document.createElement('div');
+    step.className = `reindex-step reindex-step--${state}`;
+    step.innerHTML = `<span class="reindex-step__icon">${state === 'done' ? '✅' : '⏳'}</span><span>${text}</span>`;
+    stepsList.appendChild(step);
+    stepsList.scrollTop = stepsList.scrollHeight;
+  }
+
+  _updateReindexModalStatus(status) {
+    const isFr = i18n.lang !== 'en';
+    if (!status.running) return;
+    const chunks = status.chunks || 0;
+    const files  = status.files  || 0;
+    const text = isFr
+      ? `En cours… ${chunks} chunk${chunks !== 1 ? 's' : ''} · ${files} fichier${files !== 1 ? 's' : ''}`
+      : `Running… ${chunks} chunk${chunks !== 1 ? 's' : ''} · ${files} file${files !== 1 ? 's' : ''}`;
+    document.getElementById('reindexStatusLine').textContent = text;
+    this._addReindexStep(text, 'active');
+  }
+
+  _finishReindexModal(status, error = null) {
+    const isFr = i18n.lang !== 'en';
+    const stepsList  = document.getElementById('reindexStepsList');
+    const spinnerWrap = document.getElementById('reindexSpinnerWrap');
+    const statsEl    = document.getElementById('reindexStats');
+    const closeBtn   = document.getElementById('reindexProgressCloseBtn');
+    const warnMsg    = document.getElementById('reindexWarnMsg');
+
+    // Finaliser la dernière étape
+    stepsList.querySelectorAll('.reindex-step--active').forEach(el => {
+      el.classList.replace('reindex-step--active', 'reindex-step--done');
+      el.querySelector('.reindex-step__icon').textContent = error ? '❌' : '✅';
+    });
+
+    if (error) {
+      document.getElementById('reindexProgressTitle').textContent =
+        isFr ? 'Échec de l\'indexation' : 'Indexation failed';
+      document.getElementById('reindexStatusLine').textContent =
+        isFr ? 'Une erreur s\'est produite.' : 'An error occurred.';
+      spinnerWrap.className = 'reindex-spinner-wrap reindex-spinner-wrap--error';
+      statsEl.className   = 'reindex-stats reindex-stats--error';
+      statsEl.textContent = error;
+    } else {
+      const chunks = status?.chunks || 0;
+      const files  = status?.files  || 0;
+      document.getElementById('reindexProgressTitle').textContent =
+        isFr ? 'Indexation terminée ✅' : 'Indexation complete ✅';
+      document.getElementById('reindexStatusLine').textContent =
+        isFr ? 'L\'index est à jour.' : 'The index is up to date.';
+      spinnerWrap.className = 'reindex-spinner-wrap reindex-spinner-wrap--done';
+      statsEl.className   = 'reindex-stats reindex-stats--ok';
+      statsEl.textContent = isFr
+        ? `${chunks} chunk${chunks !== 1 ? 's' : ''} indexés · ${files} fichier${files !== 1 ? 's' : ''} traité${files !== 1 ? 's' : ''}`
+        : `${chunks} chunk${chunks !== 1 ? 's' : ''} indexed · ${files} file${files !== 1 ? 's' : ''} processed`;
+    }
+    statsEl.hidden = false;
+    warnMsg.hidden = true;
+    closeBtn.hidden = false;
+    closeBtn.focus();
+
+    // Lever la garde beforeunload
+    if (this._beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this._beforeUnloadHandler);
+      this._beforeUnloadHandler = null;
+    }
+    const modal = document.getElementById('reindexProgressModal');
+    modal._isIndexing = false;
+    this._reindexModalOpen = false;
+  }
+
+  _closeReindexProgressModal() {
+    const modal = document.getElementById('reindexProgressModal');
+    if (modal._isIndexing) return; // bloqué pendant l'indexation
+    modal.hidden = true;
+    document.body.classList.remove('modal-open');
+  }
+
+  async _handleReindex() {
+    // Fermer le modal upload pour laisser le modal de progression prendre toute la scène
+    this._closeUploadModal();
+    this._openReindexProgressModal();
 
     try {
       const result = await apiReindex();
+
       if (result.background) {
-        const status = await this._waitForIndexation();
-        this._showFeedback(
-          i18n.t('reindex.success', { chunks: status.chunks, files: status.files }), 'ok'
+        this._addReindexStep(
+          i18n.lang !== 'en' ? 'Indexation lancée en arrière-plan…' : 'Indexation started in background…',
+          'active'
         );
+        const status = await this._waitForIndexation(480000, s => this._updateReindexModalStatus(s));
+        this._finishReindexModal(status);
       } else {
-        this._showFeedback(
-          i18n.t('reindex.success', { chunks: result.total_chunks, files: result.total_files }), 'ok'
-        );
+        this._finishReindexModal({ chunks: result.total_chunks, files: result.total_files });
       }
+
       await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
       await this._checkHealth();
     } catch (err) {
-      this._showFeedback(`${i18n.t('reindex.error')} ${err.message}`, 'error');
-    } finally {
-      btn.disabled    = false;
-      btn.textContent = originalText;
+      this._finishReindexModal(null, err.message);
     }
   }
 
