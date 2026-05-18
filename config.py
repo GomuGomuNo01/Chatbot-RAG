@@ -48,7 +48,7 @@ EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
 # Reranker — modèle cross-encoder via HuggingFace InferenceClient (0 RAM locale)
 RERANKER_MODEL = "BAAI/bge-reranker-base"
-RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
+RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "false").lower() == "true"
 
 # ============================================================
 # CHUNKING — Découpage des documents
