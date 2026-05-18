@@ -94,7 +94,8 @@ async def lifespan(app: FastAPI):
 
         # 3b. Détection d'indexation interrompue (crash/OOM lors d'un run précédent)
         try:
-            from api.routes.documents import _LOCK_FILE, _set_error as _set_idx_error
+            from api.routes.documents import _LOCK_FILE
+            from api.routes.documents import _set_error as _set_idx_error
 
             if _LOCK_FILE.exists():
                 _LOCK_FILE.unlink()
