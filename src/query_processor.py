@@ -143,9 +143,14 @@ _ANAPHORA = re.compile(
 # Détection des questions comparatives
 _COMPARATIVE_RE: list[re.Pattern] = [
     re.compile(r"\bdiff[eé]rence[s]?\s+entre\s+(.+?)\s+et\s+(.+?)(?=\s*\?|$)", re.IGNORECASE),
-    re.compile(r"\bcompar(?:er|aison|ez)\s+(?:entre\s+)?(.+?)\s+et\s+(.+?)(?=\s*\?|$)", re.IGNORECASE),
+    re.compile(
+        r"\bcompar(?:er|aison|ez)\s+(?:entre\s+)?(.+?)\s+et\s+(.+?)(?=\s*\?|$)", re.IGNORECASE
+    ),
     re.compile(r"\b(.+?)\s+(?:versus|vs\.?)\s+(.+?)(?=\s*\?|$)", re.IGNORECASE),
-    re.compile(r"\bdistin(?:guer|ction)\s+(?:entre\s+|de\s+)?(.+?)\s+(?:et|de)\s+(.+?)(?=\s*\?|$)", re.IGNORECASE),
+    re.compile(
+        r"\bdistin(?:guer|ction)\s+(?:entre\s+|de\s+)?(.+?)\s+(?:et|de)\s+(.+?)(?=\s*\?|$)",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bdifference[s]?\s+between\s+(.+?)\s+and\s+(.+?)(?=\s*\?|$)", re.IGNORECASE),
     re.compile(r"\bcompare\s+(.+?)\s+(?:and|with|to)\s+(.+?)(?=\s*\?|$)", re.IGNORECASE),
 ]
@@ -201,7 +206,9 @@ def _needs_contextualization(question: str, has_history: bool) -> bool:
     return bool(_ANAPHORA.search(q)) or len(q.split()) <= 5
 
 
-def contextualize_query(question: str, history_text: str, llm, *, max_history_chars: int = 600) -> str:
+def contextualize_query(
+    question: str, history_text: str, llm, *, max_history_chars: int = 600
+) -> str:
     has_history = bool(history_text and history_text.strip())
     if not _needs_contextualization(question, has_history):
         return question
@@ -293,7 +300,7 @@ def decompose_comparative_query(question: str) -> list[str]:
 # Patterns : L1234-5, R123-4, D12-3, L.1234-5, Article 111-1, Art. 2, 1er alinéa, etc.
 _ARTICLE_RE = re.compile(
     r"\b(?:article|art\.?)\s*([A-Z]\.?\d[\d.-]*)"  # Article L1234-5 ou Art. R12-3
-    r"|\b([LRD]\.?\d[\d.-]+)\b"                     # L1234-5 seul dans le texte
+    r"|\b([LRD]\.?\d[\d.-]+)\b"  # L1234-5 seul dans le texte
     r"|\barticle\s+(\d[\d.-]*(?:er|ème|ième)?)\b",  # Article 111-1, Article 1er
     re.IGNORECASE,
 )

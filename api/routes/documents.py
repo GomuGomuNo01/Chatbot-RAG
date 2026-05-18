@@ -72,7 +72,14 @@ _status_lock = threading.Lock()
 def _set_running() -> None:
     with _status_lock:
         _indexation_status.update(
-            {"running": True, "chunks": 0, "files": 0, "done_at": None, "error": None, "warnings": []}
+            {
+                "running": True,
+                "chunks": 0,
+                "files": 0,
+                "done_at": None,
+                "error": None,
+                "warnings": [],
+            }
         )
 
 
@@ -93,7 +100,14 @@ def _set_done(chunks: int, files: int = 0, warnings: list | None = None) -> None
 def _set_error(err: str) -> None:
     with _status_lock:
         _indexation_status.update(
-            {"running": False, "chunks": 0, "files": 0, "done_at": None, "error": err, "warnings": []}
+            {
+                "running": False,
+                "chunks": 0,
+                "files": 0,
+                "done_at": None,
+                "error": err,
+                "warnings": [],
+            }
         )
 
 
@@ -162,12 +176,15 @@ def _invalidate_caches() -> None:
 
 def _push_to_hub_daemon() -> None:
     """Pousse l'index FAISS vers HF Hub dans un thread daemon — non bloquant pour l'UI."""
+
     def _do() -> None:
         try:
             from src.hf_store import push_index_to_hub
+
             push_index_to_hub()
         except Exception as e:
             logger.warning(f"[HF Hub] Push ignoré : {e}")
+
     threading.Thread(target=_do, daemon=True).start()
 
 
@@ -175,6 +192,7 @@ def _run_upload_indexation(saved_files: list, manifest_updates: dict) -> None:
     _set_running()
     t_start = _time.perf_counter()
     try:
+        from src.bm25_store import reset_bm25_index
         from src.indexer import (
             add_documents_to_index,
             create_index,
@@ -182,7 +200,6 @@ def _run_upload_indexation(saved_files: list, manifest_updates: dict) -> None:
             load_manifest,
             save_manifest,
         )
-        from src.bm25_store import reset_bm25_index
         from src.retriever import reset_vectorstore
 
         manifest = load_manifest()
@@ -643,8 +660,7 @@ async def upload_documents(
         raise HTTPException(
             status_code=422,
             detail=(
-                f"Workspace inconnu : « {workspace} ». "
-                "Créez-le d'abord via POST /api/workspaces."
+                f"Workspace inconnu : « {workspace} ». Créez-le d'abord via POST /api/workspaces."
             ),
         )
     if not files:
@@ -793,9 +809,7 @@ def get_index_status() -> IndexStatusResponse:
 async def reindex_all(background_tasks: BackgroundTasks) -> ReindexResponse:
     with _status_lock:
         if _indexation_status["running"]:
-            raise HTTPException(
-                status_code=409, detail="Une indexation est déjà en cours."
-            )
+            raise HTTPException(status_code=409, detail="Une indexation est déjà en cours.")
 
     background_tasks.add_task(_run_reindex_all_background)
     return ReindexResponse(
@@ -824,9 +838,7 @@ async def delete_document(
 ) -> DeleteDocumentResponse:
     with _status_lock:
         if _indexation_status["running"]:
-            raise HTTPException(
-                status_code=409, detail="Une indexation est déjà en cours."
-            )
+            raise HTTPException(status_code=409, detail="Une indexation est déjà en cours.")
 
     ws = get_workspace(workspace)
     if not ws:
@@ -890,9 +902,7 @@ async def reindex_file(
 ) -> ReindexFileResponse:
     with _status_lock:
         if _indexation_status["running"]:
-            raise HTTPException(
-                status_code=409, detail="Une indexation est déjà en cours."
-            )
+            raise HTTPException(status_code=409, detail="Une indexation est déjà en cours.")
 
     ws = get_workspace(workspace)
     if not ws:

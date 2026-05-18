@@ -47,19 +47,96 @@ logger = logging.getLogger(__name__)
 # Détection rapide de langue
 # ──────────────────────────────────────────────────────────────
 
-_EN_WORDS = frozenset({
-    "what", "how", "does", "can", "the", "are", "why", "when", "where", "which",
-    "who", "give", "me", "tell", "explain", "show", "find", "list", "do", "make",
-    "is", "was", "were", "will", "would", "could", "should", "have", "has",
-    "this", "that", "these", "with", "from", "about", "into", "their", "them",
-})
-_FR_WORDS = frozenset({
-    "quoi", "comment", "pourquoi", "quand", "où", "qui", "quel", "quelle",
-    "quels", "quelles", "moi", "expliquer", "trouver", "faire", "les", "des",
-    "une", "que", "qu", "je", "tu", "il", "nous", "vous", "ils", "elles",
-    "est", "sont", "était", "être", "avoir", "fait", "peut", "doit", "votre",
-    "notre", "leur", "cette", "cet", "ces", "sur", "dans", "avec", "pour",
-})
+_EN_WORDS = frozenset(
+    {
+        "what",
+        "how",
+        "does",
+        "can",
+        "the",
+        "are",
+        "why",
+        "when",
+        "where",
+        "which",
+        "who",
+        "give",
+        "me",
+        "tell",
+        "explain",
+        "show",
+        "find",
+        "list",
+        "do",
+        "make",
+        "is",
+        "was",
+        "were",
+        "will",
+        "would",
+        "could",
+        "should",
+        "have",
+        "has",
+        "this",
+        "that",
+        "these",
+        "with",
+        "from",
+        "about",
+        "into",
+        "their",
+        "them",
+    }
+)
+_FR_WORDS = frozenset(
+    {
+        "quoi",
+        "comment",
+        "pourquoi",
+        "quand",
+        "où",
+        "qui",
+        "quel",
+        "quelle",
+        "quels",
+        "quelles",
+        "moi",
+        "expliquer",
+        "trouver",
+        "faire",
+        "les",
+        "des",
+        "une",
+        "que",
+        "qu",
+        "je",
+        "tu",
+        "il",
+        "nous",
+        "vous",
+        "ils",
+        "elles",
+        "est",
+        "sont",
+        "était",
+        "être",
+        "avoir",
+        "fait",
+        "peut",
+        "doit",
+        "votre",
+        "notre",
+        "leur",
+        "cette",
+        "cet",
+        "ces",
+        "sur",
+        "dans",
+        "avec",
+        "pour",
+    }
+)
 
 
 def _detect_lang(text: str) -> str:
@@ -83,9 +160,7 @@ def _lang_instruction(lang: str) -> str:
 
 def get_llm() -> ChatAnthropic:
     if not ANTHROPIC_API_KEY:
-        raise ValueError(
-            "ANTHROPIC_API_KEY manquante. Ajoute ta clé dans le fichier .env"
-        )
+        raise ValueError("ANTHROPIC_API_KEY manquante. Ajoute ta clé dans le fichier .env")
     logger.info(f"LLM : Claude ({ANTHROPIC_MODEL})")
     return ChatAnthropic(
         api_key=ANTHROPIC_API_KEY,
@@ -392,7 +467,8 @@ class RAGChain:
                 _is_overloaded = "overloaded" in str(_exc).lower()
                 if _is_overloaded and not full_ans and _attempt < 2:
                     import asyncio as _asyncio
-                    _wait = 2 ** _attempt
+
+                    _wait = 2**_attempt
                     logger.warning(
                         f"[LLM] Anthropic surchargé "
                         f"(tentative {_attempt + 1}/3) — reprise dans {_wait}s…"

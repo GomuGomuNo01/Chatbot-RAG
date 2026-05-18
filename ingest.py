@@ -78,7 +78,9 @@ def main() -> None:
         metavar="KEY",
         help=f"Indexer un seul workspace ({', '.join(workspace_keys) if workspace_keys else 'aucun'})",
     )
-    parser.add_argument("--file", type=str, default=None, metavar="CHEMIN", help="Indexer un seul fichier")
+    parser.add_argument(
+        "--file", type=str, default=None, metavar="CHEMIN", help="Indexer un seul fichier"
+    )
     parser.add_argument("--reset", action="store_true", help="Reconstruction complète")
     args = parser.parse_args()
 

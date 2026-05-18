@@ -15,7 +15,7 @@ from api.schemas import ChatRequest, ChatResponse, ClearMemoryRequest, ErrorResp
 from src.chain import get_rag_chain
 from src.indexer import index_exists
 from src.memory import ConversationMemory
-from src.rate_limiter import check_limit, get_limit, get_today_count, increment, status as rate_status
+from src.rate_limiter import check_limit, get_limit, get_today_count, increment
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -76,8 +76,7 @@ def _internal_error(e: Exception, context: str) -> HTTPException:
     return HTTPException(
         status_code=500,
         detail=(
-            f"Une erreur interne s'est produite (réf. {ref}). "
-            "Réessayez dans quelques instants."
+            f"Une erreur interne s'est produite (réf. {ref}). Réessayez dans quelques instants."
         ),
     )
 
@@ -158,10 +157,10 @@ async def chat_stream(request: ChatRequest):
                 # Injecter le compteur de requêtes dans l'événement final (done=True)
                 # pour que le client mette à jour le badge sans requête supplémentaire.
                 if event.get("done"):
-                    lim   = get_limit()
-                    used  = get_today_count()
-                    event["rate_limit"]     = lim
-                    event["rate_used"]      = used
+                    lim = get_limit()
+                    used = get_today_count()
+                    event["rate_limit"] = lim
+                    event["rate_used"] = used
                     event["rate_remaining"] = max(0, lim - used) if lim > 0 else None
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
@@ -198,7 +197,10 @@ def clear_memory(request: ClearMemoryRequest) -> dict:
         if session_id in _sessions:
             _sessions[session_id].clear()
             return {"message": f"Session « {session_id} » effacée.", "session_id": session_id}
-        return {"message": f"Session « {session_id} » introuvable ou déjà vide.", "session_id": session_id}
+        return {
+            "message": f"Session « {session_id} » introuvable ou déjà vide.",
+            "session_id": session_id,
+        }
     except Exception as e:
         raise _internal_error(e, f"Effacement session {session_id}")
 

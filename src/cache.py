@@ -16,7 +16,6 @@ import json
 import logging
 import math
 import time
-from typing import Any
 
 from config import (
     RESPONSE_CACHE_ENABLED,
@@ -61,40 +60,196 @@ class ResponseCache:
     def _cosine(a: list[float], b: list[float]) -> float:
         if not a or not b or len(a) != len(b):
             return 0.0
-        dot = sum(x * y for x, y in zip(a, b))
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
         na = math.sqrt(sum(x * x for x in a))
         nb = math.sqrt(sum(x * x for x in b))
         return dot / (na * nb) if na and nb else 0.0
 
     # Mots vides FR+EN : ignorés lors du calcul de chevauchement lexical.
     # On compare uniquement les mots porteurs de sens (noms, verbes, adjectifs).
-    _STOP_WORDS: frozenset[str] = frozenset({
-        # Français
-        "donne", "donnes", "dis", "moi", "me", "explique", "montre", "trouve",
-        "liste", "fais", "donne", "quels", "quelles", "quel", "quelle",
-        "comment", "pourquoi", "quand", "combien", "où", "qui", "que", "qu",
-        "quoi", "de", "du", "des", "le", "la", "les", "un", "une", "au",
-        "aux", "en", "et", "ou", "par", "pour", "sur", "dans", "avec",
-        "sans", "est", "sont", "était", "être", "avoir", "fait", "peut",
-        "doit", "faire", "je", "tu", "il", "nous", "vous", "ils", "elles",
-        "me", "te", "se", "ce", "cet", "cette", "ces", "son", "sa", "ses",
-        "mon", "ma", "mes", "ton", "ta", "tes", "leur", "leurs", "y", "en",
-        "dont", "si", "car", "mais", "ni", "or", "donc", "puis", "aussi",
-        "très", "plus", "moins", "bien", "peu", "trop", "assez", "tout",
-        "tous", "toute", "toutes", "même", "autre", "autres", "on", "a",
-        "façon", "façons", "manière", "manières", "moyen", "moyens",
-        "exemple", "exemples", "cas", "type", "types", "sorte", "sortes",
-        "plusieurs", "différent", "différente", "différents", "différentes",
-        "quand", "alors", "ainsi", "voici", "voilà", "peut", "veut",
-        # English
-        "what", "how", "does", "can", "the", "are", "why", "when", "where",
-        "which", "who", "give", "tell", "explain", "show", "find", "list",
-        "do", "make", "is", "was", "were", "will", "would", "could",
-        "should", "have", "has", "this", "that", "these", "with", "from",
-        "about", "into", "their", "them", "me", "my", "an", "a", "of",
-        "in", "on", "at", "to", "for", "by", "or", "and", "but", "not",
-        "example", "examples", "type", "types", "way", "ways", "kind",
-    })
+    _STOP_WORDS: frozenset[str] = frozenset(
+        {
+            # Français
+            "donne",
+            "donnes",
+            "dis",
+            "moi",
+            "me",
+            "explique",
+            "montre",
+            "trouve",
+            "liste",
+            "fais",
+            "quels",
+            "quelles",
+            "quel",
+            "quelle",
+            "comment",
+            "pourquoi",
+            "quand",
+            "combien",
+            "où",
+            "qui",
+            "que",
+            "qu",
+            "quoi",
+            "de",
+            "du",
+            "des",
+            "le",
+            "la",
+            "les",
+            "un",
+            "une",
+            "au",
+            "aux",
+            "en",
+            "et",
+            "ou",
+            "par",
+            "pour",
+            "sur",
+            "dans",
+            "avec",
+            "sans",
+            "est",
+            "sont",
+            "était",
+            "être",
+            "avoir",
+            "fait",
+            "peut",
+            "doit",
+            "faire",
+            "je",
+            "tu",
+            "il",
+            "nous",
+            "vous",
+            "ils",
+            "elles",
+            "te",
+            "se",
+            "ce",
+            "cet",
+            "cette",
+            "ces",
+            "son",
+            "sa",
+            "ses",
+            "mon",
+            "ma",
+            "mes",
+            "ton",
+            "ta",
+            "tes",
+            "leur",
+            "leurs",
+            "y",
+            "dont",
+            "si",
+            "car",
+            "mais",
+            "ni",
+            "or",
+            "donc",
+            "puis",
+            "aussi",
+            "très",
+            "plus",
+            "moins",
+            "bien",
+            "peu",
+            "trop",
+            "assez",
+            "tout",
+            "tous",
+            "toute",
+            "toutes",
+            "même",
+            "autre",
+            "autres",
+            "on",
+            "a",
+            "façon",
+            "façons",
+            "manière",
+            "manières",
+            "moyen",
+            "moyens",
+            "exemple",
+            "exemples",
+            "cas",
+            "type",
+            "types",
+            "sorte",
+            "sortes",
+            "plusieurs",
+            "différent",
+            "différente",
+            "différents",
+            "différentes",
+            "alors",
+            "ainsi",
+            "voici",
+            "voilà",
+            "veut",
+            # English
+            "what",
+            "how",
+            "does",
+            "can",
+            "the",
+            "are",
+            "why",
+            "when",
+            "where",
+            "which",
+            "who",
+            "give",
+            "tell",
+            "explain",
+            "show",
+            "find",
+            "list",
+            "do",
+            "make",
+            "is",
+            "was",
+            "were",
+            "will",
+            "would",
+            "could",
+            "should",
+            "have",
+            "has",
+            "this",
+            "that",
+            "these",
+            "with",
+            "from",
+            "about",
+            "into",
+            "their",
+            "them",
+            "my",
+            "an",
+            "of",
+            "in",
+            "at",
+            "to",
+            "for",
+            "by",
+            "and",
+            "but",
+            "not",
+            "example",
+            "examples",
+            "way",
+            "ways",
+            "kind",
+        }
+    )
 
     @classmethod
     def _word_overlap(cls, q1: str, q2: str) -> float:
@@ -104,14 +259,18 @@ class ResponseCache:
         Évite les faux positifs du cache sur des questions à structure identique
         mais thème différent."""
         import re
+
         def _keywords(s: str) -> set[str]:
             tokens = re.sub(r"[^\w]", " ", s.lower()).split()
             return {t for t in tokens if t not in cls._STOP_WORDS and len(t) > 2}
+
         k1, k2 = _keywords(q1), _keywords(q2)
         if not k1 or not k2:
             # Pas de mots-clés → fallback sur tous les tokens
-            tok = lambda s: set(re.sub(r"[^\w]", " ", s.lower()).split())
-            t1, t2 = tok(q1), tok(q2)
+            def _all_tokens(s: str) -> set[str]:
+                return set(re.sub(r"[^\w]", " ", s.lower()).split())
+
+            t1, t2 = _all_tokens(q1), _all_tokens(q2)
             return len(t1 & t2) / len(t1 | t2) if t1 | t2 else 0.0
         return len(k1 & k2) / len(k1 | k2)
 
@@ -121,9 +280,7 @@ class ResponseCache:
             e for e in self.entries if (now - e.get("ts", 0)) < RESPONSE_CACHE_TTL_SECONDS
         ]
 
-    def lookup(
-        self, question: str, workspace: str | None, embedding: list[float]
-    ) -> dict | None:
+    def lookup(self, question: str, workspace: str | None, embedding: list[float]) -> dict | None:
         """
         Cherche une réponse cachée pour une question similaire.
         Retourne None si rien trouvé ou si le cache est désactivé.

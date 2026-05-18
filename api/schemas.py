@@ -6,7 +6,6 @@ Refonte v2 : `categorie` → `workspace`. Plus aucune catégorie native.
 
 from pydantic import BaseModel, Field
 
-
 # ============================================================
 # REQUÊTES
 # ============================================================
@@ -47,7 +46,10 @@ class WorkspacesResponse(BaseModel):
 
 class CreateWorkspaceRequest(BaseModel):
     key: str = Field(
-        ..., min_length=2, max_length=32, pattern=r"^[a-z0-9][a-z0-9_-]*$",
+        ...,
+        min_length=2,
+        max_length=32,
+        pattern=r"^[a-z0-9][a-z0-9_-]*$",
     )
     label: str = Field(..., min_length=1, max_length=80)
     emoji: str = Field(default="📁", max_length=8)

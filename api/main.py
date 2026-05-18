@@ -95,9 +95,7 @@ async def lifespan(app: FastAPI):
         # 4. Pré-chargement / auto-reindex
         if index_exists():
             if is_chunk_config_stale():
-                logger.warning(
-                    "[startup] Config chunking modifiée — ré-indexation automatique…"
-                )
+                logger.warning("[startup] Config chunking modifiée — ré-indexation automatique…")
                 try:
                     import threading
 
@@ -145,9 +143,7 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     logger.warning(f"[startup] Reconstruction auto échouée : {e}", exc_info=True)
             else:
-                logger.info(
-                    "[startup] Index absent et aucun document — uploadez via l'interface."
-                )
+                logger.info("[startup] Index absent et aucun document — uploadez via l'interface.")
 
     except Exception as e:
         logger.error(f"[startup] Erreur critique : {e}", exc_info=True)

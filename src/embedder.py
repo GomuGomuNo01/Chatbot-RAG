@@ -215,8 +215,12 @@ def _is_model_cached(model_name: str) -> bool:
     une vingtaine de requêtes HTTP de vérification au démarrage (~6 s).
     """
     import os
+
     cache_dir = os.path.join(
-        os.path.expanduser("~"), ".cache", "huggingface", "hub",
+        os.path.expanduser("~"),
+        ".cache",
+        "huggingface",
+        "hub",
         f"models--{model_name.replace('/', '--')}",
     )
     return os.path.isdir(cache_dir)
@@ -290,7 +294,9 @@ def get_embeddings() -> Embeddings:
                 _embeddings_instance = _make_local_embeddings()
         else:
             if cached_locally and hf_token:
-                logger.info(f"Embeddings locaux (modèle en cache — InferenceClient ignoré) : {EMBEDDING_MODEL}")
+                logger.info(
+                    f"Embeddings locaux (modèle en cache — InferenceClient ignoré) : {EMBEDDING_MODEL}"
+                )
             _embeddings_instance = _make_local_embeddings()
 
         logger.info("  Embeddings initialises : OK")

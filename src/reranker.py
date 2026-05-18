@@ -10,7 +10,6 @@ Stratégie :
 
 import logging
 import os
-from typing import cast
 
 from config import RERANKER_ENABLED, RERANKER_MODEL
 from langchain_core.documents import Document
@@ -85,7 +84,7 @@ def rerank(
         logger.warning("[reranker] Tous les scores sont 0.0 — API indisponible, ordre RRF conservé")
         return documents[:top_k]
 
-    enriched = list(zip(documents, scores))
+    enriched = list(zip(documents, scores, strict=False))
     enriched.sort(key=lambda x: x[1], reverse=True)
     ordered: list[Document] = []
     for doc, score in enriched[:top_k]:
@@ -110,27 +109,32 @@ def _call_reranker(client, pairs: list[tuple[str, str]]) -> list[float] | None:
     url = f"https://api-inference.huggingface.co/models/{RERANKER_MODEL}"
     hdrs = {"Authorization": f"Bearer {token}"}
 
-    queries  = [p[0] for p in pairs]
+    queries = [p[0] for p in pairs]
     passages = [p[1] for p in pairs]
 
     # Appel batch : un seul POST pour tous les passages.
     if all(q == queries[0] for q in queries):
         try:
             resp = requests.post(
-                url, headers=hdrs,
+                url,
+                headers=hdrs,
                 json={"inputs": {"source_sentence": queries[0], "sentences": passages}},
                 timeout=12,
             )
             if resp.status_code == 200:
                 data = resp.json()
-                logger.debug(f"[reranker] batch response type={type(data).__name__} len={len(data) if isinstance(data, list) else 'N/A'}")
+                logger.debug(
+                    f"[reranker] batch response type={type(data).__name__} len={len(data) if isinstance(data, list) else 'N/A'}"
+                )
                 if isinstance(data, list) and all(isinstance(s, (int, float)) for s in data):
-                    logger.info(f"[reranker] batch scores: {[round(s,4) for s in data]}")
+                    logger.info(f"[reranker] batch scores: {[round(s, 4) for s in data]}")
                     return [float(s) for s in data]
                 # Certains modèles retournent [{"score": x, "label": "..."}, ...]
                 if isinstance(data, list) and all(isinstance(s, dict) for s in data):
                     scores_from_dicts = [float(s.get("score", 0.0)) for s in data]
-                    logger.info(f"[reranker] batch scores (dict): {[round(s,4) for s in scores_from_dicts]}")
+                    logger.info(
+                        f"[reranker] batch scores (dict): {[round(s, 4) for s in scores_from_dicts]}"
+                    )
                     return scores_from_dicts
                 logger.warning(f"[reranker] batch format inattendu : {str(data)[:200]}")
             else:
@@ -143,7 +147,8 @@ def _call_reranker(client, pairs: list[tuple[str, str]]) -> list[float] | None:
     for q, p in pairs:
         try:
             resp = requests.post(
-                url, headers=hdrs,
+                url,
+                headers=hdrs,
                 json={"inputs": {"source_sentence": q, "sentences": [p]}},
                 timeout=6,
             )

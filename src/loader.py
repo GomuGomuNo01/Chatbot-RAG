@@ -84,7 +84,7 @@ def _extract_page_text(page) -> str:
     try:
         xhtml = page.get_text("xhtml") or ""
         if xhtml:
-            text = _html.unescape(xhtml)          # &#xe9; → é
+            text = _html.unescape(xhtml)  # &#xe9; → é
             text = re.sub(r"<[^>]+>", " ", text)  # strip tags
             text = re.sub(r"[ \t]+", " ", text)
             text = re.sub(r"\n{3,}", "\n\n", text).strip()
