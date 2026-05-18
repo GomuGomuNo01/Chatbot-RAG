@@ -98,12 +98,12 @@ def get_chunk_config_fingerprint() -> str:
 # RETRIEVAL — Recherche hybride (sémantique + BM25)
 # ============================================================
 
-TOP_K_RESULTS = 6               # chunks gardés après reranking pour le LLM (↓ tokens input LLM)
-TOP_K_RETRIEVAL = 20            # pool initial par index (BM25 et FAISS)
-SIMILARITY_THRESHOLD = 0.20     # seuil min sur la similarité FAISS normalisée
-HYBRID_RRF_K = 30               # constante k du Reciprocal Rank Fusion
-HYBRID_BM25_WEIGHT = 0.45       # poids du BM25 dans la fusion (0 = full vectoriel, 1 = full BM25)
-RERANK_TOP_N = 12               # nb de candidats envoyés au reranker (après fusion)
+TOP_K_RESULTS = 6  # chunks gardés après reranking pour le LLM (↓ tokens input LLM)
+TOP_K_RETRIEVAL = 20  # pool initial par index (BM25 et FAISS)
+SIMILARITY_THRESHOLD = 0.20  # seuil min sur la similarité FAISS normalisée
+HYBRID_RRF_K = 30  # constante k du Reciprocal Rank Fusion
+HYBRID_BM25_WEIGHT = 0.45  # poids du BM25 dans la fusion (0 = full vectoriel, 1 = full BM25)
+RERANK_TOP_N = 12  # nb de candidats envoyés au reranker (après fusion)
 
 # ============================================================
 # CACHE DES RÉPONSES (cost saver)
@@ -112,7 +112,9 @@ RERANK_TOP_N = 12               # nb de candidats envoyés au reranker (après f
 RESPONSE_CACHE_ENABLED = True
 RESPONSE_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 jours
 RESPONSE_CACHE_MAX_ENTRIES = 500
-RESPONSE_CACHE_SIM_THRESHOLD = 0.92  # similarité cosinus min (doublée d'un contrôle lexical dans cache.py)
+RESPONSE_CACHE_SIM_THRESHOLD = (
+    0.92  # similarité cosinus min (doublée d'un contrôle lexical dans cache.py)
+)
 
 # ============================================================
 # MÉMOIRE CONVERSATIONNELLE
@@ -129,9 +131,24 @@ _WORKSPACE_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,31}$")
 # Identifiants réservés (collisions avec routes API / dossiers système)
 RESERVED_WORKSPACE_KEYS: frozenset[str] = frozenset(
     {
-        "api", "admin", "docs", "static", "data", "index", "health",
-        "chat", "documents", "workspaces", "categories", "settings",
-        "config", "all", "upload", "reindex", "status", "search",
+        "api",
+        "admin",
+        "docs",
+        "static",
+        "data",
+        "index",
+        "health",
+        "chat",
+        "documents",
+        "workspaces",
+        "categories",
+        "settings",
+        "config",
+        "all",
+        "upload",
+        "reindex",
+        "status",
+        "search",
     }
 )
 
@@ -244,7 +261,9 @@ def auto_provision_workspaces_from_disk() -> int:
         except ValueError:
             continue
     if created:
-        logger.info(f"[workspaces] Auto-provisionnés : {created} dossier(s) existant(s) → workspaces")
+        logger.info(
+            f"[workspaces] Auto-provisionnés : {created} dossier(s) existant(s) → workspaces"
+        )
     return created
 
 

@@ -111,9 +111,7 @@ def create_index(documents: list[Document]) -> FAISS:
         embeddings = get_embeddings()
         vectorstore = FAISS.from_documents(documents=documents, embedding=embeddings)
     except Exception as e:
-        raise RuntimeError(
-            f"Échec embeddings/FAISS ({len(documents)} chunks) : {e}"
-        ) from e
+        raise RuntimeError(f"Échec embeddings/FAISS ({len(documents)} chunks) : {e}") from e
 
     try:
         INDEX_PATH.mkdir(parents=True, exist_ok=True)

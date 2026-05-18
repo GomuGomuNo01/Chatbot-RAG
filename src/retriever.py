@@ -149,9 +149,14 @@ def _detect_query_type(query: str) -> float:
     - Questions conceptuelles / explicatives               → FAISS fort (BM25 0.30)
     - Requêtes mixtes                                      → défaut config (0.45)
     """
-    if _re.search(r"\bL?\d{3,}[-–]\d+\b", query) or _re.search(r"\b[A-Z][a-zéèêëàâùûü]{2,}\b", query):
+    if _re.search(r"\bL?\d{3,}[-–]\d+\b", query) or _re.search(
+        r"\b[A-Z][a-zéèêëàâùûü]{2,}\b", query
+    ):
         return 0.60
-    if any(w in query.lower() for w in ("comment", "pourquoi", "qu'est", "différence", "expliqu", "définition")):
+    if any(
+        w in query.lower()
+        for w in ("comment", "pourquoi", "qu'est", "différence", "expliqu", "définition")
+    ):
         return 0.30
     return HYBRID_BM25_WEIGHT
 
@@ -212,7 +217,9 @@ def hybrid_search(
             k = _doc_key(doc)
             if k not in pool_set:
                 pool_set[k] = doc
-                logger.debug(f"[hybrid] BM25 safeguard : ajout forcé de {doc.metadata.get('source')}")
+                logger.debug(
+                    f"[hybrid] BM25 safeguard : ajout forcé de {doc.metadata.get('source')}"
+                )
 
     candidates = list(pool_set.values())
     primary_query = queries[0]

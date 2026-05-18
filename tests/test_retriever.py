@@ -88,12 +88,13 @@ class TestFormatSources:
         workspaces = {s["workspace"] for s in sources}
         assert workspaces == {"tech", "ops", "mkt"}
 
-    def test_missing_score_defaults_to_zero(self):
+    def test_missing_score_defaults_to_floor(self):
+        # Quand aucun score n'est disponible, le plancher _FLOOR=0.35 est appliqué
         doc = Document(
             page_content="Contenu",
             metadata={"source": "doc.pdf", "page": 1, "workspace": "ws"},
         )
-        assert format_sources([doc])[0]["score"] == 0
+        assert format_sources([doc])[0]["score"] == 0.35
 
     def test_unknown_source_falls_back(self):
         doc = Document(page_content="Contenu", metadata={})
@@ -126,9 +127,18 @@ class TestBM25:
 
     def test_fit_then_search_finds_relevant(self):
         docs = [
-            Document(page_content="Spring Boot framework Java", metadata={"workspace": "tech", "source": "a"}),
-            Document(page_content="Recette de la tarte aux pommes", metadata={"workspace": "cuisine", "source": "b"}),
-            Document(page_content="Configuration Spring Boot avec annotations", metadata={"workspace": "tech", "source": "c"}),
+            Document(
+                page_content="Spring Boot framework Java",
+                metadata={"workspace": "tech", "source": "a"},
+            ),
+            Document(
+                page_content="Recette de la tarte aux pommes",
+                metadata={"workspace": "cuisine", "source": "b"},
+            ),
+            Document(
+                page_content="Configuration Spring Boot avec annotations",
+                metadata={"workspace": "tech", "source": "c"},
+            ),
         ]
         idx = BM25Index()
         idx.fit(docs)
@@ -139,8 +149,12 @@ class TestBM25:
 
     def test_workspace_filter(self):
         docs = [
-            Document(page_content="Java code example", metadata={"workspace": "tech", "source": "a"}),
-            Document(page_content="Java the book review", metadata={"workspace": "books", "source": "b"}),
+            Document(
+                page_content="Java code example", metadata={"workspace": "tech", "source": "a"}
+            ),
+            Document(
+                page_content="Java the book review", metadata={"workspace": "books", "source": "b"}
+            ),
         ]
         idx = BM25Index()
         idx.fit(docs)

@@ -195,8 +195,8 @@ class TestWorkspacesConfig:
     def test_invalid_keys(self):
         from config import is_valid_workspace_key
 
-        assert not is_valid_workspace_key("API")        # majuscule
-        assert not is_valid_workspace_key("a")          # trop court
-        assert not is_valid_workspace_key("ab cd")      # espace
-        assert not is_valid_workspace_key("api")        # réservé
-        assert not is_valid_workspace_key("-prefix")    # commence par tiret
+        assert not is_valid_workspace_key("API")  # majuscule
+        assert not is_valid_workspace_key("a")  # trop court
+        assert not is_valid_workspace_key("ab cd")  # espace
+        assert not is_valid_workspace_key("api")  # réservé
+        assert not is_valid_workspace_key("-prefix")  # commence par tiret

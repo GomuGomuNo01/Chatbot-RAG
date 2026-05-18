@@ -20,12 +20,54 @@ _DETAIL_EXCHANGES = 2
 
 _STOP_WORDS: frozenset[str] = frozenset(
     {
-        "les", "des", "que", "qui", "dans", "pour", "avec", "sur", "par",
-        "une", "est", "sont", "était", "être", "avoir", "fait", "peut",
-        "doit", "votre", "notre", "leur", "leurs", "cette", "aussi",
-        "mais", "comme", "plus", "tout", "bien", "même", "donc", "alors",
-        "the", "and", "are", "was", "were", "that", "this", "with",
-        "from", "have", "has", "had", "been", "their", "they", "these",
+        "les",
+        "des",
+        "que",
+        "qui",
+        "dans",
+        "pour",
+        "avec",
+        "sur",
+        "par",
+        "une",
+        "est",
+        "sont",
+        "était",
+        "être",
+        "avoir",
+        "fait",
+        "peut",
+        "doit",
+        "votre",
+        "notre",
+        "leur",
+        "leurs",
+        "cette",
+        "aussi",
+        "mais",
+        "comme",
+        "plus",
+        "tout",
+        "bien",
+        "même",
+        "donc",
+        "alors",
+        "the",
+        "and",
+        "are",
+        "was",
+        "were",
+        "that",
+        "this",
+        "with",
+        "from",
+        "have",
+        "has",
+        "had",
+        "been",
+        "their",
+        "they",
+        "these",
     }
 )
 
@@ -95,7 +137,11 @@ class ConversationMemory:
             lines.append(f"[Échanges précédents : {summary}]")
             lines.append("")
 
-        recent = self._history[-_DETAIL_EXCHANGES:] if len(self._history) >= _DETAIL_EXCHANGES else self._history
+        recent = (
+            self._history[-_DETAIL_EXCHANGES:]
+            if len(self._history) >= _DETAIL_EXCHANGES
+            else self._history
+        )
         if recent:
             lines.append("Historique récent :")
             for q, a in recent:

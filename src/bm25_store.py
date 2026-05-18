@@ -18,6 +18,7 @@ from pathlib import Path
 # Stemming optionnel (nltk). Si absent, BM25 reste fonctionnel sans stemming.
 try:
     from nltk.stem import SnowballStemmer as _SnowballStemmer
+
     _stemmer_fr = _SnowballStemmer("french")
     _stemmer_en = _SnowballStemmer("english")
     _HAS_STEMMER = True
@@ -38,11 +39,58 @@ _TOKEN_RE = re.compile(r"[a-z0-9àâäéèêëîïôöùûüç_-]{2,}", re.IGNOR
 # Stop-words multilingues FR/EN basiques (volontairement courts — BM25 fait le reste)
 _STOP_WORDS: frozenset[str] = frozenset(
     {
-        "le", "la", "les", "un", "une", "des", "du", "de", "et", "ou", "que",
-        "qui", "quoi", "ce", "cette", "ces", "se", "sa", "son", "ses", "leur",
-        "pour", "par", "avec", "sur", "dans", "en", "au", "aux", "est", "sont",
-        "the", "a", "an", "of", "and", "or", "to", "in", "on", "at", "for",
-        "with", "as", "is", "are", "was", "were", "by", "this", "that", "these",
+        "le",
+        "la",
+        "les",
+        "un",
+        "une",
+        "des",
+        "du",
+        "de",
+        "et",
+        "ou",
+        "que",
+        "qui",
+        "quoi",
+        "ce",
+        "cette",
+        "ces",
+        "se",
+        "sa",
+        "son",
+        "ses",
+        "leur",
+        "pour",
+        "par",
+        "avec",
+        "sur",
+        "dans",
+        "en",
+        "au",
+        "aux",
+        "est",
+        "sont",
+        "the",
+        "a",
+        "an",
+        "of",
+        "and",
+        "or",
+        "to",
+        "in",
+        "on",
+        "at",
+        "for",
+        "with",
+        "as",
+        "is",
+        "are",
+        "was",
+        "were",
+        "by",
+        "this",
+        "that",
+        "these",
     }
 )
 
@@ -63,7 +111,7 @@ def _tokenize(text: str) -> list[str]:
     stemmed = [_stem(t) for t in raw]
     # Bigrammes : "code_travail", "droit_travail" — forte valeur discriminante
     # pour les noms propres composés et références (ex. "Code du Travail")
-    bigrams = [f"{stemmed[i]}_{stemmed[i+1]}" for i in range(len(stemmed) - 1)]
+    bigrams = [f"{stemmed[i]}_{stemmed[i + 1]}" for i in range(len(stemmed) - 1)]
     return stemmed + bigrams
 
 
@@ -74,16 +122,16 @@ class BM25Index:
     `Document` LangChain lors de la recherche.
     """
 
-    K1 = 1.8   # plus élevé que le défaut (1.5) : favorise les docs avec répétitions du terme
-    B  = 0.75
+    K1 = 1.8  # plus élevé que le défaut (1.5) : favorise les docs avec répétitions du terme
+    B = 0.75
 
     def __init__(self) -> None:
-        self.docs: list[dict] = []           # {"text": str, "metadata": dict}
+        self.docs: list[dict] = []  # {"text": str, "metadata": dict}
         self.tokens_per_doc: list[list[str]] = []
-        self.freqs: list[Counter] = []       # term frequencies par doc
+        self.freqs: list[Counter] = []  # term frequencies par doc
         self.doc_len: list[int] = []
         self.avg_dl: float = 0.0
-        self.df: Counter = Counter()         # document frequency par terme
+        self.df: Counter = Counter()  # document frequency par terme
         self.idf: dict[str, float] = {}
 
     def fit(self, documents: list[Document]) -> None:
@@ -151,7 +199,9 @@ class BM25Index:
         results: list[tuple[Document, float]] = []
         for idx, sc in scores[:k]:
             entry = self.docs[idx]
-            results.append((Document(page_content=entry["text"], metadata=dict(entry["metadata"])), sc))
+            results.append(
+                (Document(page_content=entry["text"], metadata=dict(entry["metadata"])), sc)
+            )
         return results
 
     def save(self, path: Path = BM25_INDEX_FILE) -> None:

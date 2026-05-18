@@ -11,7 +11,6 @@ import json
 import logging
 import os
 from datetime import date
-from pathlib import Path
 from threading import Lock
 
 from config import BASE_DIR
@@ -73,6 +72,7 @@ def increment() -> int:
         data[today] = data.get(today, 0) + 1
         # Nettoyer les entrées de plus de 7 jours
         from datetime import timedelta
+
         cutoff = str(date.today() - timedelta(days=7))
         data = {k: v for k, v in data.items() if k >= cutoff}
         _save(data)
