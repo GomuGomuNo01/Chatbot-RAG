@@ -146,19 +146,24 @@ async def lifespan(app: FastAPI):
                     break
 
             if has_docs:
-                logger.info("[startup] Documents présents sans index → reconstruction…")
+                # ⚠️ Ne pas lancer de ré-indexation automatique au démarrage :
+                # sur Render free (512 Mo), cela provoquerait un OOM immédiat,
+                # suivi d'un redémarrage → re-OOM → boucle infinie.
+                # L'utilisateur doit déclencher la ré-indexation manuellement
+                # depuis l'interface (bouton « Relancer l'indexation »).
+                logger.warning(
+                    "[startup] Index absent mais des documents sont présents. "
+                    "Relancez l'indexation manuellement depuis l'interface."
+                )
                 try:
-                    import threading
+                    from api.routes.documents import _set_error as _set_idx_error
 
-                    from api.routes.documents import _run_reindex_all_background
-
-                    threading.Thread(
-                        target=_run_reindex_all_background,
-                        daemon=True,
-                        name="startup-auto-reindex",
-                    ).start()
-                except Exception as e:
-                    logger.warning(f"[startup] Reconstruction auto échouée : {e}", exc_info=True)
+                    _set_idx_error(
+                        "Index absent après redémarrage du service. "
+                        "Cliquez sur « Relancer l'indexation » dans l'interface pour reconstruire l'index."
+                    )
+                except Exception:
+                    pass
             else:
                 logger.info("[startup] Index absent et aucun document — uploadez via l'interface.")
 
