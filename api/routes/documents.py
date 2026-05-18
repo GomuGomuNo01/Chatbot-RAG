@@ -14,6 +14,7 @@ Routes Documents / Workspaces (refonte v2) :
 Plus aucune catégorie « native ». Tout est utilisateur.
 """
 
+import gc
 import logging
 import threading
 import time as _time
@@ -141,7 +142,7 @@ def _set_error(err: str) -> None:
 # ============================================================
 
 
-def _load_files_parallel(files: list, max_workers: int = 2) -> tuple:
+def _load_files_parallel(files: list, max_workers: int = 1) -> tuple:
     """Charge et chunke en parallèle. files = [(Path, workspace_key), …]."""
     from src.loader import get_and_clear_truncation_notices, load_file
 
@@ -218,6 +219,7 @@ def _push_to_hub_daemon() -> None:
 
 
 def _run_upload_indexation(saved_files: list, manifest_updates: dict) -> None:
+    gc.collect()  # libère la mémoire avant de commencer (réduit le pic initial)
     _set_running()
     t_start = _time.perf_counter()
     try:
@@ -235,7 +237,7 @@ def _run_upload_indexation(saved_files: list, manifest_updates: dict) -> None:
         manifest.update(manifest_updates)
 
         t0 = _time.perf_counter()
-        all_docs, file_warnings = _load_files_parallel(saved_files, max_workers=2)
+        all_docs, file_warnings = _load_files_parallel(saved_files, max_workers=1)
         logger.info(f"[BG-upload] Extraction : {_time.perf_counter() - t0:.1f}s")
 
         if not all_docs:
@@ -270,6 +272,7 @@ def _run_upload_indexation(saved_files: list, manifest_updates: dict) -> None:
 
 
 def _run_reindex_all_background() -> None:
+    gc.collect()  # libère la mémoire avant de commencer (réduit le pic initial)
     _set_running()
     t_start = _time.perf_counter()
     try:
@@ -306,7 +309,7 @@ def _run_reindex_all_background() -> None:
             return
 
         t0 = _time.perf_counter()
-        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=2)
+        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=1)
         logger.info(f"[BG-reindex] Extraction : {_time.perf_counter() - t0:.1f}s")
 
         if not all_docs:
@@ -339,6 +342,7 @@ def _run_reindex_all_background() -> None:
 
 def _run_rebuild_after_delete(all_files: list) -> None:
     """Reconstruction après suppression. all_files vide ⇒ index vidé."""
+    gc.collect()  # libère la mémoire avant de commencer (réduit le pic initial)
     _set_running()
     t_start = _time.perf_counter()
     try:
@@ -369,7 +373,7 @@ def _run_rebuild_after_delete(all_files: list) -> None:
             logger.info("[BG-delete] Index vidé — aucun document restant.")
             return
 
-        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=2)
+        all_docs, file_warnings = _load_files_parallel(all_files, max_workers=1)
         if not all_docs:
             _set_error("Aucun contenu extractible dans les documents restants.")
             return
