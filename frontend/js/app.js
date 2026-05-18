@@ -1,31 +1,45 @@
 /**
- * app.js — Orchestrateur principal de l'application
+ * app.js — Orchestrateur principal (refonte v2)
+ * Plus de catégories natives. Les workspaces sont 100 % dynamiques.
  */
 
 class App {
   constructor() {
-    this.ui               = new ChatUI();
-    this.sessionId        = this._generateSessionId();
-    this.selectedCategory = null;
-    this.isLoading        = false;
-    this.documents        = [];
-    this._healthData      = null;
+    this.ui                 = new ChatUI();
+    this.sessionId          = this._generateSessionId();
+    this.selectedWorkspace  = null;
+    this.isLoading          = false;
+    this.documents          = [];
+    this._healthData        = null;
 
-    // Upload state
     this._uploadFiles       = [];
-    this._uploadCategory    = null;
-    this._customCategories  = {};   // key → {label, emoji, couleur}
+    this._uploadWorkspace   = null;
+    this._workspaces        = [];   // [{key, label, emoji, couleur, nb_docs}]
   }
 
   async init() {
     i18n.applyTranslations();
     this._bindEvents();
     this._bindUploadModal();
+    this._bindRateLimitModal();
     await Promise.all([
       this._checkHealth(),
+      this._loadWorkspaces(),
       this._loadDocuments(),
-      this._loadCategories(),
     ]);
+    // Mise à jour périodique du badge toutes les 60s (arrière-plan, sans impact sur la conversation).
+    setInterval(() => this._checkHealth().catch(() => {}), 60_000);
+  }
+
+  _bindRateLimitModal() {
+    const modal = document.getElementById('rateLimitModal');
+    const close = () => {
+      modal.hidden = true;
+      document.body.classList.remove('modal-open');
+      this._checkHealth(); // rafraîchir le compteur
+    };
+    document.getElementById('rateLimitCloseBtn').addEventListener('click', close);
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
   }
 
   // ─── Langue ───────────────────────────────────────────────────────────────
@@ -34,20 +48,10 @@ class App {
     this._renderDocumentList();
     this._updateCategoryBadge();
     if (this._healthData !== null) this._renderHealthBadge(this._healthData);
-    this._updateWelcomeDesc();
+    this._renderWorkspaceSidebar();
   }
 
-  _updateWelcomeDesc() {
-    const el = document.getElementById('welcomeDesc');
-    if (!el) return;
-    const raw = i18n.t('welcome.desc');
-    el.innerHTML = raw
-      .replace(/{b1}(.+?){\/b1}/g, '<strong>$1</strong>')
-      .replace(/{b2}(.+?){\/b2}/g, '<strong>$1</strong>')
-      .replace(/{b3}(.+?){\/b3}/g, '<strong>$1</strong>');
-  }
-
-  // ─── Événements principaux ────────────────────────────────────────────────
+  // ─── Événements ────────────────────────────────────────────────────────
 
   _bindEvents() {
     document.getElementById('inputForm').addEventListener('submit', e => {
@@ -62,7 +66,9 @@ class App {
     inputField.addEventListener('input', () => {
       const len = inputField.value.trim().length;
       sendBtn.disabled = len === 0 || this.isLoading;
-      charCounter.textContent = `${inputField.value.length}/1000`;
+      charCounter.textContent = `${inputField.value.length}/2000`;
+      inputField.style.height = 'auto';
+      inputField.style.height = Math.min(inputField.scrollHeight, 160) + 'px';
     });
 
     inputField.addEventListener('keydown', e => {
@@ -72,22 +78,7 @@ class App {
       }
     });
 
-    inputField.addEventListener('input', () => {
-      inputField.style.height = 'auto';
-      inputField.style.height = Math.min(inputField.scrollHeight, 160) + 'px';
-    });
-
-    document.querySelectorAll('input[name="category"]').forEach(radio => {
-      radio.addEventListener('change', e => {
-        this.selectedCategory = e.target.value || null;
-        this._updateCategoryBadge();
-        this._highlightActiveCategory(e.target.closest('label'));
-      });
-    });
-
-    document.getElementById('newChatBtn').addEventListener('click', () => {
-      this._startNewChat();
-    });
+    document.getElementById('newChatBtn').addEventListener('click', () => this._startNewChat());
 
     const menuBtn        = document.getElementById('menuBtn');
     const sidebar        = document.getElementById('sidebar');
@@ -97,21 +88,18 @@ class App {
       sidebar.classList.add('sidebar--open');
       sidebarOverlay.classList.add('sidebar-overlay--visible');
       menuBtn.setAttribute('aria-expanded', 'true');
-      menuBtn.setAttribute('aria-label', 'Fermer le menu');
     };
     const _closeSidebar = () => {
       sidebar.classList.remove('sidebar--open');
       sidebarOverlay.classList.remove('sidebar-overlay--visible');
       menuBtn.setAttribute('aria-expanded', 'false');
-      menuBtn.setAttribute('aria-label', 'Ouvrir le menu');
     };
 
-    menuBtn.addEventListener('click', () => {
-      sidebar.classList.contains('sidebar--open') ? _closeSidebar() : _openSidebar();
-    });
+    menuBtn.addEventListener('click', () =>
+      sidebar.classList.contains('sidebar--open') ? _closeSidebar() : _openSidebar()
+    );
     sidebarOverlay.addEventListener('click', _closeSidebar);
 
-    /* Accessibilité clavier : Escape ferme la sidebar */
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && sidebar.classList.contains('sidebar--open')) {
         _closeSidebar();
@@ -119,19 +107,10 @@ class App {
       }
     });
 
-    document.querySelectorAll('.example-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const field = document.getElementById('inputField');
-        field.value = btn.dataset.question;
-        field.dispatchEvent(new Event('input'));
-        field.focus();
-      });
-    });
-
-    this._updateWelcomeDesc();
+    // Le radio "Tout" est géré par delegation dans _renderWorkspaceSidebar
   }
 
-  // ─── Envoi d'un message ───────────────────────────────────────────────────
+  // ─── Submit chat ──────────────────────────────────────────────────────────
 
   async _handleSubmit() {
     const inputField = document.getElementById('inputField');
@@ -141,20 +120,17 @@ class App {
     this.ui.addUserMessage(question);
     inputField.value = '';
     inputField.style.height = 'auto';
-    document.getElementById('charCounter').textContent = '0/1000';
+    document.getElementById('charCounter').textContent = '0/2000';
     document.getElementById('sendBtn').disabled = true;
 
     this._setLoading(true);
-    this.ui.showTyping();
+    this.ui.showSearchSteps();
 
     try {
-      const reader  = await apiChatStream(question, this.selectedCategory, this.sessionId);
+      const reader  = await apiChatStream(question, this.selectedWorkspace, this.sessionId);
       const decoder = new TextDecoder();
       let   buffer  = '';
-      let   botEl   = null;
-
-      this.ui.hideTyping();
-      botEl = this.ui.startStreamingMessage();
+      let   botEl   = null; // null jusqu'au premier token
 
       while (true) {
         const { done, value } = await reader.read();
@@ -170,30 +146,45 @@ class App {
           try { event = JSON.parse(line.slice(6)); } catch { continue; }
 
           if (event.error) {
-            // Le backend renvoie déjà un message user-friendly (avec réf.)
+            if (!botEl) { this.ui.hideSearchSteps(); botEl = this.ui.startStreamingMessage(); }
             this.ui.appendToken(botEl, `\n\n⚠️ ${event.error}`);
           } else if (event.token !== undefined) {
+            if (!botEl) { this.ui.hideSearchSteps(); botEl = this.ui.startStreamingMessage(); }
             this.ui.appendToken(botEl, event.token);
           }
           if (event.done) {
             this.ui.finalizeMessage(botEl, event.sources || []);
+            // Mise à jour instantanée du compteur depuis l'événement SSE (sans requête HTTP).
+            if (event.rate_limit > 0 && event.rate_remaining !== undefined) {
+              this._updateRateChipDirect(event.rate_remaining, event.rate_used ?? 0, event.rate_limit);
+            }
           }
         }
       }
     } catch (err) {
-      this.ui.hideTyping();
-      try {
-        const data = await apiChat(question, this.selectedCategory, this.sessionId);
-        this.ui.addAssistantMessage(data.answer, data.sources || []);
-      } catch (err2) {
-        this.ui.addAssistantMessage(`⚠️ ${err2.message}`, []);
+      this.ui.hideSearchSteps();
+      if (err.code === 'RATE_LIMIT') {
+        this._showRateLimitModal(err.message);
+      } else {
+        try {
+          const data = await apiChat(question, this.selectedWorkspace, this.sessionId);
+          this.ui.addAssistantMessage(data.answer, data.sources || []);
+        } catch (err2) {
+          if (err2.code === 'RATE_LIMIT') {
+            this._showRateLimitModal(err2.message);
+          } else {
+            this.ui.addAssistantMessage(`⚠️ ${err2.message}`, []);
+          }
+        }
       }
     } finally {
       this._setLoading(false);
+      // Rafraîchir silencieusement le badge (compteur de requêtes) sans toucher à la conversation.
+      this._checkHealth().catch(() => {});
     }
   }
 
-  // ─── Santé de l'API ───────────────────────────────────────────────────────
+  // ─── Santé ─────────────────────────────────────────────────────────────
 
   async _checkHealth() {
     try {
@@ -213,161 +204,239 @@ class App {
   _renderHealthBadge(data) {
     const badge    = document.getElementById('statusBadge');
     const statusEl = document.getElementById('statusText');
+    const chip     = document.getElementById('rateChip');
     const isOk     = data.status === 'ok' && data.index_disponible;
+    const isFr     = i18n.lang !== 'en';
 
     badge.className = `status-badge status-badge--${isOk ? 'ok' : 'warn'}`;
 
     if (isOk) {
-      const nbDocs = data.nb_documents != null ? data.nb_documents : null;
-      const catPart = `${data.nb_categories} cat.`;
-      const docPart = nbDocs != null
-        ? ` · ${nbDocs} doc${nbDocs !== 1 ? 's' : ''}`
+      const nbWs   = data.nb_workspaces;
+      const nbDocs = data.nb_documents ?? 0;
+      const wsPart  = isFr
+        ? `${nbWs} espace${nbWs !== 1 ? 's' : ''}`
+        : `${nbWs} workspace${nbWs !== 1 ? 's' : ''}`;
+      const docPart = isFr
+        ? `${nbDocs} document${nbDocs !== 1 ? 's' : ''}`
+        : `${nbDocs} document${nbDocs !== 1 ? 's' : ''}`;
+      const rerankPart = data.reranker_actif
+        ? (isFr ? ' · Reranking actif' : ' · Reranking on')
         : '';
-      statusEl.textContent = `${i18n.lang === 'en' ? 'Ready' : 'Prêt'} · ${catPart}${docPart}`;
+
+      statusEl.textContent = `${isFr ? 'Prêt' : 'Ready'} · ${wsPart} · ${docPart}${rerankPart}`;
+
+      // Puce requêtes (uniquement si une limite est configurée)
+      if (data.requetes_limite > 0) {
+        const used = data.requetes_utilisees ?? 0;
+        const lim  = data.requetes_limite;
+        const rem  = data.requetes_restantes ?? (lim - used);
+        const pct  = rem / lim;
+
+        let chipClass = 'rate-chip--ok';
+        if (pct <= 0)       chipClass = 'rate-chip--danger';
+        else if (pct < 0.3) chipClass = 'rate-chip--warn';
+
+        const label = isFr
+          ? `⚡ ${rem} / ${lim} req. restante${rem !== 1 ? 's' : ''}`
+          : `⚡ ${rem} / ${lim} req. left`;
+
+        chip.className   = `rate-chip ${chipClass}`;
+        chip.textContent = label;
+        chip.title       = isFr
+          ? `${used} requête(s) utilisée(s) aujourd'hui sur ${lim} autorisée(s)`
+          : `${used} of ${lim} requests used today`;
+        chip.hidden = false;
+      } else {
+        chip.hidden = true;
+      }
     } else {
       statusEl.textContent = i18n.t('status.noindex');
+      chip.hidden = true;
     }
 
-    if (!data.index_disponible) {
-      this._showNotice(i18n.t('notice.noindex'));
+    if (!data.index_disponible) this._showNotice(i18n.t('notice.noindex'));
+  }
+
+  _updateRateChipDirect(remaining, used, limit) {
+    const chip  = document.getElementById('rateChip');
+    if (!chip || limit <= 0) return;
+    const isFr  = i18n.lang !== 'en';
+    const pct   = remaining / limit;
+    let cls = 'rate-chip--ok';
+    if (pct <= 0)       cls = 'rate-chip--danger';
+    else if (pct < 0.3) cls = 'rate-chip--warn';
+    chip.className   = `rate-chip ${cls}`;
+    chip.textContent = isFr
+      ? `⚡ ${remaining} / ${limit} req. restante${remaining !== 1 ? 's' : ''}`
+      : `⚡ ${remaining} / ${limit} req. left`;
+    chip.title = isFr
+      ? `${used} requête(s) utilisée(s) aujourd'hui sur ${limit} autorisée(s)`
+      : `${used} of ${limit} requests used today`;
+    chip.hidden = false;
+
+    // Mettre à jour les données santé en mémoire pour rester cohérent.
+    if (this._healthData) {
+      this._healthData.requetes_restantes = remaining;
+      this._healthData.requetes_utilisees = used;
     }
   }
 
-  // ─── Chargement des documents ─────────────────────────────────────────────
+  _showRateLimitModal(detail) {
+    const modal  = document.getElementById('rateLimitModal');
+    const body   = document.getElementById('rateLimitBody');
+    const isFr   = i18n.lang !== 'en';
 
-  async _loadDocuments() {
+    // Extraire le compteur depuis le message API si possible (ex: "5/10 requêtes")
+    const match = detail && detail.match(/\((\d+)\/(\d+)/);
+    if (match) {
+      const [, used, lim] = match;
+      body.innerHTML = isFr
+        ? `Vous avez utilisé vos <strong>${used} / ${lim}</strong> requêtes disponibles pour aujourd'hui.<br>L'accès sera automatiquement rétabli <strong>demain</strong>.`
+        : `You have used all <strong>${used} / ${lim}</strong> requests available today.<br>Access will be automatically restored <strong>tomorrow</strong>.`;
+    } else {
+      body.innerHTML = isFr
+        ? `Vous avez utilisé toutes vos requêtes disponibles pour aujourd'hui.<br>L'accès sera automatiquement rétabli <strong>demain</strong>.`
+        : `You have used all your available requests for today.<br>Access will be automatically restored <strong>tomorrow</strong>.`;
+    }
+
+    modal.hidden = false;
+    document.body.classList.add('modal-open');
+    document.getElementById('rateLimitCloseBtn').focus();
+  }
+
+  // ─── Workspaces ─────────────────────────────────────────────────────────
+
+  async _loadWorkspaces() {
     try {
-      const data     = await apiDocuments();
-      this.documents = data.documents || [];
-      this._renderDocumentList();
-      this._updateCategoryCounters();
+      const data = await apiGetWorkspaces();
+      this._workspaces = data.workspaces || [];
     } catch {
-      document.getElementById('documentList').innerHTML =
-        `<p class="doc-list__empty">${i18n.t('docs.none')}</p>`;
+      this._workspaces = [];
     }
+    this._renderWorkspaceSidebar();
   }
 
-  _renderDocumentList() {
-    const list = document.getElementById('documentList');
-    if (!this.documents.length) {
-      list.innerHTML = `<p class="doc-list__empty">${i18n.t('docs.empty').replace('\n', '<br>')}<br><code>python ingest.py</code>.</p>`;
-      return;
-    }
-    const byCategory = this.documents.reduce((acc, doc) => {
-      (acc[doc.categorie] = acc[doc.categorie] || []).push(doc);
-      return acc;
-    }, {});
-    list.innerHTML = Object.entries(byCategory).map(([cat, docs]) => `
-      <div class="doc-group">
-        <div class="doc-group__label">${docs[0].emoji} ${i18n.t('cat.' + cat) || docs[0].label}</div>
-        ${docs.map(d => `
-          <div class="doc-item" title="${this._esc(d.nom)}" data-cat="${this._esc(d.categorie)}" data-file="${this._esc(d.nom)}">
-            <span class="doc-item__icon">${this._fileIcon(d.nom)}</span>
-            <span class="doc-item__name">${this._esc(d.nom.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '))}</span>
-            <span class="doc-item__actions">
-              <button class="doc-item__btn doc-item__btn--reindex" title="Ré-indexer ce document" aria-label="Ré-indexer ${this._esc(d.nom)}">🔄</button>
-              <button class="doc-item__btn doc-item__btn--delete" title="Supprimer ce document" aria-label="Supprimer ${this._esc(d.nom)}">🗑️</button>
-            </span>
-          </div>`).join('')}
-      </div>`).join('');
-
-    // Bind des boutons d'action
-    list.querySelectorAll('.doc-item__btn--delete').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        const item = btn.closest('.doc-item');
-        this._deleteDocument(item.dataset.cat, item.dataset.file);
-      });
-    });
-    list.querySelectorAll('.doc-item__btn--reindex').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        const item = btn.closest('.doc-item');
-        this._reindexDocument(item.dataset.cat, item.dataset.file, btn);
-      });
-    });
-  }
-
-  _updateCategoryCounters() {
-    const counts = { all: this.documents.length };
-    this.documents.forEach(d => { counts[d.categorie] = (counts[d.categorie] || 0) + 1; });
-    Object.entries(counts).forEach(([key, n]) => {
-      const el = document.getElementById(`count-${key}`);
-      if (el) el.textContent = n;
-    });
-  }
-
-  // ─── Catégories ───────────────────────────────────────────────────────────
-
-  async _loadCategories() {
-    try {
-      const data = await apiGetCategories();
-      this._allCategories = data.categories || [];
-      // Stocker les catégories custom (non natives)
-      const native = new Set(['technique', 'rh', 'juridique']);
-      this._allCategories.forEach(c => {
-        if (!native.has(c.key)) this._customCategories[c.key] = c;
-      });
-      this._renderDynamicCategoryItems();
-    } catch {
-      // Silencieux — les catégories par défaut sont dans le HTML
-    }
-  }
-
-  /** Injecte dans la sidebar les catégories personnalisées non présentes en dur. */
-  _renderDynamicCategoryItems() {
-    const native = new Set(['technique', 'rh', 'juridique']);
-    const list   = document.getElementById('categoryList');
+  _renderWorkspaceSidebar() {
+    const list = document.getElementById('categoryList');
     if (!list) return;
 
-    // Supprimer les éléments custom déjà injectés (pour éviter doublons)
-    list.querySelectorAll('.category-item--custom').forEach(el => el.remove());
+    const totalDocs = this._workspaces.reduce((sum, w) => sum + (w.nb_docs || 0), 0);
 
-    Object.values(this._customCategories).forEach(cat => {
-      if (native.has(cat.key)) return;
-      const label = document.createElement('label');
-      label.className = 'category-item category-item--custom';
-      label.innerHTML = `
-        <input type="radio" name="category" value="${this._esc(cat.key)}">
-        <span class="category-dot" style="background:${this._esc(cat.couleur)}" aria-hidden="true"></span>
-        <span>${this._esc(cat.emoji)} ${this._esc(cat.label)}</span>
-        <span class="category-count" id="count-${this._esc(cat.key)}">0</span>
-        <button class="cat-delete-btn" title="Supprimer cette catégorie" aria-label="Supprimer ${this._esc(cat.label)}">🗑️</button>`;
-      label.querySelector('input').addEventListener('change', e => {
-        this.selectedCategory = e.target.value || null;
+    let html = `
+      <label class="category-item ${this.selectedWorkspace === null ? 'category-item--active' : ''}">
+        <input type="radio" name="category" value="" ${this.selectedWorkspace === null ? 'checked' : ''}>
+        <span class="category-dot all" aria-hidden="true"></span>
+        <span>${i18n.t('ws.all')}</span>
+        <span class="category-count">${totalDocs}</span>
+      </label>
+    `;
+
+    if (!this._workspaces.length) {
+      html += `<p class="doc-list__empty" style="margin-top:8px">${i18n.t('ws.none')}</p>`;
+      list.innerHTML = html;
+      this._bindWorkspaceRadios();
+      return;
+    }
+
+    for (const ws of this._workspaces) {
+      const isActive = this.selectedWorkspace === ws.key;
+      html += `
+        <label class="category-item category-item--custom ${isActive ? 'category-item--active' : ''}">
+          <input type="radio" name="category" value="${this._esc(ws.key)}" ${isActive ? 'checked' : ''}>
+          <span class="category-dot" style="background:${this._esc(ws.couleur)}" aria-hidden="true"></span>
+          <span>${this._esc(ws.emoji)} ${this._esc(ws.label)}</span>
+          <span class="category-count">${ws.nb_docs || 0}</span>
+          <button class="cat-delete-btn" data-ws="${this._esc(ws.key)}" data-ws-label="${this._esc(ws.label)}"
+            title="Supprimer ce workspace" aria-label="Supprimer ${this._esc(ws.label)}">🗑️</button>
+        </label>`;
+    }
+
+    list.innerHTML = html;
+    this._bindWorkspaceRadios();
+  }
+
+  _bindWorkspaceRadios() {
+    const list = document.getElementById('categoryList');
+    list.querySelectorAll('input[name="category"]').forEach(radio => {
+      radio.addEventListener('change', e => {
+        this.selectedWorkspace = e.target.value || null;
         this._updateCategoryBadge();
-        this._highlightActiveCategory(label);
+        list.querySelectorAll('.category-item').forEach(el =>
+          el.classList.toggle('category-item--active', el.contains(e.target))
+        );
       });
-      label.querySelector('.cat-delete-btn').addEventListener('click', e => {
+    });
+    list.querySelectorAll('.cat-delete-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
-        this._deleteCategory(cat.key, cat.label);
+        this._deleteWorkspace(btn.dataset.ws, btn.dataset.wsLabel);
       });
-      list.appendChild(label);
     });
   }
 
   _updateCategoryBadge() {
     const badge   = document.getElementById('categoryBadge');
     const badgeEl = document.getElementById('categoryBadgeText');
-    if (!this.selectedCategory) { badge.hidden = true; return; }
-
-    // Chercher dans i18n d'abord, puis dans les catégories custom
-    let label = i18n.t(`badge.${this.selectedCategory}`);
-    if (label === `badge.${this.selectedCategory}`) {
-      const cat = this._customCategories[this.selectedCategory];
-      label = cat ? `${cat.emoji} ${cat.label}` : this.selectedCategory;
-    }
-    badgeEl.textContent = label;
+    if (!this.selectedWorkspace) { badge.hidden = true; return; }
+    const ws = this._workspaces.find(w => w.key === this.selectedWorkspace);
+    badgeEl.textContent = ws ? `${ws.emoji} ${ws.label}` : this.selectedWorkspace;
     badge.hidden = false;
   }
 
-  _highlightActiveCategory(activeLabel) {
-    document.querySelectorAll('.category-item').forEach(el => el.classList.remove('category-item--active'));
-    if (activeLabel) activeLabel.classList.add('category-item--active');
+  // ─── Documents ─────────────────────────────────────────────────────────
+
+  async _loadDocuments() {
+    try {
+      const data     = await apiDocuments();
+      this.documents = data.documents || [];
+    } catch {
+      this.documents = [];
+    }
+    this._renderDocumentList();
   }
 
-  // ─── Modale d'upload ──────────────────────────────────────────────────────
+  _renderDocumentList() {
+    const list = document.getElementById('documentList');
+    if (!this.documents.length) {
+      list.innerHTML = `<p class="doc-list__empty">${i18n.t('docs.none')}</p>`;
+      return;
+    }
+    const byWs = this.documents.reduce((acc, doc) => {
+      (acc[doc.workspace] = acc[doc.workspace] || []).push(doc);
+      return acc;
+    }, {});
+    list.innerHTML = Object.entries(byWs).map(([ws, docs]) => `
+      <div class="doc-group">
+        <div class="doc-group__label">${docs[0].workspace_emoji} ${this._esc(docs[0].workspace_label || ws)}</div>
+        ${docs.map(d => `
+          <div class="doc-item" title="${this._esc(d.nom)}" data-ws="${this._esc(d.workspace)}" data-file="${this._esc(d.nom)}">
+            <span class="doc-item__icon">${this._fileIcon(d.nom)}</span>
+            <span class="doc-item__name">${this._esc(d.nom.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' '))}</span>
+            <span class="doc-item__actions">
+              <button class="doc-item__btn doc-item__btn--reindex" title="Ré-indexer" aria-label="Ré-indexer ${this._esc(d.nom)}">🔄</button>
+              <button class="doc-item__btn doc-item__btn--delete" title="Supprimer" aria-label="Supprimer ${this._esc(d.nom)}">🗑️</button>
+            </span>
+          </div>`).join('')}
+      </div>`).join('');
+
+    list.querySelectorAll('.doc-item__btn--delete').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const item = btn.closest('.doc-item');
+        this._deleteDocument(item.dataset.ws, item.dataset.file);
+      });
+    });
+    list.querySelectorAll('.doc-item__btn--reindex').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const item = btn.closest('.doc-item');
+        this._reindexDocument(item.dataset.ws, item.dataset.file, btn);
+      });
+    });
+  }
+
+  // ─── Modal upload ──────────────────────────────────────────────────────
 
   _bindUploadModal() {
     const modal     = document.getElementById('uploadModal');
@@ -376,20 +445,16 @@ class App {
     const cancelBtn = document.getElementById('cancelUploadBtn');
     const submitBtn = document.getElementById('submitUploadBtn');
 
-    // Ouvrir
     openBtn.addEventListener('click', () => this._openUploadModal());
 
-    // Fermer
     [closeBtn, cancelBtn].forEach(btn => btn.addEventListener('click', () => this._closeUploadModal()));
     modal.addEventListener('click', e => { if (e.target === modal) this._closeUploadModal(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && !modal.hidden) this._closeUploadModal(); });
 
-    // Créer catégorie
     document.getElementById('btnNewCat').addEventListener('click', () => this._showPanelNewCat());
     document.getElementById('btnCancelNewCat').addEventListener('click', () => this._showPanelCategory());
-    document.getElementById('btnCreateCat').addEventListener('click', () => this._handleCreateCategory());
+    document.getElementById('btnCreateCat').addEventListener('click', () => this._handleCreateWorkspace());
 
-    // Sélection fichiers
     const dropZone  = document.getElementById('dropZone');
     const fileInput = document.getElementById('fileInput');
     document.getElementById('browseBtn').addEventListener('click', () => fileInput.click());
@@ -404,23 +469,20 @@ class App {
     });
     dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
 
-    // Submit upload
     submitBtn.addEventListener('click', () => this._handleUpload());
-
-    // Re-indexation manuelle
     document.getElementById('reindexBtn').addEventListener('click', () => this._handleReindex());
   }
 
   async _openUploadModal() {
-    this._uploadFiles    = [];
-    this._uploadCategory = null;
+    this._uploadFiles     = [];
+    this._uploadWorkspace = null;
     document.getElementById('fileList').innerHTML      = '';
     document.getElementById('uploadFeedback').hidden   = true;
     document.getElementById('uploadOverlay').hidden    = true;
     document.getElementById('submitUploadBtn').disabled = true;
 
     this._showPanelCategory();
-    await this._renderCategoryRadios();
+    await this._renderWorkspaceRadios();
     document.getElementById('uploadModal').hidden = false;
     document.body.classList.add('modal-open');
   }
@@ -447,8 +509,6 @@ class App {
     this._renderEmojiPicker();
   }
 
-  // ── Emoji picker ─────────────────────────────────────────────────────────
-
   _renderEmojiPicker() {
     const EMOJIS = [
       '📁','📂','🗂️','📋','📊','📈','📉','📌','📍','🔖','🏷️',
@@ -460,7 +520,6 @@ class App {
       '💻','📱','🖥️','🌐',
       '⭐','🌟','🏆','✅','🟢','🔵','🟡','🟠','🔴',
     ];
-
     const picker  = document.getElementById('emojiPicker');
     const hidden  = document.getElementById('newCatEmoji');
     const current = hidden.value || '📁';
@@ -484,59 +543,57 @@ class App {
     });
   }
 
-  async _renderCategoryRadios() {
+  async _renderWorkspaceRadios() {
     const group = document.getElementById('catRadioGroup');
-    // Recharger les catégories à jour
     try {
-      const data = await apiGetCategories();
-      this._allCategories = data.categories || [];
-      const native = new Set(['technique', 'rh', 'juridique']);
-      this._allCategories.forEach(c => {
-        if (!native.has(c.key)) this._customCategories[c.key] = c;
-      });
-      this._renderDynamicCategoryItems();
+      const data = await apiGetWorkspaces();
+      this._workspaces = data.workspaces || [];
     } catch { /* silencieux */ }
 
-    const cats    = this._allCategories || [];
-    group.innerHTML = cats.map(cat => `
+    if (!this._workspaces.length) {
+      group.innerHTML = `<p class="doc-list__empty">${i18n.t('ws.none')}</p>`;
+      return;
+    }
+
+    group.innerHTML = this._workspaces.map(ws => `
       <label class="cat-radio">
-        <input type="radio" name="uploadCat" value="${this._esc(cat.key)}">
-        <span class="cat-radio__dot" style="background:${this._esc(cat.couleur)}"></span>
-        <span class="cat-radio__emoji">${this._esc(cat.emoji)}</span>
-        <span class="cat-radio__label">${this._esc(cat.label)}</span>
-        <span class="cat-radio__count">${cat.nb_docs} doc${cat.nb_docs !== 1 ? 's' : ''}</span>
+        <input type="radio" name="uploadCat" value="${this._esc(ws.key)}">
+        <span class="cat-radio__dot" style="background:${this._esc(ws.couleur)}"></span>
+        <span class="cat-radio__emoji">${this._esc(ws.emoji)}</span>
+        <span class="cat-radio__label">${this._esc(ws.label)}</span>
+        <span class="cat-radio__count">${ws.nb_docs} doc${ws.nb_docs !== 1 ? 's' : ''}</span>
       </label>`).join('');
 
     group.querySelectorAll('input[name="uploadCat"]').forEach(radio => {
       radio.addEventListener('change', e => {
-        this._uploadCategory = e.target.value;
+        this._uploadWorkspace = e.target.value;
         this._refreshSubmitBtn();
       });
     });
   }
 
-  async _handleCreateCategory() {
-    const key    = document.getElementById('newCatKey').value.trim().toLowerCase();
-    const label  = document.getElementById('newCatLabel').value.trim();
-    const emoji  = document.getElementById('newCatEmoji').value.trim() || '📁';
+  async _handleCreateWorkspace() {
+    const key     = document.getElementById('newCatKey').value.trim().toLowerCase();
+    const label   = document.getElementById('newCatLabel').value.trim();
+    const emoji   = document.getElementById('newCatEmoji').value.trim() || '📁';
     const couleur = document.getElementById('newCatColor').value;
 
     if (!key || !label) {
       this._showFeedback(i18n.lang === 'en' ? '⚠️ Please fill in all fields.' : '⚠️ Remplissez tous les champs.', 'warn');
       return;
     }
-    if (!/^[a-z0-9_-]+$/.test(key)) {
-      this._showFeedback(i18n.t('newcat.key.hint'), 'warn');
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(key)) {
+      this._showFeedback(i18n.t('newws.key.hint'), 'warn');
       return;
     }
 
     document.getElementById('btnCreateCat').disabled = true;
     try {
-      await apiCreateCategory({ key, label, emoji, couleur });
-      this._customCategories[key] = { key, label, emoji, couleur };
-      this._showFeedback(i18n.t('newcat.success', { label }), 'ok');
+      const ws = await apiCreateWorkspace({ key, label, emoji, couleur });
+      this._showFeedback(i18n.t('newws.success', { label }), 'ok');
       this._showPanelCategory();
-      await this._renderCategoryRadios();
+      await this._renderWorkspaceRadios();
+      this._renderWorkspaceSidebar();
     } catch (err) {
       this._showFeedback(`⚠️ ${err.message}`, 'warn');
     } finally {
@@ -545,17 +602,13 @@ class App {
   }
 
   _addFiles(fileList) {
-    const allowed  = new Set(['.pdf', '.docx', '.txt']);
-    const MAX_SIZE = 50 * 1024 * 1024;  // 50 Mo — identique à la limite serveur
+    const allowed  = new Set(['.pdf', '.docx', '.txt', '.md']);
+    const MAX_SIZE = 50 * 1024 * 1024;
     let   hasWarn  = false;
 
     for (const file of fileList) {
       const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
-
-      // Extension non supportée → ignorer silencieusement (le browseBtn filtre déjà)
       if (!allowed.has(ext)) continue;
-
-      // Taille supérieure à 50 Mo → alerter l'utilisateur avant l'envoi
       if (file.size > MAX_SIZE) {
         this._showFeedback(
           i18n.t('upload.file.toobig', { name: this._esc(file.name), size: this._humanSize(file.size) }),
@@ -564,23 +617,12 @@ class App {
         hasWarn = true;
         continue;
       }
-
-      // Doublon dans la sélection en cours → ignorer silencieusement
       if (this._uploadFiles.some(f => f.name === file.name)) continue;
-
       this._uploadFiles.push(file);
     }
 
     this._renderFileList();
     this._refreshSubmitBtn();
-
-    // Masquer le feedback de taille si tous les fichiers étaient valides
-    if (!hasWarn) {
-      const fb = document.getElementById('uploadFeedback');
-      if (fb && fb.classList.contains('upload-feedback--warn') && !this._uploadFiles.length) {
-        // Ne pas masquer un message d'erreur existant s'il n'y a pas encore de fichiers
-      }
-    }
   }
 
   _renderFileList() {
@@ -604,11 +646,11 @@ class App {
 
   _refreshSubmitBtn() {
     document.getElementById('submitUploadBtn').disabled =
-      this._uploadFiles.length === 0 || !this._uploadCategory;
+      this._uploadFiles.length === 0 || !this._uploadWorkspace;
   }
 
   async _handleUpload() {
-    if (!this._uploadCategory) { this._showFeedback(i18n.t('upload.err.nocat'), 'warn'); return; }
+    if (!this._uploadWorkspace) { this._showFeedback(i18n.t('upload.err.nows'), 'warn'); return; }
     if (!this._uploadFiles.length) { this._showFeedback(i18n.t('upload.err.nofiles'), 'warn'); return; }
 
     const overlay   = document.getElementById('uploadOverlay');
@@ -624,18 +666,16 @@ class App {
     document.getElementById('cancelUploadBtn').disabled = true;
 
     try {
-      // ── Phase 1 : envoi des fichiers (rapide) ──────────────
-      const result = await apiUploadFiles(this._uploadFiles, this._uploadCategory, progress => {
+      const result = await apiUploadFiles(this._uploadFiles, this._uploadWorkspace, progress => {
         fill.style.width = `${progress}%`;
         pct.textContent  = `${progress}%`;
       });
 
-      const nb_ok      = result.fichiers.filter(f => f.statut === 'ok').length;
-      const nb_err     = result.fichiers.filter(f => f.statut === 'erreur').length;
-      const errored    = result.fichiers.filter(f => f.statut === 'erreur');
+      const nb_ok   = result.fichiers.filter(f => f.statut === 'ok').length;
+      const nb_err  = result.fichiers.filter(f => f.statut === 'erreur').length;
+      const errored = result.fichiers.filter(f => f.statut === 'erreur');
 
-      // Bloc HTML détaillant les erreurs par fichier (si présentes)
-      const _buildErrDetail = () => {
+      const _errDetail = () => {
         if (!errored.length) return '';
         const lines = errored.map(f =>
           `• <strong>${this._esc(f.nom)}</strong> : ${this._esc(f.detail || 'Erreur inconnue')}`
@@ -643,26 +683,21 @@ class App {
         return `<br><small style="opacity:.85">${lines}</small>`;
       };
 
-      // ── Phase 2 : attente de l'indexation en arrière-plan ──────────────────
       if (result.background && nb_ok > 0) {
         fill.style.width = '100%';
         pct.textContent  = '100%';
         if (overlayTxt) overlayTxt.textContent = i18n.t('upload.indexing');
-
         try {
           const status = await this._waitForIndexation();
           overlay.hidden = true;
-
-          // Avertissements d'extraction (fichiers scannés / vides)
           const bgWarns = status.warnings || [];
           const okFinal = nb_ok - bgWarns.length;
-
           if (bgWarns.length > 0 || nb_err > 0) {
             const warnLines = bgWarns.map(w => `• ${this._esc(w)}`).join('<br>');
             this._showFeedback(
               i18n.t('upload.partial', { ok: Math.max(0, okFinal), err: nb_err + bgWarns.length })
               + (warnLines ? `<br><small style="opacity:.85">${warnLines}</small>` : '')
-              + _buildErrDetail(),
+              + _errDetail(),
               'warn',
             );
           } else {
@@ -673,15 +708,15 @@ class App {
           this._showFeedback(`⚠️ ${i18n.t('upload.bg.error')} ${bgErr.message}`, 'error');
         }
       } else {
-        // Tous en erreur → pas d'indexation lancée
         overlay.hidden = true;
         this._showFeedback(
-          i18n.t('upload.partial', { ok: nb_ok, err: nb_err }) + _buildErrDetail(),
+          i18n.t('upload.partial', { ok: nb_ok, err: nb_err }) + _errDetail(),
           nb_ok > 0 ? 'warn' : 'error',
         );
       }
 
-      await this._loadDocuments();
+      await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
+      await this._checkHealth();
       this._uploadFiles = [];
       document.getElementById('fileList').innerHTML = '';
       this._refreshSubmitBtn();
@@ -697,18 +732,13 @@ class App {
     }
   }
 
-  /**
-   * Interroge /api/index/status toutes les 3 s jusqu'à la fin de l'indexation.
-   * Résout avec le statut final, rejette si erreur d'indexation.
-   * Timeout automatique après 8 minutes (sécurité).
-   */
   _waitForIndexation(timeoutMs = 480000) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       const poll = setInterval(async () => {
         if (Date.now() - start > timeoutMs) {
           clearInterval(poll);
-          resolve({ chunks: 0, files: 0 });   // timeout → on considère terminé
+          resolve({ chunks: 0, files: 0 });
           return;
         }
         try {
@@ -718,21 +748,19 @@ class App {
             if (status.error) reject(new Error(status.error));
             else resolve(status);
           }
-        } catch {
-          /* erreur réseau transitoire — on continue à poller */
-        }
+        } catch { /* erreur réseau transitoire */ }
       }, 3000);
     });
   }
 
   _showFeedback(html, type = 'ok') {
-    const el  = document.getElementById('uploadFeedback');
+    const el = document.getElementById('uploadFeedback');
     el.className = `upload-feedback upload-feedback--${type}`;
     el.innerHTML = html;
     el.hidden    = false;
   }
 
-  // ─── Re-indexation manuelle ───────────────────────────────────────────────
+  // ─── Re-indexation manuelle ───────────────────────────────────────────
 
   async _handleReindex() {
     const btn = document.getElementById('reindexBtn');
@@ -744,22 +772,18 @@ class App {
 
     try {
       const result = await apiReindex();
-
       if (result.background) {
-        // Attendre la fin de l'indexation en arrière-plan
         const status = await this._waitForIndexation();
         this._showFeedback(
-          i18n.t('reindex.success', { chunks: status.chunks, files: status.files }),
-          'ok'
+          i18n.t('reindex.success', { chunks: status.chunks, files: status.files }), 'ok'
         );
       } else {
         this._showFeedback(
-          i18n.t('reindex.success', { chunks: result.total_chunks, files: result.total_files }),
-          'ok'
+          i18n.t('reindex.success', { chunks: result.total_chunks, files: result.total_files }), 'ok'
         );
       }
-
-      await this._loadDocuments();
+      await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
+      await this._checkHealth();
     } catch (err) {
       this._showFeedback(`${i18n.t('reindex.error')} ${err.message}`, 'error');
     } finally {
@@ -768,81 +792,83 @@ class App {
     }
   }
 
-  // ─── Suppression / Ré-indexation de documents ────────────────────────────
+  // ─── Suppression / Ré-indexation ──────────────────────────────────────
 
-  async _deleteDocument(categorie, filename) {
+  async _deleteDocument(workspace, filename) {
     if (!confirm(i18n.t('delete.doc.confirm', { name: filename }))) return;
 
-    // Feedback inline dans la sidebar
     const item = document.querySelector(
-      `.doc-item[data-cat="${CSS.escape(categorie)}"][data-file="${CSS.escape(filename)}"]`
+      `.doc-item[data-ws="${CSS.escape(workspace)}"][data-file="${CSS.escape(filename)}"]`
     );
     if (item) item.style.opacity = '0.4';
 
     try {
-      const result = await apiDeleteDocument(categorie, filename);
-
+      const result = await apiDeleteDocument(workspace, filename);
       if (result.background) {
-        // Fichier supprimé — reconstruction index en arrière-plan
         this._showToast(i18n.t('delete.doc.pending', { name: filename }), 'ok');
-        // Attendre la fin sans bloquer l'interface
-        this._waitForIndexation().then(() => {
+        this._waitForIndexation().then(async () => {
           this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
+          await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
+          await this._checkHealth();
         }).catch(err => {
           this._showToast(`${i18n.t('delete.doc.error')} ${err.message}`, 'error');
         });
       } else {
         this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
       }
-
-      await this._loadDocuments();
+      await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
       await this._checkHealth();
     } catch (err) {
-      if (item) item.style.opacity = '1';
-      this._showToast(`${i18n.t('delete.doc.error')} ${err.message}`, 'error');
+      if (err.status === 404) {
+        // File already absent on disk — treat as deleted and refresh list
+        this._showToast(i18n.t('delete.doc.success', { name: filename }), 'ok');
+        await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
+        await this._checkHealth();
+      } else {
+        if (item) item.style.opacity = '1';
+        this._showToast(`${i18n.t('delete.doc.error')} ${err.message}`, 'error');
+      }
     }
   }
 
-  async _deleteCategory(key, label) {
-    if (!confirm(i18n.t('delete.cat.confirm', { label }))) return;
+  async _deleteWorkspace(key, label) {
+    if (!confirm(i18n.t('delete.ws.confirm', { label }))) return;
     try {
-      const result = await apiDeleteCategory(key);
+      const result = await apiDeleteWorkspace(key);
 
-      // Si la catégorie supprimée était sélectionnée, remettre à "Tout"
-      if (this.selectedCategory === key) {
-        this.selectedCategory = null;
+      if (this.selectedWorkspace === key) {
+        this.selectedWorkspace = null;
         this._updateCategoryBadge();
-        const allRadio = document.querySelector('input[name="category"][value=""]');
-        if (allRadio) allRadio.checked = true;
       }
-      delete this._customCategories[key];
-      this._renderDynamicCategoryItems();
+      this._workspaces = this._workspaces.filter(w => w.key !== key);
+      this._renderWorkspaceSidebar();
 
       if (result.background) {
-        this._showToast(i18n.t('delete.cat.pending', { label, n: result.docs_deleted }), 'ok');
-        this._waitForIndexation().then(() => {
-          this._showToast(i18n.t('delete.cat.success', { label, n: result.docs_deleted }), 'ok');
+        this._showToast(i18n.t('delete.ws.pending', { label, n: result.docs_deleted }), 'ok');
+        this._waitForIndexation().then(async () => {
+          this._showToast(i18n.t('delete.ws.success', { label, n: result.docs_deleted }), 'ok');
+          await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
+          await this._checkHealth();
         }).catch(() => {});
       } else {
-        this._showToast(i18n.t('delete.cat.success', { label, n: result.docs_deleted }), 'ok');
+        this._showToast(i18n.t('delete.ws.success', { label, n: result.docs_deleted }), 'ok');
       }
 
-      await this._loadDocuments();
+      await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
       await this._checkHealth();
     } catch (err) {
-      this._showToast(`${i18n.t('delete.cat.error')} ${err.message}`, 'error');
+      this._showToast(`${i18n.t('delete.ws.error')} ${err.message}`, 'error');
     }
   }
 
-  async _reindexDocument(categorie, filename, btnEl) {
+  async _reindexDocument(workspace, filename, btnEl) {
     const originalText = btnEl ? btnEl.textContent : '';
     if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳'; }
 
     try {
-      const result = await apiReindexFile(categorie, filename);
+      const result = await apiReindexFile(workspace, filename);
       this._showToast(
-        i18n.t('reindex.file.success', { name: filename, chunks: result.chunks }),
-        'ok'
+        i18n.t('reindex.file.success', { name: filename, chunks: result.chunks }), 'ok'
       );
       await this._checkHealth();
     } catch (err) {
@@ -852,7 +878,6 @@ class App {
     }
   }
 
-  /** Toast non-bloquant (remplace les alert) */
   _showToast(message, type = 'ok') {
     let toast = document.getElementById('appToast');
     if (!toast) {
@@ -867,8 +892,6 @@ class App {
     this._toastTimer = setTimeout(() => { toast.hidden = true; }, 4000);
   }
 
-  // ─── Nouvelle conversation ────────────────────────────────────────────────
-
   async _startNewChat() {
     if (this.ui.hasMessages()) {
       try { await apiClearSession(this.sessionId); } catch { /* silencieux */ }
@@ -877,7 +900,7 @@ class App {
     this.ui.clear();
   }
 
-  // ─── Utilitaires ─────────────────────────────────────────────────────────
+  // ─── Utilitaires ─────────────────────────────────────────────────────
 
   _setLoading(val) {
     this.isLoading = val;
@@ -912,7 +935,7 @@ class App {
 
   _fileIcon(name) {
     const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
-    return { '.pdf': '📕', '.docx': '📘', '.txt': '📄' }[ext] || '📎';
+    return { '.pdf': '📕', '.docx': '📘', '.txt': '📄', '.md': '📝' }[ext] || '📎';
   }
 
   _humanSize(bytes) {
@@ -923,11 +946,16 @@ class App {
 }
 
 function clearCategory() {
-  document.querySelector('input[name="category"][value=""]').checked = true;
-  window._app.selectedCategory = null;
+  const radio = document.querySelector('input[name="category"][value=""]');
+  if (radio) {
+    radio.checked = true;
+    radio.dispatchEvent(new Event('change'));
+  }
+  window._app.selectedWorkspace = null;
   window._app._updateCategoryBadge();
   document.querySelectorAll('.category-item').forEach(el => el.classList.remove('category-item--active'));
-  document.querySelector('.category-item').classList.add('category-item--active');
+  const firstItem = document.querySelector('.category-item');
+  if (firstItem) firstItem.classList.add('category-item--active');
 }
 
 document.addEventListener('DOMContentLoaded', () => {

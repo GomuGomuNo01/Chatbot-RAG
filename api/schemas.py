@@ -1,8 +1,11 @@
 """
-Schemas : modèles Pydantic pour les requêtes et réponses API
+Schemas Pydantic : modèles de requêtes et réponses API.
+
+Refonte v2 : `categorie` → `workspace`. Plus aucune catégorie native.
 """
 
 from pydantic import BaseModel, Field
+
 
 # ============================================================
 # REQUÊTES
@@ -10,103 +13,26 @@ from pydantic import BaseModel, Field
 
 
 class ChatRequest(BaseModel):
-    """Corps de la requête POST /api/chat"""
+    """POST /api/chat"""
 
-    question: str = Field(
-        ...,
-        min_length=2,
-        max_length=1000,
-        description="Question posée par l'utilisateur",
-        examples=["Qu'est-ce que Spring Boot ?"],
-    )
-    categorie: str | None = Field(
+    question: str = Field(..., min_length=2, max_length=2000)
+    workspace: str | None = Field(
         default=None,
-        description="Filtre de catégorie : technique, rh, juridique",
-        examples=["technique"],
+        description="Identifiant de workspace pour limiter la recherche (optionnel).",
     )
-    session_id: str | None = Field(
-        default="default", description="Identifiant de session pour la mémoire conversationnelle"
-    )
+    session_id: str | None = Field(default="default")
 
 
 class ClearMemoryRequest(BaseModel):
-    """Corps de la requête POST /api/chat/clear"""
-
-    session_id: str = Field(default="default", description="Session à effacer")
+    session_id: str = Field(default="default")
 
 
 # ============================================================
-# RÉPONSES
+# WORKSPACES
 # ============================================================
 
 
-class SourceResponse(BaseModel):
-    """Une source citée dans la réponse."""
-
-    fichier: str
-    page: int | str
-    categorie: str
-    score: float
-    extrait: str
-
-
-class ChatResponse(BaseModel):
-    """Réponse du endpoint POST /api/chat"""
-
-    answer: str
-    sources: list[SourceResponse]
-    question: str
-    session_id: str
-    nb_sources: int
-
-
-class DocumentInfo(BaseModel):
-    """Informations sur un document indexé."""
-
-    nom: str
-    categorie: str
-    label: str
-    emoji: str
-
-
-class DocumentsResponse(BaseModel):
-    """Réponse du endpoint GET /api/documents"""
-
-    documents: list[DocumentInfo]
-    total: int
-    categories: list[str]
-
-
-class HealthResponse(BaseModel):
-    """Réponse du endpoint GET /api/health"""
-
-    status: str
-    index_disponible: bool
-    nb_categories: int
-    nb_documents: int = 0  # nombre total de fichiers dans docs/
-    modele_llm: str
-    modele_embedding: str
-    version: str
-    r2_enabled: bool = False  # Cloudflare R2 configuré
-    hf_enabled: bool = False  # HuggingFace Hub configuré
-
-
-class ErrorResponse(BaseModel):
-    """Format d'erreur uniforme."""
-
-    error: str
-    detail: str | None = None
-    code: int
-
-
-# ============================================================
-# UPLOAD DE DOCUMENTS
-# ============================================================
-
-
-class CategoryInfo(BaseModel):
-    """Informations complètes sur une catégorie."""
-
+class WorkspaceInfo(BaseModel):
     key: str
     label: str
     emoji: str
@@ -114,40 +40,49 @@ class CategoryInfo(BaseModel):
     nb_docs: int = 0
 
 
-class CategoriesResponse(BaseModel):
-    """Réponse du endpoint GET /api/categories"""
-
-    categories: list[CategoryInfo]
+class WorkspacesResponse(BaseModel):
+    workspaces: list[WorkspaceInfo]
     total: int
 
 
-class CreateCategoryRequest(BaseModel):
-    """Corps de la requête POST /api/categories"""
-
+class CreateWorkspaceRequest(BaseModel):
     key: str = Field(
-        ...,
-        min_length=2,
-        max_length=32,
-        pattern=r"^[a-z0-9_-]+$",
-        description="Identifiant technique (minuscules, chiffres, - ou _)",
-        examples=["marketing"],
+        ..., min_length=2, max_length=32, pattern=r"^[a-z0-9][a-z0-9_-]*$",
     )
-    label: str = Field(
-        ...,
-        min_length=2,
-        max_length=80,
-        description="Nom affiché",
-        examples=["Documentation Marketing"],
-    )
-    emoji: str = Field(default="📁", max_length=8, description="Emoji représentant la catégorie")
-    couleur: str = Field(
-        default="#6B7280", pattern=r"^#[0-9A-Fa-f]{6}$", description="Couleur hexadécimale"
-    )
+    label: str = Field(..., min_length=1, max_length=80)
+    emoji: str = Field(default="📁", max_length=8)
+    couleur: str = Field(default="#6B7280", pattern=r"^#[0-9A-Fa-f]{6}$")
+
+
+class DeleteWorkspaceResponse(BaseModel):
+    key: str
+    label: str
+    docs_deleted: int
+    message: str
+    background: bool = False
+
+
+# ============================================================
+# DOCUMENTS
+# ============================================================
+
+
+class DocumentInfo(BaseModel):
+    nom: str
+    workspace: str
+    workspace_label: str
+    workspace_emoji: str
+    summary: str | None = None
+    tags: list[str] = []
+
+
+class DocumentsResponse(BaseModel):
+    documents: list[DocumentInfo]
+    total: int
+    workspaces: list[str]
 
 
 class UploadedFile(BaseModel):
-    """Résultat du traitement d'un fichier uploadé."""
-
     nom: str
     chunks: int
     statut: str  # "ok" | "erreur"
@@ -155,61 +90,90 @@ class UploadedFile(BaseModel):
 
 
 class UploadResponse(BaseModel):
-    """Réponse du endpoint POST /api/documents/upload"""
-
-    categorie: str
+    workspace: str
     fichiers: list[UploadedFile]
     total_chunks: int
     message: str
-    background: bool = False  # True = indexation différée en arrière-plan
+    background: bool = False
 
 
 class ReindexResponse(BaseModel):
-    """Réponse du endpoint POST /api/documents/reindex"""
-
     total_chunks: int
     total_files: int
     message: str
-    background: bool = False  # True = reconstruction différée en arrière-plan
+    background: bool = False
 
 
 class IndexStatusResponse(BaseModel):
-    """Réponse du endpoint GET /api/index/status"""
-
     running: bool
     chunks: int = 0
     files: int = 0
     done_at: float | None = None
     error: str | None = None
-    warnings: list[str] = []  # fichiers partiellement échoués (succès partiel)
+    warnings: list[str] = []
     message: str
 
 
 class DeleteDocumentResponse(BaseModel):
-    """Réponse du endpoint DELETE /api/documents/{categorie}/{filename}"""
-
     nom: str
-    categorie: str
+    workspace: str
     message: str
-    background: bool = False  # True = reconstruction index en arrière-plan
-
-
-class DeleteCategoryResponse(BaseModel):
-    """Réponse du endpoint DELETE /api/categories/{key}"""
-
-    key: str
-    label: str
-    docs_deleted: int
-    message: str
-    background: bool = False  # True = reconstruction index en arrière-plan
+    background: bool = False
 
 
 class ReindexFileResponse(BaseModel):
-    """Réponse du endpoint POST /api/documents/{categorie}/{filename}/reindex"""
-
     nom: str
-    categorie: str
+    workspace: str
     chunks: int
     total_chunks: int
     total_files: int
     message: str
+
+
+# ============================================================
+# CHAT
+# ============================================================
+
+
+class SourceResponse(BaseModel):
+    fichier: str
+    page: int | str
+    workspace: str
+    score: float
+    extrait: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: list[SourceResponse]
+    question: str
+    session_id: str
+    nb_sources: int
+    from_cache: bool = False
+
+
+# ============================================================
+# HEALTH
+# ============================================================
+
+
+class HealthResponse(BaseModel):
+    status: str
+    index_disponible: bool
+    nb_workspaces: int
+    nb_documents: int = 0
+    modele_llm: str
+    modele_embedding: str
+    reranker_actif: bool
+    version: str
+    r2_enabled: bool = False
+    hf_enabled: bool = False
+    requetes_utilisees: int = 0
+    requetes_limite: int = 0
+    requetes_restantes: int | None = None
+
+
+class ErrorResponse(BaseModel):
+    error: str
+    detail: str | None = None
+    code: int

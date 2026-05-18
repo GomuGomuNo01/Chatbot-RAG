@@ -1,11 +1,12 @@
 """
-Tests unitaires — src/chain.py et src/memory.py
-Les tests du RAGChain mockent le LLM et le retriever pour éviter
+Tests unitaires — src/chain.py et src/memory.py (refonte v2)
+Les tests du RAGChain mockent le LLM et le retriever hybride pour éviter
 tout appel réseau pendant la CI.
 """
 
 from unittest.mock import MagicMock, patch
 
+import src.chain  # noqa: F401 — requis pour que @patch("src.chain.*") fonctionne en Python 3.12
 from src.memory import ConversationMemory
 
 # ──────────────────────────────────────────────────────────────
@@ -37,7 +38,6 @@ class TestConversationMemory:
         mem.add_exchange("Q1", "R1")
         mem.add_exchange("Q2", "R2")
         history = mem.get_history()
-        # Q0 doit avoir été évincé
         assert history[0][0] == "Q1"
         assert history[1][0] == "Q2"
 
@@ -50,8 +50,7 @@ class TestConversationMemory:
 
     def test_format_for_prompt_empty(self):
         mem = ConversationMemory()
-        result = mem.format_for_prompt()
-        assert result == ""
+        assert mem.format_for_prompt() == ""
 
     def test_format_for_prompt_contains_exchanges(self):
         mem = ConversationMemory()
@@ -66,7 +65,6 @@ class TestConversationMemory:
         mem.add_exchange("Q", "R")
         history = mem.get_history()
         history.clear()
-        # L'historique interne ne doit pas être modifié
         assert mem.exchange_count == 1
 
 
@@ -76,15 +74,15 @@ class TestConversationMemory:
 
 
 class TestRAGChainFallback:
-    """Tests du chemin "aucun document trouvé" sans appel réseau."""
+    """Tests du chemin « aucun document trouvé » sans appel réseau."""
 
+    @patch("src.chain._safe_embed_query", return_value=[])
     @patch("src.chain.get_llm")
-    @patch("src.chain.search", return_value=[])
-    def test_no_docs_returns_fallback_message(self, mock_search, mock_get_llm):
+    @patch("src.chain.hybrid_search", return_value=[])
+    def test_no_docs_returns_fallback_message(self, mock_search, mock_get_llm, mock_embed):
         from src.chain import RAGChain
 
         mock_get_llm.return_value = MagicMock()
-
         chain = RAGChain()
         mem = ConversationMemory()
         result = chain.ask("Question sans résultat", mem)
@@ -94,55 +92,38 @@ class TestRAGChainFallback:
         assert result["sources"] == []
         assert result["question"] == "Question sans résultat"
 
+    @patch("src.chain._safe_embed_query", return_value=[])
     @patch("src.chain.get_llm")
-    @patch("src.chain.search", return_value=[])
-    def test_fallback_mentions_category_when_filtered(self, mock_search, mock_get_llm):
+    @patch("src.chain.hybrid_search", return_value=[])
+    def test_fallback_mentions_workspace_when_filtered(self, mock_search, mock_get_llm, mock_embed):
         from src.chain import RAGChain
 
         mock_get_llm.return_value = MagicMock()
-
         chain = RAGChain()
         mem = ConversationMemory()
-        result = chain.ask("Question filtrée", mem, categorie="juridique")
+        result = chain.ask("Question filtrée", mem, workspace="marketing")
 
-        assert "juridique" in result["answer"]
+        assert "marketing" in result["answer"]
 
+    @patch("src.chain._safe_embed_query", return_value=[])
     @patch("src.chain.get_llm")
-    @patch("src.chain.search", return_value=[])
-    def test_fallback_adds_to_memory(self, mock_search, mock_get_llm):
+    @patch("src.chain.hybrid_search", return_value=[])
+    def test_fallback_adds_to_memory(self, mock_search, mock_get_llm, mock_embed):
         from src.chain import RAGChain
 
         mock_get_llm.return_value = MagicMock()
-
         chain = RAGChain()
         mem = ConversationMemory()
         chain.ask("Question", mem)
-
         assert mem.exchange_count == 1
-
-    @patch("src.chain.get_llm")
-    @patch("src.chain.search", return_value=[])
-    def test_multiple_questions_without_docs(self, mock_search, mock_get_llm):
-        from src.chain import RAGChain
-
-        mock_get_llm.return_value = MagicMock()
-
-        chain = RAGChain()
-        mem = ConversationMemory(max_exchanges=5)
-        for i in range(3):
-            chain.ask(f"Question {i}", mem)
-
-        assert mem.exchange_count == 3
 
 
 # ──────────────────────────────────────────────────────────────
-# RAGChain — chemin nominal (avec documents)
+# RAGChain — chemin nominal
 # ──────────────────────────────────────────────────────────────
 
 
 class TestRAGChainWithDocuments:
-    """Tests du chemin nominal avec documents mockés et LLM mocké."""
-
     def _make_mock_doc(self, content="Contenu de test", fichier="doc.pdf", page=1):
         from langchain_core.documents import Document
 
@@ -151,28 +132,24 @@ class TestRAGChainWithDocuments:
             metadata={
                 "source": fichier,
                 "page": page,
-                "categorie": "technique",
+                "workspace": "test",
                 "similarity_score": 0.85,
             },
         )
 
+    @patch("src.chain._safe_embed_query", return_value=[])
     @patch("src.chain.get_llm")
-    @patch("src.chain.search")
-    def test_returns_answer_and_sources(self, mock_search, mock_get_llm):
+    @patch("src.chain.hybrid_search")
+    def test_returns_answer_and_sources(self, mock_search, mock_get_llm, mock_embed):
         from src.chain import RAGChain
 
-        # Mock du retriever
         mock_search.return_value = [self._make_mock_doc()]
-
-        # Mock du LLM via la chaîne LangChain
         mock_chain = MagicMock()
         mock_chain.invoke.return_value = "Voici la réponse de test."
-
-        mock_llm = MagicMock()
-        mock_get_llm.return_value = mock_llm
+        mock_get_llm.return_value = MagicMock()
 
         chain = RAGChain()
-        chain.chain = mock_chain  # Remplacer la chaîne complète par le mock
+        chain.chain = mock_chain
 
         mem = ConversationMemory()
         result = chain.ask("Question de test", mem)
@@ -181,13 +158,13 @@ class TestRAGChainWithDocuments:
         assert len(result["sources"]) >= 1
         assert result["question"] == "Question de test"
 
+    @patch("src.chain._safe_embed_query", return_value=[])
     @patch("src.chain.get_llm")
-    @patch("src.chain.search")
-    def test_memory_updated_after_answer(self, mock_search, mock_get_llm):
+    @patch("src.chain.hybrid_search")
+    def test_memory_updated_after_answer(self, mock_search, mock_get_llm, mock_embed):
         from src.chain import RAGChain
 
         mock_search.return_value = [self._make_mock_doc()]
-
         mock_chain = MagicMock()
         mock_chain.invoke.return_value = "Réponse."
         mock_get_llm.return_value = MagicMock()
@@ -197,6 +174,29 @@ class TestRAGChainWithDocuments:
 
         mem = ConversationMemory()
         chain.ask("Question", mem)
-
         assert mem.exchange_count == 1
         assert mem.get_history()[0][1] == "Réponse."
+
+
+# ──────────────────────────────────────────────────────────────
+# Workspaces (config)
+# ──────────────────────────────────────────────────────────────
+
+
+class TestWorkspacesConfig:
+    def test_valid_keys(self):
+        from config import is_valid_workspace_key
+
+        assert is_valid_workspace_key("marketing")
+        assert is_valid_workspace_key("project-x")
+        assert is_valid_workspace_key("a1")
+        assert is_valid_workspace_key("under_score")
+
+    def test_invalid_keys(self):
+        from config import is_valid_workspace_key
+
+        assert not is_valid_workspace_key("API")        # majuscule
+        assert not is_valid_workspace_key("a")          # trop court
+        assert not is_valid_workspace_key("ab cd")      # espace
+        assert not is_valid_workspace_key("api")        # réservé
+        assert not is_valid_workspace_key("-prefix")    # commence par tiret

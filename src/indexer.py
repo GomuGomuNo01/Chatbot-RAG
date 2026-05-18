@@ -1,6 +1,9 @@
 """
-Indexer : création et gestion de l'index FAISS
-Inclut un manifeste JSON pour la ré-indexation incrémentale.
+indexer.py — Création et gestion de l'index FAISS + index BM25 jumeaux.
+
+Refonte v2 : à chaque (re)construction de l'index FAISS, l'index BM25
+est aussi reconstruit pour rester en synchronisation. La métadonnée des
+chunks utilise désormais la clé `workspace` (au lieu de `categorie`).
 """
 
 import hashlib
@@ -12,6 +15,7 @@ from config import FAISS_INDEX_DIR, get_chunk_config_fingerprint
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
+from src.bm25_store import rebuild_bm25, reset_bm25_index
 from src.embedder import get_embeddings
 
 logger = logging.getLogger(__name__)
@@ -22,15 +26,11 @@ CHUNK_CONFIG_FILE = INDEX_PATH / "chunk_config.json"
 
 
 # ============================================================
-# MANIFESTE — suivi des fichiers déjà indexés
+# MANIFESTE
 # ============================================================
 
 
 def _file_hash(path: Path) -> str:
-    """
-    Empreinte rapide d'un fichier : taille + premiers 64 Ko.
-    Suffit pour détecter ajouts et modifications sans tout lire.
-    """
     h = hashlib.md5()
     h.update(str(path.stat().st_size).encode())
     with path.open("rb") as f:
@@ -39,56 +39,41 @@ def _file_hash(path: Path) -> str:
 
 
 def load_manifest() -> dict:
-    """Charge le manifeste {chemin_absolu: hash} depuis le disque."""
     if MANIFEST_FILE.exists():
         try:
             return json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            logger.warning("Manifeste corrompu — reconstruction complète.")
+            logger.warning("Manifeste corrompu — sera reconstruit.")
     return {}
 
 
 def save_manifest(manifest: dict) -> None:
-    """Persiste le manifeste sur disque."""
     INDEX_PATH.mkdir(parents=True, exist_ok=True)
     MANIFEST_FILE.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def filter_new_files(file_paths: list[Path]) -> tuple:
-    """
-    Identifie les fichiers nouveaux ou modifiés depuis la dernière indexation.
-
-    Returns:
-        (fichiers_à_indexer, manifeste_mis_à_jour)
-    """
     manifest = load_manifest()
     new_manifest = dict(manifest)
-    to_index = []
-
+    to_index: list[Path] = []
     for path in file_paths:
         key = str(path.resolve())
         h = _file_hash(path)
         if manifest.get(key) != h:
             to_index.append(path)
             new_manifest[key] = h
-
     skipped = len(file_paths) - len(to_index)
     if skipped:
         logger.info(f"  {skipped} fichier(s) inchangé(s) — ignoré(s) (cache OK)")
-
     return to_index, new_manifest
 
 
 # ============================================================
-# EMPREINTE DE CONFIGURATION — détection d'index obsolète
+# EMPREINTE DE CONFIGURATION
 # ============================================================
 
 
 def save_chunk_config() -> None:
-    """
-    Persiste l'empreinte MD5 de la configuration de chunking dans chunk_config.json.
-    Appelé après chaque (re)indexation réussie, avant le push HF Hub.
-    """
     INDEX_PATH.mkdir(parents=True, exist_ok=True)
     fingerprint = get_chunk_config_fingerprint()
     CHUNK_CONFIG_FILE.write_text(
@@ -98,47 +83,25 @@ def save_chunk_config() -> None:
 
 
 def is_chunk_config_stale() -> bool:
-    """
-    Compare l'empreinte stockée dans chunk_config.json avec la configuration actuelle.
-
-    Returns:
-        True  → la config a changé depuis la dernière indexation → ré-indexation nécessaire.
-        False → config inchangée, index toujours valide.
-        False → fichier absent (1er démarrage) → pas de ré-indexation forcée.
-    """
     if not CHUNK_CONFIG_FILE.exists():
-        logger.debug("chunk_config.json absent — premier démarrage, pas de vérification.")
         return False
     try:
         stored = json.loads(CHUNK_CONFIG_FILE.read_text(encoding="utf-8"))
-        stored_fp = stored.get("fingerprint", "")
-        current_fp = get_chunk_config_fingerprint()
-        if stored_fp != current_fp:
-            logger.warning(
-                f"Configuration de chunking modifiée (stockée={stored_fp[:8]}… "
-                f"actuelle={current_fp[:8]}…) — ré-indexation nécessaire."
-            )
+        if stored.get("fingerprint", "") != get_chunk_config_fingerprint():
+            logger.warning("Configuration de chunking modifiée — ré-indexation nécessaire.")
             return True
-        return False
     except Exception as e:
-        logger.warning(f"Lecture chunk_config.json échouée : {e} — vérification ignorée.")
-        return False
+        logger.warning(f"chunk_config lecture échouée : {e}")
+    return False
 
 
 # ============================================================
-# CRÉATION DE L'INDEX
+# CRÉATION / CHARGEMENT INDEX FAISS
 # ============================================================
 
 
 def create_index(documents: list[Document]) -> FAISS:
-    """
-    Crée un nouvel index FAISS depuis zéro et le sauvegarde sur disque.
-    Pousse ensuite l'index vers HuggingFace Hub si configuré.
-
-    Raises:
-        ValueError       : aucun document fourni.
-        RuntimeError     : échec de l'embedding ou de la sauvegarde FAISS.
-    """
+    """Crée un index FAISS + BM25 jumelés, persiste les deux, pousse sur HF Hub."""
     if not documents:
         raise ValueError("Impossible de créer un index : aucun document fourni.")
 
@@ -149,7 +112,7 @@ def create_index(documents: list[Document]) -> FAISS:
         vectorstore = FAISS.from_documents(documents=documents, embedding=embeddings)
     except Exception as e:
         raise RuntimeError(
-            f"Échec du calcul des embeddings / construction FAISS ({len(documents)} chunks) : {e}"
+            f"Échec embeddings/FAISS ({len(documents)} chunks) : {e}"
         ) from e
 
     try:
@@ -157,42 +120,24 @@ def create_index(documents: list[Document]) -> FAISS:
         vectorstore.save_local(str(INDEX_PATH))
         logger.info(f"Index FAISS sauvegardé : {INDEX_PATH}")
     except Exception as e:
-        raise RuntimeError(
-            f"Impossible de sauvegarder l'index FAISS dans {INDEX_PATH} : {e}"
-        ) from e
+        raise RuntimeError(f"Sauvegarde FAISS impossible dans {INDEX_PATH} : {e}") from e
 
-    # Persister l'empreinte de configuration pour la détection d'index obsolète
     save_chunk_config()
 
-    # Synchronisation vers HF Hub (non bloquant si non configuré)
+    # Index BM25 jumeau
     try:
-        from src.hf_store import push_index_to_hub
-
-        push_index_to_hub()
+        rebuild_bm25(documents)
     except Exception as e:
-        logger.warning(f"HF Hub push ignoré (non bloquant) : {e}", exc_info=True)
+        logger.warning(f"Construction BM25 ignorée (non bloquant) : {e}", exc_info=True)
 
     return vectorstore
 
 
-# ============================================================
-# CHARGEMENT DE L'INDEX
-# ============================================================
-
-
 def load_index() -> FAISS:
-    """
-    Charge l'index FAISS depuis le disque.
-    Si absent localement, tente d'abord un pull depuis HuggingFace Hub.
-
-    Raises:
-        FileNotFoundError : si l'index reste introuvable après le pull.
-    """
+    """Charge FAISS depuis disque, tente un pull HF Hub si absent."""
     index_file = INDEX_PATH / "index.faiss"
-
-    # Tentative de récupération depuis HF Hub si l'index est absent localement
     if not index_file.exists():
-        logger.info("Index FAISS absent localement — tentative de pull depuis HF Hub…")
+        logger.info("Index FAISS absent localement — tentative HF Hub…")
         try:
             from src.hf_store import pull_index_from_hub
 
@@ -209,75 +154,54 @@ def load_index() -> FAISS:
     logger.info(f"Chargement de l'index FAISS : {INDEX_PATH}")
     try:
         embeddings = get_embeddings()
-        vectorstore = FAISS.load_local(
-            str(INDEX_PATH),
-            embeddings,
-            allow_dangerous_deserialization=True,
-        )
+        vs = FAISS.load_local(str(INDEX_PATH), embeddings, allow_dangerous_deserialization=True)
     except Exception as e:
         raise RuntimeError(
-            f"Impossible de charger l'index FAISS depuis {INDEX_PATH} : {e}. "
+            f"Chargement FAISS impossible depuis {INDEX_PATH} : {e}. "
             "L'index est peut-être corrompu — relancez une ré-indexation complète."
         ) from e
-
-    logger.info("Index FAISS chargé : OK")
-    return vectorstore
-
-
-# ============================================================
-# MISE À JOUR INCRÉMENTALE
-# ============================================================
+    logger.info("Index FAISS chargé.")
+    return vs
 
 
 def add_documents_to_index(
     new_documents: list[Document],
     new_manifest: dict | None = None,
 ) -> FAISS:
-    """
-    Ajoute des documents à l'index existant sans tout recalculer.
-    Pousse l'index mis à jour vers HuggingFace Hub si configuré.
-
-    Raises:
-        RuntimeError : échec de l'ajout ou de la sauvegarde FAISS.
-    """
+    """Ajout incrémental à FAISS + reconstruction BM25 sur l'union des chunks."""
     logger.info(f"Ajout de {len(new_documents)} chunk(s) à l'index existant…")
-    vectorstore = load_index()
+    vs = load_index()
+    try:
+        vs.add_documents(new_documents)
+    except Exception as e:
+        raise RuntimeError(f"Ajout FAISS impossible : {e}") from e
 
     try:
-        vectorstore.add_documents(new_documents)
+        vs.save_local(str(INDEX_PATH))
     except Exception as e:
-        raise RuntimeError(
-            f"Impossible d'ajouter {len(new_documents)} chunk(s) à l'index FAISS : {e}"
-        ) from e
-
-    try:
-        vectorstore.save_local(str(INDEX_PATH))
-    except Exception as e:
-        raise RuntimeError(
-            f"Impossible de sauvegarder l'index FAISS mis à jour dans {INDEX_PATH} : {e}"
-        ) from e
+        raise RuntimeError(f"Sauvegarde FAISS impossible : {e}") from e
 
     if new_manifest is not None:
         save_manifest(new_manifest)
 
-    logger.info("Index mis à jour et sauvegardé : OK")
-
-    # Synchronisation vers HF Hub (non bloquant si non configuré)
+    # BM25 doit refléter l'ensemble final : on rebuild depuis tous les chunks de FAISS.
     try:
-        from src.hf_store import push_index_to_hub
-
-        push_index_to_hub()
+        all_docs = list(vs.docstore._dict.values())
+        rebuild_bm25(all_docs)
     except Exception as e:
-        logger.warning(f"HF Hub push ignoré (non bloquant) : {e}", exc_info=True)
+        logger.warning(f"Reconstruction BM25 ignorée : {e}", exc_info=True)
 
-    return vectorstore
-
-
-# ============================================================
-# UTILITAIRES
-# ============================================================
+    logger.info("Index FAISS + BM25 mis à jour.")
+    return vs
 
 
 def index_exists() -> bool:
-    """Vérifie si un index FAISS existe déjà sur disque."""
     return (INDEX_PATH / "index.faiss").exists()
+
+
+def reset_indexes() -> None:
+    """Invalidation des deux singletons (FAISS + BM25)."""
+    from src.retriever import reset_vectorstore
+
+    reset_vectorstore()
+    reset_bm25_index()

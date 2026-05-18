@@ -2,22 +2,21 @@
 
 # DocAssist — Assistant IA sur documents internes
 
-**Posez une question. Obtenez une réponse claire, avec la page exacte où l'information a été trouvée.**
+**Posez une question. Obtenez une réponse claire, avec le fichier et la page exacte où l'information a été trouvée.**
 
 <br>
 
-[![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white&style=flat-square)](https://python.org)
+[![Python 3.11](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white&style=flat-square)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white&style=flat-square)](https://fastapi.tiangolo.com)
 [![LangChain](https://img.shields.io/badge/IA-LangChain-1C3C3C?logo=langchain&logoColor=white&style=flat-square)](https://langchain.com)
-[![Groq · Llama 3.3 70B](https://img.shields.io/badge/LLM-Llama%203.3%2070B-F55036?logo=meta&logoColor=white&style=flat-square)](https://console.groq.com)
-[![FAISS](https://img.shields.io/badge/Recherche-FAISS-0078D4?logo=meta&logoColor=white&style=flat-square)](https://github.com/facebookresearch/faiss)
-[![46 tests](https://img.shields.io/badge/Tests-46%20✓-22c55e?logo=pytest&logoColor=white&style=flat-square)](tests/)
+[![Claude Haiku](https://img.shields.io/badge/LLM-Claude%20Haiku-CC785C?logo=anthropic&logoColor=white&style=flat-square)](https://console.anthropic.com)
+[![FAISS](https://img.shields.io/badge/Recherche-FAISS%20%2B%20BM25-0078D4?logo=meta&logoColor=white&style=flat-square)](https://github.com/facebookresearch/faiss)
 [![CI](https://github.com/GomuGomuNo01/Chatbot-RAG/actions/workflows/ci.yml/badge.svg)](https://github.com/GomuGomuNo01/Chatbot-RAG/actions/workflows/ci.yml)
 [![Déployé sur Render](https://img.shields.io/badge/Déployé-Render-46E3B7?logo=render&logoColor=white&style=flat-square)](https://chatbot-rag-xodz.onrender.com)
 
 <br>
 
-### [🚀 Démo en ligne](https://chatbot-rag-xodz.onrender.com) &nbsp;·&nbsp; [📖 Documentation API](https://chatbot-rag-xodz.onrender.com/docs) &nbsp;·&nbsp; [🌐 Frontend](https://gomugomuNo01.github.io/Chatbot-RAG/)
+### [🚀 Démo en ligne](https://chatbot-rag-xodz.onrender.com) &nbsp;·&nbsp; [📖 Documentation API](https://chatbot-rag-xodz.onrender.com/docs)
 
 </div>
 
@@ -25,23 +24,11 @@
 
 ## Le problème
 
-Dans une entreprise, l'information est éparpillée dans des dizaines de fichiers : contrats, guides techniques, règlements intérieurs, CGU. Retrouver une réponse précise prend du temps — et souvent on ne sait même pas dans quel fichier chercher.
+Dans une organisation, l'information est éparpillée dans des dizaines de fichiers : contrats, guides techniques, règlements, fiches de poste, conventions. Retrouver une réponse précise prend du temps — et souvent on ne sait même pas dans quel fichier chercher.
 
-**DocAssist résout ça en quelques secondes :** l'assistant a mémorisé l'intégralité de vos documents et cite ses sources à chaque réponse.
+**DocAssist résout ça en quelques secondes :** l'assistant a mémorisé vos documents et cite ses sources à chaque réponse.
 
-> ⚠️ L'IA refuse d'inventer : si l'information n'est pas dans vos documents, elle le dit explicitement.
-
----
-
-## Démonstration
-
-| Vous demandez | DocAssist répond |
-|---|---|
-| *"Quels sont mes droits en cas de licenciement ?"* | Réponse détaillée + **Code du travail, page 47** |
-| *"Comment configurer une connexion Spring Boot ?"* | Procédure étape par étape + **Guide technique, page 12** |
-| *"Quelle est la durée de la période d'essai pour un CDI ?"* | Durée exacte + **Règlement intérieur, page 3** |
-
-Les sources s'affichent dans l'interface avec le nom du fichier, le numéro de page et un extrait du passage utilisé.
+> L'IA refuse d'inventer : si l'information n'est pas dans vos documents, elle le dit explicitement.
 
 ---
 
@@ -49,34 +36,41 @@ Les sources s'affichent dans l'interface avec le nom du fichier, le numéro de p
 
 ### En langage simple
 
-L'application fonctionne en deux temps :
+**1. Préparation (une seule fois par document)** — Chaque fichier est découpé en passages (~900 caractères). Chaque passage est transformé en vecteur de 768 dimensions par `multilingual-e5-base` (avec le préfixe `passage:` requis par ce modèle) et stocké dans FAISS. En parallèle, un index BM25 est construit avec stemming Snowball et bigrammes pour la recherche lexicale.
 
-**1. Préparation (une seule fois)** — Chaque document est découpé en petits passages (~1 000 caractères), puis chaque passage est transformé en une "empreinte numérique" qui capture son sens. Toutes ces empreintes sont stockées dans une base de recherche ultra-rapide.
+**2. À chaque question** — La question est enrichie (expansion d'acronymes, détection d'articles juridiques, réécriture contextuelle), puis les deux index sont interrogés en parallèle avec décroissance de poids selon les reformulations. Les résultats sont fusionnés par RRF pondéré dynamiquement (BM25 favorisé sur les noms propres, FAISS sur les questions conceptuelles), reranqués par un cross-encoder, et les 6 meilleurs passages sont transmis à Claude qui formule la réponse.
 
-**2. À chaque question** — La question est elle aussi transformée en empreinte, puis comparée à toutes celles des documents. Les passages les plus proches sémantiquement sont sélectionnés et transmis au modèle d'IA, qui formule une réponse claire en s'appuyant uniquement sur eux.
-
-Cette technique s'appelle le **RAG** *(Retrieval-Augmented Generation)* — elle est utilisée par les assistants IA d'entreprise (Copilot, Gemini for Workspace, etc.).
-
-### Schéma
+### Pipeline complet
 
 ```
 Votre question
       │
       ▼
-┌─────────────────┐     ┌───────────────────────────┐
-│  Transformation │     │  Base de 15 917 passages  │
-│  en empreinte   │────▶│  indexés (FAISS)          │
-│  numérique      │     │  ← vos documents PDF/Word │
-└─────────────────┘     └──────────┬────────────────┘
-                                   │ Top 10 passages pertinents
-                                   ▼
-                        ┌───────────────────────────┐
-                        │  Llama 3.3 70B (via Groq) │
-                        │  génère la réponse        │
-                        └──────────┬────────────────┘
-                                   │
-                                   ▼
-                     Réponse + sources (fichier + page)
+┌─────────────────────┐
+│  Cache sémantique   │──── HIT → réponse instantanée (0 token consommé)
+└──────────┬──────────┘
+           │ MISS
+           ▼
+┌─────────────────────────────────────────────────────────┐
+│  Enrichissement de la requête                           │
+│  expansion acronymes · détection articles · réécriture  │
+│  → jusqu'à 3 reformulations avec décroissance de poids  │
+└──────────┬──────────────────────────────────────────────┘
+           ▼
+┌──────────────────────────────────────────────────────────┐
+│  Recherche hybride (par reformulation)                   │
+│  FAISS e5-base (sémantique, préfixe "query:")            │
+│  + BM25 Okapi (lexical, stemming Snowball + bigrammes)   │
+│  poids dynamique : BM25↑ noms propres · FAISS↑ concepts  │
+│  → fusion RRF pondérée → reranking cross-encoder BGE     │
+└──────────┬───────────────────────────────────────────────┘
+           │ Top 6 passages
+           ▼
+┌─────────────────────┐
+│  Claude Haiku       │  génère la réponse à partir des extraits uniquement
+└──────────┬──────────┘
+           ▼
+    Réponse + sources (fichier · page · score)
 ```
 
 ---
@@ -85,52 +79,15 @@ Votre question
 
 | | Ce que fait l'application |
 |---|---|
-| 🎯 | **Réponses sourcées** — chaque réponse indique le fichier et la page utilisés |
-| 📂 | **Multi-formats** — lit les PDF, fichiers Word (.docx) et texte brut (.txt) |
-| 🏷️ | **Catégories** — recherche filtrée par domaine : Technique / RH / Juridique |
-| 🧠 | **Mémoire** — l'assistant se souvient des 7 derniers échanges de la conversation |
-| ⚡ | **Indexation intelligente** — l'ajout d'un fichier ne recalcule que ce fichier |
-| 💸 | **Coût zéro** — LLM via Groq (free tier), embeddings calculés localement |
-| 📊 | **15 917 passages** indexés dans la démo (Code civil + Code du travail + guides) |
-
----
-
-## Compétences démontrées
-
-Ce projet couvre l'ensemble du cycle d'une application IA : du traitement des données jusqu'au déploiement automatisé.
-
-### Intelligence artificielle
-
-- Architecture **RAG** complète : ingestion → vectorisation → recherche → génération
-- **Prompt engineering** : instructions système, gestion du cas "je ne sais pas", réponses structurées
-- Recherche sémantique avec **FAISS** : seuil de pertinence, déduplication, score de confiance
-- Mémoire conversationnelle glissante injectée dans le contexte du LLM
-
-### Backend & API
-
-- **API REST** FastAPI avec validation Pydantic v2, gestion d'erreurs, CORS
-- Architecture en couches découplées : `loader → embedder → indexer → retriever → chain`
-- Parsing multi-formats : **PDF** (PyMuPDF), **Word** (python-docx), **texte brut**
-- Indexation incrémentale via manifeste MD5 — seuls les fichiers modifiés sont retraités
-
-### Qualité & tests
-
-- **46 tests unitaires** avec pytest — zéro appel réseau (LLM et FAISS simulés)
-- Fixtures dynamiques : les fichiers de test (PDF, TXT) sont générés à la volée
-- Couverture des cas limites : fichier vide, format non supporté, réponse vide du LLM
-
-### DevOps & déploiement
-
-- **CI/CD GitHub Actions** : lint (Ruff), tests Python 3.11 et 3.12 à chaque push
-- Déploiement automatique sur **Render** via `render.yaml` (Infrastructure as Code)
-- **Dockerfile** multi-stage : image de production allégée (sans PyTorch)
-- Persistance de l'index FAISS via **HuggingFace Hub** entre les redémarrages Render
-
-### Frontend
-
-- Interface de chat en **HTML/CSS/JS vanilla** — sans framework, aucune dépendance externe
-- Bulles de messages, indicateur de frappe, scroll automatique, design responsive
-- Affichage des sources avec score de pertinence et extrait dépliable
+| 🎯 | **Réponses sourcées** — chaque réponse indique le fichier, la page et un extrait du passage utilisé |
+| 📂 | **Multi-formats** — lit les PDF, Word (.docx) et texte brut (.txt) |
+| 🗂️ | **Workspaces libres** — organisez vos documents par thème, projet ou équipe |
+| 🔍 | **Recherche hybride** — sémantique (FAISS) + lexicale (BM25) + reranking cross-encoder |
+| 🧠 | **Mémoire conversationnelle** — l'assistant se souvient des derniers échanges |
+| ⚡ | **Cache sémantique** — les questions similaires retournent la réponse sans appel LLM |
+| 💰 | **Économie de crédits** — limite journalière configurable (`DAILY_REQUEST_LIMIT`) |
+| 🔄 | **Indexation intelligente** — seuls les fichiers modifiés sont réindexés (manifeste MD5) |
+| ☁️ | **Stockage cloud** — documents sur Cloudflare R2, index FAISS sur HuggingFace Hub |
 
 ---
 
@@ -138,61 +95,80 @@ Ce projet couvre l'ensemble du cycle d'une application IA : du traitement des do
 
 | Rôle | Outil | Pourquoi |
 |---|---|---|
-| **Modèle de langage** | Groq + Llama 3.3 70B | Gratuit, 300 tokens/s, performant en français |
-| **Vectorisation** | sentence-transformers MiniLM-L12 | Local, gratuit, multilingue FR/EN, 120 Mo |
-| **Base vectorielle** | FAISS (Meta AI) | Standard industriel, recherche en mémoire en µs |
-| **Orchestration IA** | LangChain 1.2 | Framework RAG de référence |
+| **Modèle de langage** | Anthropic Claude Haiku | Meilleur suivi d'instructions, excellent en français, ~$0.006/question |
+| **Vectorisation** | `intfloat/multilingual-e5-base` (local CPU) | Dédié retrieval (≠ paraphrase), 768 dim, préfixes `query:`/`passage:`, FR/EN · ~1.1 Go téléchargé une fois |
+| **Recherche sémantique** | FAISS + embeddings normalisés | Standard industriel, cosine similarity en µs, filtrage workspace |
+| **Recherche lexicale** | BM25 Okapi custom | Stemming Snowball FR/EN + bigrammes + K1=1.8, complémente FAISS sur les termes exacts |
+| **Fusion des résultats** | RRF pondérée dynamiquement | Poids BM25/FAISS ajusté au type de requête · décroissance par reformulation |
+| **Reranking** | BGE-reranker-base (HuggingFace) | Cross-encoder pour classer les candidats par pertinence réelle |
+| **Cache** | Cache sémantique JSON | Questions similaires → réponse directe, 0 token LLM consommé |
+| **Orchestration IA** | LangChain | Framework RAG de référence |
 | **Backend** | FastAPI + Pydantic v2 | API moderne, docs Swagger auto-générées |
-| **Parsing PDF** | PyMuPDF | Extraction fidèle texte + numéros de page |
+| **Parsing documents** | PyMuPDF + python-docx | PDF fidèle (XHTML) + Word natif |
+| **Stockage fichiers** | Cloudflare R2 | S3-compatible, gratuit jusqu'à 10 Go |
+| **Persistance index** | HuggingFace Hub | Sauvegarde/restauration automatique entre redémarrages |
 | **Frontend** | HTML5 / CSS3 / JS vanilla | Zéro dépendance, livrable immédiatement |
 | **Tests** | pytest | LLM et FAISS mockés, zéro appel réseau |
 | **CI/CD** | GitHub Actions | Lint + tests sur Python 3.11 et 3.12 |
-| **Déploiement backend** | Render | Free tier, déploiement depuis Git |
-| **Déploiement frontend** | GitHub Pages | Auto-déployé à chaque push |
-| **Persistance index** | HuggingFace Hub | Sauvegarde/restauration automatique entre redémarrages |
+| **Déploiement** | Render | Free tier, déploiement depuis Git |
 
 ---
 
 ## Structure du projet
 
 ```
-Chatbot-RAG/
+chatbot-rag/
 │
-├── src/                  ← Pipeline IA (cœur de l'application)
-│   ├── loader.py         ← Lecture et découpage des documents en passages
-│   ├── embedder.py       ← Transformation du texte en vecteurs numériques
-│   ├── indexer.py        ← Création et mise à jour de la base vectorielle FAISS
-│   ├── retriever.py      ← Recherche des passages les plus pertinents
-│   ├── chain.py          ← Orchestration : question → passages → réponse LLM
-│   ├── memory.py         ← Historique conversationnel (7 derniers échanges)
-│   └── query_processor.py← Expansion des acronymes, détection de références légales
+├── src/                      ← Pipeline IA (cœur de l'application)
+│   ├── loader.py             ← Lecture et découpage des documents (PDF, DOCX, TXT, MD)
+│   ├── embedder.py           ← Vectorisation e5 avec préfixes query/passage + batch HF API
+│   ├── indexer.py            ← Création et mise à jour de l'index FAISS + BM25 jumelés
+│   ├── bm25_store.py         ← BM25 Okapi custom (stemming Snowball, bigrammes, K1=1.8)
+│   ├── retriever.py          ← Recherche hybride FAISS+BM25 · RRF dynamique · reranking
+│   ├── reranker.py           ← Cross-encoder BGE via HuggingFace InferenceClient
+│   ├── chain.py              ← Orchestration : question → passages → réponse Claude
+│   ├── cache.py              ← Cache sémantique des réponses (économie de crédits)
+│   ├── memory.py             ← Historique conversationnel compressé
+│   ├── rate_limiter.py       ← Limite journalière de requêtes LLM
+│   ├── query_processor.py    ← Enrichissement des requêtes (acronymes, articles, réécriture)
+│   ├── storage.py            ← Stockage Cloudflare R2 + HuggingFace Hub
+│   └── utils.py              ← Helpers partagés (logging, formatage contexte)
 │
-├── api/                  ← API REST (FastAPI)
-│   ├── main.py           ← Point d'entrée, CORS, frontend statique
-│   ├── schemas.py        ← Modèles de données (ChatRequest, ChatResponse...)
-│   └── routes/           ← /api/chat · /api/documents · /api/health
+├── api/                      ← API REST (FastAPI)
+│   ├── main.py               ← Point d'entrée, CORS, frontend statique
+│   ├── schemas.py            ← Modèles de données (ChatRequest, ChatResponse…)
+│   └── routes/
+│       ├── chat.py           ← POST /api/chat · /api/chat/stream
+│       ├── documents.py      ← GET/POST/DELETE /api/documents
+│       └── health.py         ← GET /api/health
 │
-├── frontend/             ← Interface web (HTML/CSS/JS)
+├── frontend/                 ← Interface web (HTML/CSS/JS)
 │   ├── index.html
 │   ├── css/style.css
-│   └── js/               ← api.js · chat.js · app.js · config.js
+│   └── js/                   ← api.js · chat.js · app.js · i18n.js
 │
-├── tests/                ← 46 tests unitaires (pytest)
-│   ├── conftest.py       ← Fixtures dynamiques (PDF et TXT générés à la volée)
+├── tests/                    ← Tests unitaires (pytest)
+│   ├── conftest.py           ← Fixtures (PDF et TXT générés à la volée)
 │   ├── test_loader.py
 │   ├── test_retriever.py
 │   └── test_chain.py
 │
-├── docs/                 ← Vos documents à indexer (PDF, DOCX, TXT)
-│   ├── technique/
-│   ├── rh/
-│   └── juridique/
+├── docs/                     ← Vos documents à indexer (organisés en workspaces)
+│   └── <workspace>/          ← ex: docs/juridique/ · docs/technique/ · docs/rh/
 │
-├── ingest.py             ← CLI d'indexation des documents
-├── config.py             ← Paramètres centralisés (modèle, chunk size, seuils...)
-├── Dockerfile            ← Image Docker multi-stage pour la production
-├── render.yaml           ← Configuration Render (Infrastructure as Code)
-└── .env.example          ← Template de configuration (sans les secrets)
+├── data/                     ← Données générées (index, cache, metadata)
+│   ├── faiss_index/          ← Index vectoriel FAISS + manifeste MD5
+│   ├── bm25_index.pkl        ← Index BM25 sérialisé
+│   ├── response_cache.json   ← Cache des réponses LLM
+│   ├── daily_limits.json     ← Compteur journalier de requêtes
+│   └── workspaces.json       ← Registre des workspaces
+│
+├── ingest.py                 ← CLI d'indexation des documents
+├── config.py                 ← Paramètres centralisés (modèle, chunking, seuils…)
+├── Dockerfile                ← Image Docker multi-stage
+├── render.yaml               ← Configuration Render (Infrastructure as Code)
+├── .env.example              ← Template de configuration (sans les secrets)
+└── requirements.txt
 ```
 
 ---
@@ -202,7 +178,7 @@ Chatbot-RAG/
 <details>
 <summary><strong>Instructions d'installation</strong></summary>
 
-**Prérequis :** Python 3.11+ · [Clé API Groq gratuite](https://console.groq.com)
+**Prérequis :** Python 3.11+ · [Clé API Anthropic](https://console.anthropic.com)
 
 ```bash
 # 1. Récupérer le code
@@ -219,46 +195,67 @@ pip install -r requirements.txt
 
 # 4. Configuration
 cp .env.example .env
-# → Renseigner GROQ_API_KEY dans .env
+# → Renseigner ANTHROPIC_API_KEY dans .env (obligatoire)
+# → Renseigner HF_TOKEN pour le reranker BGE (optionnel mais recommandé)
 
-# 5. Indexer vos documents
-#    Déposer vos fichiers dans docs/technique/, docs/rh/ ou docs/juridique/
+# 5. Créer un workspace et indexer vos documents
+#    Déposer vos fichiers dans docs/<nom-du-workspace>/
+#    ex : docs/juridique/   docs/technique/   docs/rh/
 python ingest.py
+# ⚠️ Première exécution : télécharge le modèle d'embedding (~1.1 Go depuis HuggingFace).
+#    Les exécutions suivantes utilisent le cache local — durée normale.
 
 # 6. Démarrer
-uvicorn api.main:app --reload --port 8000
+python api/main.py
 # → Ouvrir http://localhost:8000
 ```
 
-**Options d'indexation :**
-```bash
-python ingest.py                          # Incrémental (ignore les fichiers inchangés)
-python ingest.py --reset                  # Reconstruire l'index depuis zéro
-python ingest.py --categorie rh           # Une seule catégorie
-python ingest.py --file docs/rh/note.pdf  # Un seul fichier
-```
+> **Windows uniquement :** le cache HuggingFace affiche un avertissement sur les symlinks.
+> Pour le supprimer, ajouter `HF_HUB_DISABLE_SYMLINKS_WARNING=1` dans `.env`.
+> Fonctionnellement, cela ne change rien.
 
 </details>
+
+---
+
+## Configuration
+
+Les paramètres clés sont dans [`.env`](.env.example) et [`config.py`](config.py) :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | — | Clé API Anthropic (obligatoire) |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Modèle Claude utilisé |
+| `DAILY_REQUEST_LIMIT` | `10` | Requêtes LLM max par jour (0 = illimité, cache hits ne comptent pas) |
+| `TOP_K_RESULTS` | `6` | Chunks envoyés au LLM par requête |
+| `MEMORY_MAX_EXCHANGES` | `4` | Échanges conservés en mémoire conversationnelle |
+| `HF_TOKEN` | — | Token HuggingFace (reranker BGE + persistance index) |
+| `RERANKER_ENABLED` | `true` | Active/désactive le reranking cross-encoder |
+| `R2_ACCOUNT_ID` | — | Cloudflare R2 (stockage documents, optionnel) |
+| `HF_REPO_ID` | — | Dépôt HuggingFace pour la persistance de l'index FAISS (optionnel) |
+| `HF_HUB_DISABLE_SYMLINKS_WARNING` | `1` | Supprime l'avertissement symlinks sur Windows |
+
+**Changer de modèle** (dans `.env`) :
+```
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001   # rapide, économique (~$0.006/question)
+ANTHROPIC_MODEL=claude-sonnet-4-6           # meilleure qualité (~$0.05/question)
+```
+
+> **Note importante après changement de modèle d'embedding :** si tu modifies `EMBEDDING_MODEL` dans `config.py`, supprime `data/faiss_index/` et `data/bm25_index.pkl`, puis relance `python ingest.py`. Les vecteurs en cache sont incompatibles entre modèles.
 
 ---
 
 ## Tests
 
 ```bash
-pytest                                       # 46 tests
-pytest --cov=src --cov-report=term-missing   # Avec couverture de code
+pytest                                       # suite complète
+pytest --cov=src --cov-report=term-missing   # avec couverture de code
 ```
 
-> Les tests tournent **entièrement hors-ligne** : le LLM et la base vectorielle sont simulés. Aucune clé API requise.
+> Les tests tournent **entièrement hors-ligne** : le LLM et FAISS sont simulés. Aucune clé API requise.
 
 ---
 
 <div align="center">
-  <sub>Projet personnel — FastAPI · LangChain · Groq · FAISS · sentence-transformers · Render</sub>
-  <br><br>
-  <a href="https://chatbot-rag-xodz.onrender.com">🚀 Démo live</a>
-  &nbsp;·&nbsp;
-  <a href="https://chatbot-rag-xodz.onrender.com/docs">📖 API Swagger</a>
-  &nbsp;·&nbsp;
-  <a href="https://gomugomuNo01.github.io/Chatbot-RAG/">🌐 GitHub Pages</a>
+  <sub>Projet personnel — FastAPI · LangChain · Claude Haiku · FAISS · BM25 · multilingual-e5-base · BGE-reranker · Render</sub>
 </div>

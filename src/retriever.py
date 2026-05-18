@@ -1,25 +1,39 @@
 """
-Retriever : recherche sémantique + keyword dans l'index FAISS
+retriever.py — Recherche hybride (sémantique + BM25) + reranking.
+
+Pipeline :
+  1. Multi-requêtes → recherche FAISS (TOP_K_RETRIEVAL par requête)
+  2. Multi-requêtes → recherche BM25 (TOP_K_RETRIEVAL par requête)
+  3. Fusion par Reciprocal Rank Fusion (RRF), pondérée
+  4. Reranking par cross-encoder (top RERANK_TOP_N → TOP_K_RESULTS)
+  5. Filtrage workspace si demandé
 """
 
 import logging
-import re
+import re as _re
 from typing import cast
 
-from config import SIMILARITY_THRESHOLD, TOP_K_RESULTS
+from config import (
+    HYBRID_BM25_WEIGHT,
+    HYBRID_RRF_K,
+    RERANK_TOP_N,
+    SIMILARITY_THRESHOLD,
+    TOP_K_RESULTS,
+    TOP_K_RETRIEVAL,
+)
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
+from src.bm25_store import get_bm25_index
 from src.indexer import load_index
+from src.reranker import rerank
 
 logger = logging.getLogger(__name__)
 
-# Instance globale — évite de recharger l'index à chaque requête
 _vectorstore_instance: FAISS | None = None
 
 
 def get_vectorstore() -> FAISS:
-    """Retourne l'instance vectorstore (singleton)."""
     global _vectorstore_instance
     if _vectorstore_instance is None:
         _vectorstore_instance = load_index()
@@ -27,285 +41,255 @@ def get_vectorstore() -> FAISS:
 
 
 def reset_vectorstore() -> None:
-    """Invalide le singleton pour forcer le rechargement au prochain appel.
-    À appeler après un upload ou une ré-indexation."""
     global _vectorstore_instance
     _vectorstore_instance = None
-    logger.info("Vectorstore réinitialisé — sera rechargé au prochain appel.")
+    logger.info("Vectorstore réinitialisé — rechargement au prochain appel.")
 
 
-def multi_search(
-    queries: list[str],
-    categorie: str | None = None,
-    k: int = TOP_K_RESULTS,
+# ──────────────────────────────────────────────────────────────
+# Recherche sémantique brute (FAISS) — utilisée par hybrid_search
+# ──────────────────────────────────────────────────────────────
+
+
+def _semantic_search(
+    query: str,
+    workspace: str | None,
+    k: int,
+) -> list[tuple[Document, float]]:
+    """Retourne (Document, score normalisé) pour une requête."""
+    vs = get_vectorstore()
+    # Avec embeddings normalisés (L2 sur vecteurs unitaires ≈ cosine), la distance
+    # FAISS est déjà bornée [0, 2] — la conversion 1/(1+dist) est cohérente.
+    raw = vs.similarity_search_with_score(query=query, k=k * 4)
+    out: list[tuple[Document, float]] = []
+    page_hits: dict[tuple, int] = {}
+    for doc, dist in raw:
+        sim = 1 / (1 + dist)
+        # Les résultats FAISS sont triés par distance croissante : dès qu'on passe
+        # sous le seuil, tous les suivants le seront aussi → sortie anticipée.
+        if sim < SIMILARITY_THRESHOLD:
+            break
+        if workspace and doc.metadata.get("workspace") != workspace:
+            continue
+        page_key = (doc.metadata.get("source", ""), doc.metadata.get("page", ""))
+        # Max 2 chunks par page : évite de saturer le contexte avec des passages
+        # adjacents issus du même endroit du document.
+        if page_hits.get(page_key, 0) >= 2:
+            continue
+        page_hits[page_key] = page_hits.get(page_key, 0) + 1
+        meta = dict(doc.metadata)
+        meta["similarity_score"] = round(float(sim), 3)
+        out.append((Document(page_content=doc.page_content, metadata=meta), sim))
+    return out[:k]
+
+
+# ──────────────────────────────────────────────────────────────
+# Fusion Reciprocal Rank Fusion (RRF)
+# ──────────────────────────────────────────────────────────────
+
+
+def _doc_key(doc: Document) -> str:
+    return (
+        f"{doc.metadata.get('source', '')}|"
+        f"{doc.metadata.get('page', '')}|"
+        f"{doc.metadata.get('chunk_index', '')}|"
+        f"{doc.page_content[:80]}"
+    )
+
+
+def _rrf_fuse(
+    ranked_lists: list[tuple[list[Document], float]],
+    k: int = HYBRID_RRF_K,
 ) -> list[Document]:
     """
-    Recherche avec plusieurs formulations de la même question.
-    Fusionne les résultats et garde le meilleur score par chunk unique.
-    Retourne au plus k documents classés par score décroissant.
+    Reciprocal Rank Fusion pondérée.
+    `ranked_lists` : [(documents_classés, poids), …]
+    Retourne une liste fusionnée triée par score RRF cumulé.
+    """
+    scores: dict[str, float] = {}
+    docs: dict[str, Document] = {}
 
-    Utilisé pour maximiser le rappel quand la requête est ambiguë :
-    - requête originale + requête étendue (acronymes)
-    - requête originale + reformulation contextuelle
+    for documents, weight in ranked_lists:
+        for rank, doc in enumerate(documents):
+            key = _doc_key(doc)
+            contrib = weight / (k + rank + 1)
+            scores[key] = scores.get(key, 0.0) + contrib
+            if key not in docs:
+                docs[key] = doc
+            else:
+                # Conserver le meilleur similarity_score connu
+                existing = docs[key].metadata.get("similarity_score", 0)
+                incoming = doc.metadata.get("similarity_score", 0)
+                if incoming > existing:
+                    docs[key] = doc
+
+    ordered_keys = sorted(scores.keys(), key=lambda k_: scores[k_], reverse=True)
+    fused: list[Document] = []
+    for key in ordered_keys:
+        doc = docs[key]
+        meta = dict(doc.metadata)
+        meta["rrf_score"] = round(scores[key], 5)
+        fused.append(Document(page_content=doc.page_content, metadata=meta))
+    return fused
+
+
+# ──────────────────────────────────────────────────────────────
+# Recherche hybride (publique)
+# ──────────────────────────────────────────────────────────────
+
+
+_QUERY_DECAY = (1.0, 0.7, 0.5)  # poids par position de requête (original > reformulations)
+
+
+def _detect_query_type(query: str) -> float:
+    """
+    Retourne le poids BM25 adapté au type de requête.
+
+    - Noms propres (majuscules) ou références d'articles  → BM25 fort (0.60)
+    - Questions conceptuelles / explicatives               → FAISS fort (BM25 0.30)
+    - Requêtes mixtes                                      → défaut config (0.45)
+    """
+    if _re.search(r"\bL?\d{3,}[-–]\d+\b", query) or _re.search(r"\b[A-Z][a-zéèêëàâùûü]{2,}\b", query):
+        return 0.60
+    if any(w in query.lower() for w in ("comment", "pourquoi", "qu'est", "différence", "expliqu", "définition")):
+        return 0.30
+    return HYBRID_BM25_WEIGHT
+
+
+def hybrid_search(
+    queries: list[str],
+    workspace: str | None = None,
+    *,
+    top_k: int = TOP_K_RESULTS,
+    rerank_pool: int = RERANK_TOP_N,
+) -> list[Document]:
+    """
+    Pipeline complet : FAISS + BM25 → RRF → reranking → top_k.
+
+    `queries` : liste de reformulations (originale + acronyms + décomposition…).
+                La requête originale (index 0) reçoit un poids plus élevé que
+                les reformulations suivantes (décroissance _QUERY_DECAY).
     """
     if not queries:
         return []
 
-    seen_ids: dict[str, float] = {}  # page_key → meilleur score
-    doc_map: dict[str, Document] = {}  # page_key → document
+    bm25_w = _detect_query_type(queries[0])
+    sem_w = 1.0 - bm25_w
+    pool_size = max(TOP_K_RETRIEVAL, rerank_pool)
 
-    for query in queries:
-        results = search(query=query, categorie=categorie, k=k)
-        for doc in results:
-            key = (
-                f"{doc.metadata.get('source', '')}|"
-                f"{doc.metadata.get('page', '')}|"
-                f"{doc.page_content[:80]}"  # sous-clé pour distinguer chunks sur même page
-            )
-            score = float(doc.metadata.get("similarity_score", 0))
-            if key not in seen_ids or score > seen_ids[key]:
-                seen_ids[key] = score
-                doc.metadata["similarity_score"] = score
-                doc_map[key] = doc
+    ranked_lists: list[tuple[list[Document], float]] = []
 
-    merged = sorted(
-        doc_map.values(), key=lambda d: d.metadata.get("similarity_score", 0), reverse=True
-    )
-    logger.info(f"multi_search({len(queries)} requêtes) → {len(merged)} chunks uniques (top {k})")
-    return merged[:k]
+    # Sémantique + BM25 avec décroissance de poids selon la position de la requête.
+    # La requête originale compte plus que ses reformulations.
+    bm25 = get_bm25_index()
+    for i, q in enumerate(queries):
+        decay = _QUERY_DECAY[i] if i < len(_QUERY_DECAY) else 0.4
 
+        sem_pairs = _semantic_search(q, workspace, pool_size)
+        ranked_lists.append(([d for d, _ in sem_pairs], sem_w * decay))
 
-def search(query: str, categorie: str | None = None, k: int = TOP_K_RESULTS) -> list[Document]:
-    """
-    Recherche les chunks les plus pertinents pour une question.
+        if bm25 is not None:
+            pairs = bm25.search(q, k=pool_size, workspace=workspace)
+            ranked_lists.append(([d for d, _ in pairs], bm25_w * decay))
 
-    Stratégie :
-    - Récupère k*3 candidats avec score FAISS
-    - Filtre par seuil de similarité et catégorie
-    - Applique une déduplication par page (max 2 chunks par page/document)
-      pour maximiser la diversité des sources
-    - Retourne au plus k chunks triés par pertinence décroissante
+    if bm25 is None:
+        logger.debug("[hybrid] Index BM25 absent — recherche sémantique uniquement.")
 
-    Args:
-        query     : question de l'utilisateur
-        categorie : filtre optionnel ("technique", "rh", "juridique")
-        k         : nombre de résultats à retourner
-    """
-    vectorstore = get_vectorstore()
-
-    results_with_scores = vectorstore.similarity_search_with_score(
-        query=query,
-        k=k * 5,  # pool élargi (était k*3) — améliore le rappel sur grands corpus
-    )
-
-    filtered: list[Document] = []
-    # page_hits : nb de chunks déjà retenus par clé (source, page)
-    page_hits: dict = {}
-
-    for doc, score in results_with_scores:
-        # FAISS distance L2 → similarité normalisée 0-1
-        similarity = 1 / (1 + score)
-
-        if similarity < SIMILARITY_THRESHOLD:
-            continue
-
-        if categorie and doc.metadata.get("categorie") != categorie:
-            continue
-
-        # Déduplication douce : max 4 chunks par page d'un même fichier
-        # (était 3 → bloquait les articles longs qui s'étendent sur 4+ chunks
-        #  d'une même page dans les codes juridiques denses)
-        page_key = (doc.metadata.get("source", ""), doc.metadata.get("page", ""))
-        if page_hits.get(page_key, 0) >= 4:
-            continue
-
-        doc.metadata["similarity_score"] = round(float(similarity), 3)
-        filtered.append(doc)
-        page_hits[page_key] = page_hits.get(page_key, 0) + 1
-
-        if len(filtered) >= k:
-            break
-
-    q_display = query[:50] + "..." if len(query) > 50 else query
-    logger.info(f"Recherche '{q_display}' → {len(filtered)} chunks pertinents trouvés")
-
-    return filtered
-
-
-def search_by_keyword(
-    article_query: str,
-    categorie: str | None = None,
-    max_results: int = 5,
-) -> list[Document]:
-    """
-    Recherche exacte d'un article de loi dans le docstore FAISS.
-
-    Pourquoi : le modèle d'embedding traite les numéros d'articles comme
-    des identifiants opaques. "Article L1272-4" ou "Article 6" n'ont aucun
-    sens sémantique — la recherche vectorielle peut rater le bon chunk même
-    quand il existe exactement dans l'index.
-
-    Ce scan linéaire du docstore garantit un hit exact indépendamment du
-    score sémantique.
-
-    Pattern : lookahead négatif (?![0-9\\-.]) pour éviter que "Article 6"
-    remonte aussi "Article 6-1" ou "Article 60".
-
-    Args:
-        article_query : ex. "Article L1272-4", "Article 6", "Article 111-1"
-        categorie     : filtre optionnel sur la catégorie
-        max_results   : nombre max de chunks retournés par article
-    """
-    vectorstore = get_vectorstore()
-
-    # Lookahead négatif : "Article 6" ne matche PAS "Article 6-1" ni "Article 60"
-    pattern = re.compile(
-        re.escape(article_query) + r"(?![0-9\-\.])",
-        re.IGNORECASE,
-    )
-
-    results: list[Document] = []
-    for doc in vectorstore.docstore._dict.values():
-        if not pattern.search(doc.page_content):
-            continue
-        if categorie and doc.metadata.get("categorie") != categorie:
-            continue
-        # Copie avec score 0.99 (match exact → priorité maximale dans le contexte)
-        enriched = Document(
-            page_content=doc.page_content,
-            metadata={**doc.metadata, "similarity_score": 0.99},
-        )
-        results.append(enriched)
-        if len(results) >= max_results:
-            break
-
-    if results:
-        logger.info(f"[keyword] '{article_query}' → {len(results)} chunk(s) exact(s)")
-    else:
-        logger.warning(f"[keyword] '{article_query}' → 0 chunk trouvé dans le docstore")
-    return results
-
-
-def search_by_phrase(
-    phrase: str,
-    categorie: str | None = None,
-    max_results: int = 3,
-) -> list[Document]:
-    """
-    Recherche un extrait de texte quasi-exact dans le docstore FAISS.
-    Utilisé pour le lookup inverse : l'utilisateur fournit le texte d'un article
-    et demande à quel article il correspond.
-
-    Stratégie : on cherche les 70 premiers caractères distinctifs du texte fourni
-    (suffisant pour identifier un chunk unique dans un corpus légal).
-    Le chunk trouvé contient le texte complet de l'article avec son numéro.
-
-    Args:
-        phrase      : texte légal fourni par l'utilisateur
-        categorie   : filtre optionnel sur la catégorie
-        max_results : nb max de chunks retournés
-
-    Returns:
-        Liste de Documents avec similarity_score=0.99 (match quasi-exact).
-    """
-    vectorstore = get_vectorstore()
-
-    # Prendre les 70 premiers caractères distinctifs (après nettoyage)
-    anchor = phrase.strip()[:70].strip()
-    if len(anchor) < 20:
-        logger.warning(f"[phrase_search] Ancre trop courte ({len(anchor)} chars) — ignoré")
+    fused = _rrf_fuse(ranked_lists)
+    if not fused:
         return []
 
-    pattern = re.compile(re.escape(anchor), re.IGNORECASE)
+    # Pool de base (RRF top-N)
+    pool_set: dict[str, Document] = {_doc_key(d): d for d in fused[:rerank_pool]}
 
-    results: list[Document] = []
-    for doc in vectorstore.docstore._dict.values():
-        if not pattern.search(doc.page_content):
-            continue
-        if categorie and doc.metadata.get("categorie") != categorie:
-            continue
-        enriched = Document(
-            page_content=doc.page_content,
-            metadata={**doc.metadata, "similarity_score": 0.99},
-        )
-        results.append(enriched)
-        if len(results) >= max_results:
-            break
+    # Garantie BM25 : le top-1 BM25 de la requête principale est toujours candidat.
+    # Cas typique : un nom propre unique identifie un CV que la recherche
+    # sémantique rate (elle retourne du Code du Travail à la place).
+    if bm25 is not None:
+        top_bm25 = bm25.search(queries[0], k=1, workspace=workspace)
+        if top_bm25:
+            doc, _ = top_bm25[0]
+            k = _doc_key(doc)
+            if k not in pool_set:
+                pool_set[k] = doc
+                logger.debug(f"[hybrid] BM25 safeguard : ajout forcé de {doc.metadata.get('source')}")
 
-    if results:
-        logger.info(f"[phrase_search] Ancre «{anchor[:40]}…» → {len(results)} chunk(s) exact(s)")
-    else:
-        logger.warning(f"[phrase_search] Ancre «{anchor[:40]}…» → 0 chunk trouvé dans le docstore")
-    return results
-
-
-def merge_with_keyword_results(
-    semantic_docs: list[Document],
-    keyword_docs: list[Document],
-    k: int = TOP_K_RESULTS,
-) -> list[Document]:
-    """
-    Fusionne résultats sémantiques et résultats keyword.
-
-    Les chunks keyword (score 0.99 = match exact) sont placés EN PREMIER
-    dans le contexte envoyé au LLM — il les voit en priorité et peut
-    répondre précisément sur l'article demandé.
-
-    Les résultats sémantiques complètent le contexte avec des chunks connexes.
-    La déduplication évite les doublons.
-    """
-
-    def _key(doc: Document) -> str:
-        return f"{doc.metadata.get('source')}|{doc.metadata.get('page')}|{doc.page_content[:80]}"
-
-    seen: set[str] = set()
-    merged: list[Document] = []
-
-    # 1. Keyword results en tête (réponse exacte à la question sur l'article)
-    for doc in keyword_docs:
-        dk = _key(doc)
-        if dk not in seen:
-            seen.add(dk)
-            merged.append(doc)
-
-    # 2. Résultats sémantiques en complément
-    for doc in semantic_docs:
-        dk = _key(doc)
-        if dk not in seen:
-            seen.add(dk)
-            merged.append(doc)
-
+    candidates = list(pool_set.values())
+    primary_query = queries[0]
+    reranked = rerank(primary_query, candidates, top_k)
     logger.info(
-        f"[merge] {len(keyword_docs)} keyword + {len(semantic_docs)} sémantique "
-        f"→ {min(len(merged), k)} chunks finaux"
+        f"[hybrid] {len(queries)} requête(s) | fused={len(fused)} → "
+        f"pool={len(candidates)} → final={len(reranked)}"
     )
-    return merged[:k]
+    return reranked
 
 
-def format_sources(documents: list[Document]) -> list[dict]:
+def search(query: str, workspace: str | None = None, k: int = TOP_K_RESULTS) -> list[Document]:
+    """Alias mono-requête de hybrid_search (compat tests)."""
+    return hybrid_search([query], workspace, top_k=k)
+
+
+# ──────────────────────────────────────────────────────────────
+# Formatage des sources
+# ──────────────────────────────────────────────────────────────
+
+
+def format_sources(documents: list[Document], *, max_sources: int = 3) -> list[dict]:
     """
-    Formate les sources pour l'affichage dans le frontend.
+    Sérialise les chunks en sources affichables côté frontend.
 
-    Returns:
-        Liste de dicts avec source, page, catégorie, score
+    - Déduplique par (fichier, page)
+    - Priorité : rerank_score > rrf_score (fusion hybride) > similarity_score
+    - Normalise les scores : la source la plus pertinente = 1.0
+    - Limite à max_sources résultats
     """
-    sources = []
-    seen = set()
+    seen: set[str] = set()
+    candidates: list[dict] = []
 
     for doc in documents:
         meta = doc.metadata
-        key = f"{meta.get('source')}_{meta.get('page')}"
+        key = f"{meta.get('source')}|{meta.get('page')}"
+        if key in seen:
+            continue
+        seen.add(key)
 
-        if key not in seen:
-            seen.add(key)
-            sources.append(
-                {
-                    "fichier": str(meta.get("source", "Inconnu")),
-                    "page": meta.get("page", "?"),
-                    "categorie": str(meta.get("categorie", "Inconnu")),
-                    "score": float(meta.get("similarity_score", 0)),
-                    "extrait": doc.page_content[:150] + "...",
-                }
-            )
+        rerank_score = meta.get("rerank_score")
+        raw = (
+            rerank_score
+            if rerank_score is not None and rerank_score > 0
+            else meta.get("rrf_score")
+            if meta.get("rrf_score") is not None
+            else meta.get("similarity_score", 0.0)
+        )
 
-    return sources
+        candidates.append(
+            {
+                "fichier": str(meta.get("source", "Inconnu")),
+                "page": meta.get("page", "?"),
+                "workspace": str(meta.get("workspace", "")),
+                "_raw": float(raw or 0.0),
+                "extrait": doc.page_content[:200] + ("…" if len(doc.page_content) > 200 else ""),
+            }
+        )
+
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda x: x["_raw"], reverse=True)
+    top = candidates[:max_sources]
+
+    # Min-max normalization avec plancher à 0.35 : toutes les sources récupérées
+    # ont un score visible (35 %–100 %). Sans plancher, la dernière source
+    # aurait toujours 0 % et afficherait "—" dans l'interface.
+    _FLOOR = 0.35
+    max_raw = top[0]["_raw"]
+    min_raw = min(c["_raw"] for c in top)
+    span = max_raw - min_raw
+    for c in top:
+        if span > 0:
+            c["score"] = round(_FLOOR + (1.0 - _FLOOR) * (c["_raw"] - min_raw) / span, 3)
+        else:
+            c["score"] = 1.0 if max_raw != 0 else _FLOOR
+        del c["_raw"]
+
+    return top

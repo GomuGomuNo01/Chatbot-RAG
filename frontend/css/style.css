@@ -495,6 +495,47 @@ a    { color: var(--clr-primary); }
   50%       { opacity: .3; }
 }
 
+/* ── Puce de requêtes (dans le badge de statut) ── */
+.rate-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  font-size: 0.625rem; font-weight: 700; letter-spacing: .2px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.rate-chip--ok     { background: #dcfce7; color: #15803d; border-color: #86efac; }
+.rate-chip--warn   { background: #fff7ed; color: #c2410c; border-color: #fdba74; }
+.rate-chip--danger { background: #fef2f2; color: #991b1b; border-color: #fca5a5;
+                     animation: rate-blink 1.2s ease-in-out infinite; }
+@keyframes rate-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .55; }
+}
+
+/* ── Modal alerte (limite journalière, etc.) ── */
+.modal--alert {
+  max-width: 380px;
+  text-align: center;
+  padding: 36px 32px 28px;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+.modal__alert-icon { font-size: 2.5rem; line-height: 1; }
+.modal--alert .modal__title { font-size: 1.1rem; }
+.modal__alert-body {
+  font-size: 0.9rem; color: var(--clr-text-secondary);
+  line-height: 1.55; margin: 0;
+}
+.modal--alert .btn-primary {
+  margin-top: 6px; width: 100%; max-width: 220px;
+  padding: 10px 24px;
+  background: var(--clr-primary); color: #fff;
+  border: none; border-radius: var(--r-md);
+  font-size: 0.95rem; font-weight: 600; cursor: pointer;
+  transition: background .15s;
+}
+.modal--alert .btn-primary:hover { background: var(--clr-primary-hover, #4f46e5); }
+
 /* ── Sélecteur de langue ── */
 .lang-switcher {
   display: flex; align-items: center;

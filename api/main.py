@@ -1,5 +1,6 @@
 """
-main.py — Application FastAPI principale
+main.py — Application FastAPI principale (refonte v2).
+
 Lancer : uvicorn api.main:app --reload --port 8000
 """
 
@@ -21,15 +22,14 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# LIFESPAN — Démarrage et arrêt de l'app
+# LIFESPAN
 # ============================================================
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Exécuté au démarrage et à l'arrêt de l'API."""
     logger.info("=" * 55)
-    logger.info("  CHATBOT RAG — DÉMARRAGE")
+    logger.info(f"  DocAssist v{API_VERSION} — DÉMARRAGE")
     logger.info("=" * 55)
 
     try:
@@ -37,7 +37,9 @@ async def lifespan(app: FastAPI):
 
         from config import (
             DOCS_DIR,
-            get_all_categories,
+            WORKSPACES_FILE,
+            auto_provision_workspaces_from_disk,
+            get_workspaces,
             is_hf_enabled,
             is_r2_enabled,
         )
@@ -45,152 +47,122 @@ async def lifespan(app: FastAPI):
         from src.indexer import index_exists, is_chunk_config_stale
         from src.loader import SUPPORTED_EXTENSIONS as _EXT
 
-        # ── 1. Restaurer les fichiers sources depuis Cloudflare R2 ────────────
-        # Render (et tout PaaS avec filesystem éphémère) perd les fichiers locaux
-        # entre les redémarrages. R2 est la source de vérité permanente.
+        # 1. Restauration R2 (fichiers sources + registre workspaces)
         if is_r2_enabled():
-            logger.info("[startup] Cloudflare R2 configuré — restauration des fichiers sources…")
+            logger.info("[startup] R2 configuré — restauration des fichiers…")
 
-            # 1a. Restaurer custom_categories.json en premier (nécessaire pour
-            #     que sync_r2_to_local crée les bons sous-dossiers de catégories)
-            from config import CUSTOM_CATEGORIES_FILE
-
-            if not CUSTOM_CATEGORIES_FILE.exists():
+            if not WORKSPACES_FILE.exists():
                 try:
                     from src.storage import download_metadata_r2
 
-                    restored = download_metadata_r2(
-                        "custom_categories.json", CUSTOM_CATEGORIES_FILE
-                    )
-                    if restored:
-                        logger.info("[startup] ✓ R2 → local : custom_categories.json restauré")
-                    else:
-                        logger.info(
-                            "[startup] · R2 → local : custom_categories.json absent (1er déploiement ?)"
-                        )
+                    if download_metadata_r2("workspaces.json", WORKSPACES_FILE):
+                        logger.info("[startup] R2 → local : workspaces.json restauré")
                 except Exception as e:
-                    logger.warning(
-                        f"[startup] ✗ R2 custom_categories restore ignorée : {e}", exc_info=True
-                    )
+                    logger.warning(f"[startup] R2 workspaces restore ignorée : {e}", exc_info=True)
 
-            # 1b. Restaurer les fichiers documents (PDF, DOCX, TXT)
             try:
                 from src.storage import sync_r2_to_local
 
                 downloaded = sync_r2_to_local(DOCS_DIR)
                 if downloaded:
-                    logger.info(f"[startup] ✓ R2 → local : {downloaded} fichier(s) restauré(s)")
-                else:
-                    logger.info("[startup] · R2 → local : aucun nouveau fichier à restaurer")
+                    logger.info(f"[startup] R2 → local : {downloaded} fichier(s) restauré(s)")
             except Exception as e:
-                logger.warning(f"[startup] ✗ R2 sync ignorée : {e}", exc_info=True)
+                logger.warning(f"[startup] R2 sync ignorée : {e}", exc_info=True)
         else:
-            logger.info("[startup] Cloudflare R2 : non configuré (mode filesystem local)")
+            logger.info("[startup] R2 non configuré (mode local).")
 
-        # ── 2. Récupérer l'index FAISS depuis HuggingFace Hub ────────────────
+        # 2. Auto-provisionnement des workspaces depuis docs/ existants (legacy)
+        try:
+            n = auto_provision_workspaces_from_disk()
+            if n:
+                logger.info(f"[startup] {n} workspace(s) auto-provisionné(s) depuis docs/")
+        except Exception as e:
+            logger.warning(f"[startup] Auto-provision workspaces ignorée : {e}")
+
+        # 3. Index FAISS depuis HF Hub si absent
         if not index_exists() and is_hf_enabled():
-            logger.info("[startup] Index FAISS absent — pull depuis HuggingFace Hub…")
             try:
                 from src.hf_store import pull_index_from_hub
 
                 pulled = pull_index_from_hub()
                 if pulled:
-                    logger.info("[startup] ✓ Index FAISS récupéré depuis HF Hub")
-                else:
-                    logger.info("[startup] · HF Hub : index absent (premier déploiement ?)")
+                    logger.info("[startup] Index FAISS récupéré depuis HF Hub")
             except Exception as e:
-                logger.warning(f"[startup] ✗ HF Hub pull ignoré : {e}", exc_info=True)
+                logger.warning(f"[startup] HF Hub pull ignoré : {e}", exc_info=True)
         elif not is_hf_enabled():
-            logger.info("[startup] HuggingFace Hub : non configuré (persistance index désactivée)")
+            logger.info("[startup] HF Hub non configuré.")
 
-        # ── 3. Pré-charger l'index ou lancer une reconstruction automatique ──
+        # 4. Pré-chargement / auto-reindex
         if index_exists():
-            # Vérifier si la configuration de chunking a changé depuis la dernière indexation.
-            # Si oui, l'index existant est obsolète : ré-indexation en arrière-plan.
-            stale = is_chunk_config_stale()
-            if stale:
+            if is_chunk_config_stale():
                 logger.warning(
-                    "[startup] ⚠ Config chunking modifiée — index FAISS obsolète. "
-                    "Ré-indexation automatique en cours…"
+                    "[startup] Config chunking modifiée — ré-indexation automatique…"
                 )
                 try:
                     import threading
 
                     from api.routes.documents import _run_reindex_all_background
 
-                    t = threading.Thread(
+                    threading.Thread(
                         target=_run_reindex_all_background,
                         daemon=True,
                         name="startup-stale-reindex",
-                    )
-                    t.start()
-                    logger.info(
-                        "[startup] ✓ Ré-indexation lancée en arrière-plan (config obsolète)"
-                    )
+                    ).start()
                 except Exception as e:
-                    logger.warning(f"[startup] ✗ Ré-indexation auto échouée : {e}", exc_info=True)
+                    logger.warning(f"[startup] Reindex stale échoué : {e}", exc_info=True)
             else:
-                # Pré-chargement optionnel : accélère la 1ère requête mais non critique.
-                # Encapsulé séparément du try global pour éviter un crash OOM silencieux
-                # (le kernel tue le process avant que l'exception ne soit catchée).
-                # Si les embeddings échouent (HF_TOKEN absent, modèle local manquant),
-                # on continue — l'index se chargera lazily à la première requête.
                 try:
                     from src.retriever import get_vectorstore
 
                     get_vectorstore()
-                    logger.info("[startup] ✓ Index FAISS pré-chargé")
+                    logger.info("[startup] Index FAISS pré-chargé")
                 except Exception as preload_err:
                     logger.warning(
-                        f"[startup] · Pré-chargement index ignoré ({type(preload_err).__name__}) "
-                        "— chargement différé à la première requête. "
-                        "Vérifiez que HF_TOKEN est défini si vous utilisez requirements-prod.txt."
+                        f"[startup] Pré-chargement index ignoré "
+                        f"({type(preload_err).__name__}) — chargement différé."
                     )
         else:
-            # Vérifier si des documents locaux sont présents
-            cats = get_all_categories()
+            workspaces = get_workspaces()
             has_docs = False
-            for cat_cfg in cats.values():
-                cat_dir = _Path(cat_cfg["dir"])
-                if cat_dir.exists() and any(f.suffix.lower() in _EXT for f in cat_dir.iterdir()):
+            for cfg in workspaces.values():
+                d = _Path(cfg["dir"])
+                if d.exists() and any(f.suffix.lower() in _EXT for f in d.iterdir()):
                     has_docs = True
                     break
 
             if has_docs:
-                logger.info("[startup] Documents présents sans index → reconstruction automatique…")
+                logger.info("[startup] Documents présents sans index → reconstruction…")
                 try:
                     import threading
 
                     from api.routes.documents import _run_reindex_all_background
 
-                    t = threading.Thread(
+                    threading.Thread(
                         target=_run_reindex_all_background,
                         daemon=True,
                         name="startup-auto-reindex",
-                    )
-                    t.start()
-                    logger.info("[startup] ✓ Reconstruction d'index lancée en arrière-plan")
+                    ).start()
                 except Exception as e:
-                    logger.warning(f"[startup] ✗ Reconstruction auto échouée : {e}", exc_info=True)
+                    logger.warning(f"[startup] Reconstruction auto échouée : {e}", exc_info=True)
             else:
-                logger.warning(
-                    "[startup] · Index FAISS absent — uploadez des documents via l'interface"
+                logger.info(
+                    "[startup] Index absent et aucun document — uploadez via l'interface."
                 )
 
     except Exception as e:
-        logger.error(f"[startup] Erreur critique au démarrage : {e}", exc_info=True)
+        logger.error(f"[startup] Erreur critique : {e}", exc_info=True)
 
     logger.info("=" * 55)
-    logger.info("  API prête — http://0.0.0.0:8000")
+    logger.info(f"  API prête — http://0.0.0.0:8000  (v{API_VERSION})")
     logger.info("=" * 55)
 
-    yield  # L'app tourne ici
+    yield
 
-    logger.info("[shutdown] Chatbot RAG — Arrêt propre.")
+    logger.info("[shutdown] DocAssist — Arrêt propre.")
 
 
 # ============================================================
-# APPLICATION FASTAPI
+# APP
 # ============================================================
 
 app = FastAPI(
@@ -202,7 +174,6 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ---- CORS — autorise le frontend à appeler l'API ----
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -211,17 +182,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============================================================
-# GESTIONNAIRE D'ERREURS GLOBAL
-# ============================================================
-
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """
-    Intercepte toute exception non gérée par les routes.
-    Évite d'exposer la stack Python au client tout en loggant l'erreur complète.
-    """
     ref = str(uuid.uuid4())[:8].upper()
     logger.error(
         f"[{ref}] Exception non gérée sur {request.method} {request.url.path} : {exc}",
@@ -230,19 +193,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(
         status_code=500,
         content={
-            "detail": (f"Erreur interne inattendue (réf. {ref}). Réessayez dans quelques instants.")
+            "detail": f"Erreur interne inattendue (réf. {ref}). Réessayez dans quelques instants."
         },
     )
 
 
-# ---- Routes API ----
+# Routers
 app.include_router(health.router, prefix="/api", tags=["Santé"])
-app.include_router(documents.router, prefix="/api", tags=["Documents"])
+app.include_router(documents.router, prefix="/api", tags=["Documents & Workspaces"])
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
 
-# ---- Servir le frontend statique ----
-# Monté en dernier pour que les routes /api/* restent prioritaires.
-# html=True : sert index.html pour / et tout chemin sans fichier correspondant.
+# Frontend statique
 frontend_dir = Path(__file__).parent.parent / "frontend"
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="static")

@@ -1,98 +1,87 @@
 """
-config.py — Configuration centralisée du projet
-Tous les paramètres modifiables sont ici.
+config.py — Configuration centralisée du projet (refonte v2)
+
+Toute la logique de "catégories prédéfinies" (technique / rh / juridique) a été
+supprimée. Le système repose désormais sur des Workspaces 100 % utilisateur :
+chaque workspace est créé librement, sans schéma fixe, et stocké dans
+`data/workspaces.json`.
 """
 
 import hashlib
 import json
+import logging
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # CHEMINS
 # ============================================================
 
 BASE_DIR = Path(__file__).parent.resolve()
-
-# Documents PDF par catégorie
 DOCS_DIR = BASE_DIR / "docs"
-DOCS_TECHNIQUE_DIR = DOCS_DIR / "technique"
-DOCS_RH_DIR = DOCS_DIR / "rh"
-DOCS_JURIDIQUE_DIR = DOCS_DIR / "juridique"
-
-# Index FAISS persisté
 FAISS_INDEX_DIR = BASE_DIR / "data" / "faiss_index"
+BM25_INDEX_FILE = BASE_DIR / "data" / "bm25_index.pkl"
+RESPONSE_CACHE_FILE = BASE_DIR / "data" / "response_cache.json"
+WORKSPACES_FILE = BASE_DIR / "data" / "workspaces.json"
+DOC_METADATA_FILE = BASE_DIR / "data" / "documents_meta.json"
 
-# Métadonnées des catégories personnalisées (créées via l'API)
-CUSTOM_CATEGORIES_FILE = BASE_DIR / "data" / "custom_categories.json"
-
-# Création automatique des dossiers nécessaires
-for _dir in [
-    DOCS_TECHNIQUE_DIR,
-    DOCS_RH_DIR,
-    DOCS_JURIDIQUE_DIR,
-    FAISS_INDEX_DIR,
-    BASE_DIR / "data",
-]:
+for _dir in (DOCS_DIR, FAISS_INDEX_DIR, BASE_DIR / "data"):
     _dir.mkdir(parents=True, exist_ok=True)
+
 
 # ============================================================
 # MODÈLES
 # ============================================================
 
-# LLM via Groq (gratuit)
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_LLM_MODEL = "llama-3.3-70b-versatile"
-GROQ_TEMPERATURE = 0.1  # Faible = réponses précises et stables
-GROQ_MAX_TOKENS = 2048  # Était 1024 — les articles longs ou comparaisons tronquaient la réponse
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+ANTHROPIC_TEMPERATURE = 0.1
+ANTHROPIC_MAX_TOKENS = 1024
 
-# Embeddings locaux (gratuit, multilingue FR/EN)
-EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
+
+# Reranker — modèle cross-encoder via HuggingFace InferenceClient (0 RAM locale)
+RERANKER_MODEL = "BAAI/bge-reranker-base"
+RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
 
 # ============================================================
 # CHUNKING — Découpage des documents
 # ============================================================
 
-CHUNK_SIZE = 1000  # Nb de caractères par chunk
-CHUNK_OVERLAP = 300  # Chevauchement 30 % — réduit la perte d'info aux frontières de chunks
-# (était 200 → un article coupé en deux perdait son contexte d'en-tête)
-CHUNK_MIN_LENGTH = 50  # Longueur minimale d'un chunk (filtre les micro-chunks parasites)
+CHUNK_SIZE = 900
+CHUNK_OVERLAP = 220
+CHUNK_MIN_LENGTH = 80
 
-# Séparateurs ordonnés utilisés par RecursiveCharacterTextSplitter
-# Centralisés ici pour que get_chunk_config_fingerprint() les inclue dans l'empreinte
+# Séparateurs génériques, sans biais légal/juridique.
+# L'ordre va du plus fort (sections) au plus faible (caractère).
 CHUNK_SEPARATORS = [
-    # ── Codes légaux (Code Civil, Code du Travail, Code Pénal) ──
-    "\n\nArticle ",
-    "\n\nChapitre ",
-    "\n\nTitre ",
-    "\n\nSection ",
-    "\n\nSous-section ",
-    "\n\nAnnexe ",
-    # ── Documents techniques (Markdown) ─────────────────────────
+    "\n\n# ",
+    "\n\n## ",
+    "\n\n### ",
+    "\n\n#### ",
     "\n# ",
     "\n## ",
     "\n### ",
-    # ── Séparateurs universels ───────────────────────────────────
     "\n\n",
     "\n",
     ". ",
     "! ",
     "? ",
+    "; ",
+    ", ",
     " ",
     "",
 ]
 
 
 def get_chunk_config_fingerprint() -> str:
-    """
-    Empreinte MD5 de la configuration de chunking.
-    Change dès que CHUNK_SIZE, CHUNK_OVERLAP, CHUNK_SEPARATORS ou CHUNK_MIN_LENGTH est modifié.
-    Utilisée pour détecter un index FAISS obsolète au démarrage et déclencher une ré-indexation.
-    """
+    """Empreinte MD5 de la config de chunking (déclenche un auto-reindex si elle change)."""
     key = json.dumps(
         {
             "chunk_size": CHUNK_SIZE,
@@ -106,144 +95,177 @@ def get_chunk_config_fingerprint() -> str:
 
 
 # ============================================================
-# RETRIEVAL — Recherche sémantique
+# RETRIEVAL — Recherche hybride (sémantique + BM25)
 # ============================================================
 
-TOP_K_RESULTS = 15  # Nb de chunks dans le contexte final (était 10)
-# Augmenté pour les questions comparatives, multi-articles ou documents denses
-SIMILARITY_THRESHOLD = 0.10  # Score minimum (1/(1+L2_dist)) — était 0.12
-# Abaissé pour ne pas exclure des chunks pertinents sur documents très spécialisés
-# (terminologie juridique ou technique rare → scores naturellement plus bas)
+TOP_K_RESULTS = 6               # chunks gardés après reranking pour le LLM (↓ tokens input LLM)
+TOP_K_RETRIEVAL = 20            # pool initial par index (BM25 et FAISS)
+SIMILARITY_THRESHOLD = 0.20     # seuil min sur la similarité FAISS normalisée
+HYBRID_RRF_K = 30               # constante k du Reciprocal Rank Fusion
+HYBRID_BM25_WEIGHT = 0.45       # poids du BM25 dans la fusion (0 = full vectoriel, 1 = full BM25)
+RERANK_TOP_N = 12               # nb de candidats envoyés au reranker (après fusion)
+
+# ============================================================
+# CACHE DES RÉPONSES (cost saver)
+# ============================================================
+
+RESPONSE_CACHE_ENABLED = True
+RESPONSE_CACHE_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 jours
+RESPONSE_CACHE_MAX_ENTRIES = 500
+RESPONSE_CACHE_SIM_THRESHOLD = 0.92  # similarité cosinus min (doublée d'un contrôle lexical dans cache.py)
 
 # ============================================================
 # MÉMOIRE CONVERSATIONNELLE
 # ============================================================
 
-MEMORY_MAX_EXCHANGES = 8  # Nb d'échanges conservés en mémoire (était 7)
-# +1 échange → meilleur suivi des conversations longues sur un même document
+MEMORY_MAX_EXCHANGES = 4
 
 # ============================================================
-# CATÉGORIES DE DOCUMENTS
+# WORKSPACES — entièrement utilisateur, aucune valeur "native"
 # ============================================================
 
-CATEGORIES = {
-    "technique": {
-        "label": "Documentation Technique",
-        "dir": DOCS_TECHNIQUE_DIR,
-        "emoji": "💻",
-        "couleur": "#2E86AB",
-    },
-    "rh": {"label": "Ressources Humaines", "dir": DOCS_RH_DIR, "emoji": "👥", "couleur": "#28A745"},
-    "juridique": {
-        "label": "Documents Juridiques",
-        "dir": DOCS_JURIDIQUE_DIR,
-        "emoji": "⚖️",
-        "couleur": "#6F42C1",
-    },
-}
+_WORKSPACE_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,31}$")
 
-# Palette par défaut pour les catégories personnalisées
-_CUSTOM_EMOJIS = ["📁", "🗂️", "📋", "🔖", "📊", "🗃️", "📌", "🏷️"]
-_CUSTOM_COLORS = ["#E85D04", "#7209B7", "#0077B6", "#2D6A4F", "#9B2226", "#AE2012"]
+# Identifiants réservés (collisions avec routes API / dossiers système)
+RESERVED_WORKSPACE_KEYS: frozenset[str] = frozenset(
+    {
+        "api", "admin", "docs", "static", "data", "index", "health",
+        "chat", "documents", "workspaces", "categories", "settings",
+        "config", "all", "upload", "reindex", "status", "search",
+    }
+)
 
 
-def _load_custom_categories() -> dict:
-    """Charge les catégories personnalisées depuis le fichier JSON."""
-    if CUSTOM_CATEGORIES_FILE.exists():
+def _load_workspaces_raw() -> dict:
+    """Charge le registre des workspaces depuis le JSON. Toujours un dict (vide si absent)."""
+    if WORKSPACES_FILE.exists():
         try:
-            data = json.loads(CUSTOM_CATEGORIES_FILE.read_text(encoding="utf-8"))
-            return {k: {**v, "dir": DOCS_DIR / k} for k, v in data.items()}
-        except Exception:
-            pass
+            data = json.loads(WORKSPACES_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception as e:
+            logger.warning(f"workspaces.json corrompu : {e} — registre vide.")
     return {}
 
 
-def get_all_categories() -> dict:
-    """
-    Retourne toutes les catégories : hardcodées + personnalisées.
-    À utiliser à la place de CATEGORIES quand le contexte de requête l'exige.
-    """
-    merged = dict(CATEGORIES)
-    merged.update(_load_custom_categories())
-    return merged
+def _save_workspaces_raw(data: dict) -> None:
+    WORKSPACES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    WORKSPACES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def delete_custom_category(key: str) -> None:
-    """
-    Supprime une catégorie personnalisée du fichier JSON.
-    Ne touche pas au répertoire docs/{key}/ ni aux fichiers qu'il contient
-    (géré par la route API qui appelle cette fonction).
-    Lève ValueError si la catégorie est native ou introuvable.
-    """
-    if key in CATEGORIES:
-        raise ValueError(f"La catégorie '{key}' est native et ne peut pas être supprimée.")
+def is_valid_workspace_key(key: str) -> bool:
+    return bool(_WORKSPACE_KEY_RE.match(key)) and key not in RESERVED_WORKSPACE_KEYS
 
-    existing: dict = {}
-    if CUSTOM_CATEGORIES_FILE.exists():
-        try:
-            existing = json.loads(CUSTOM_CATEGORIES_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
 
+def get_workspaces() -> dict[str, dict]:
+    """
+    Retourne tous les workspaces enregistrés.
+    Structure : {key: {"label": str, "emoji": str, "couleur": str, "dir": Path}}.
+    """
+    raw = _load_workspaces_raw()
+    return {key: {**meta, "dir": DOCS_DIR / key} for key, meta in raw.items()}
+
+
+def get_workspace(key: str) -> dict | None:
+    return get_workspaces().get(key)
+
+
+def register_workspace(key: str, label: str, emoji: str = "📁", couleur: str = "#6B7280") -> dict:
+    """
+    Crée un nouveau workspace. Lève ValueError si la clé est invalide ou déjà prise.
+    """
+    if not is_valid_workspace_key(key):
+        raise ValueError(
+            f"Identifiant invalide : « {key} ». "
+            "Utilisez 2-32 caractères en minuscules, chiffres, tirets ou underscores. "
+            "Identifiants réservés interdits."
+        )
+
+    existing = _load_workspaces_raw()
+    if key in existing:
+        raise ValueError(f"Le workspace « {key} » existe déjà.")
+
+    label_clean = (label or key).strip()
+    for k, meta in existing.items():
+        if meta.get("label", "").strip().lower() == label_clean.lower():
+            raise ValueError(
+                f"Un workspace nommé « {meta['label']} » existe déjà (identifiant : {k})."
+            )
+
+    meta = {
+        "label": label_clean,
+        "emoji": emoji or "📁",
+        "couleur": couleur or "#6B7280",
+    }
+    existing[key] = meta
+    _save_workspaces_raw(existing)
+
+    (DOCS_DIR / key).mkdir(parents=True, exist_ok=True)
+    return {**meta, "dir": DOCS_DIR / key}
+
+
+def delete_workspace(key: str) -> None:
+    """Supprime un workspace du registre. Ne touche pas aux fichiers (géré par la route API)."""
+    existing = _load_workspaces_raw()
     if key not in existing:
-        raise ValueError(f"Catégorie personnalisée '{key}' introuvable.")
-
+        raise ValueError(f"Workspace « {key} » introuvable.")
     del existing[key]
-    CUSTOM_CATEGORIES_FILE.write_text(
-        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _save_workspaces_raw(existing)
 
 
-def register_custom_category(key: str, label: str, emoji: str, couleur: str) -> None:
+def auto_provision_workspaces_from_disk() -> int:
     """
-    Persiste une nouvelle catégorie personnalisée sur disque.
-    Crée aussi le répertoire docs/{key}/.
+    À l'init : si workspaces.json est absent mais que des dossiers existent dans docs/,
+    enregistre automatiquement chaque dossier comme workspace avec des métadonnées par défaut.
+    Permet de récupérer un projet existant (ex. legacy docs/technique, docs/rh, docs/juridique)
+    sans intervention manuelle. Retourne le nombre de workspaces créés.
     """
-    cat_dir = DOCS_DIR / key
-    cat_dir.mkdir(parents=True, exist_ok=True)
+    if _load_workspaces_raw():
+        return 0
+    if not DOCS_DIR.exists():
+        return 0
 
-    # Lire le fichier existant
-    existing: dict = {}
-    if CUSTOM_CATEGORIES_FILE.exists():
+    created = 0
+    palette = ["#2E86AB", "#28A745", "#6F42C1", "#E85D04", "#7209B7", "#0077B6", "#2D6A4F"]
+    for child in sorted(DOCS_DIR.iterdir()):
+        if not child.is_dir():
+            continue
+        key = child.name
+        if not is_valid_workspace_key(key):
+            continue
         try:
-            existing = json.loads(CUSTOM_CATEGORIES_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    # Ne pas écraser les 3 catégories natives
-    if key in CATEGORIES:
-        raise ValueError(f"La catégorie '{key}' est réservée.")
-
-    existing[key] = {"label": label, "emoji": emoji, "couleur": couleur}
-    CUSTOM_CATEGORIES_FILE.write_text(
-        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+            register_workspace(
+                key=key,
+                label=key.replace("-", " ").replace("_", " ").title(),
+                emoji="📁",
+                couleur=palette[created % len(palette)],
+            )
+            created += 1
+        except ValueError:
+            continue
+    if created:
+        logger.info(f"[workspaces] Auto-provisionnés : {created} dossier(s) existant(s) → workspaces")
+    return created
 
 
 # ============================================================
 # STOCKAGE EXTERNE
 # ============================================================
 
-# Cloudflare R2 — stockage des fichiers sources (PDF, DOCX, TXT)
-# Laisser vide en local : le mode filesystem local est utilisé à la place.
 R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID", "")
 R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY", "")
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME", "chatbot-rag-docs")
 
-# HuggingFace Hub — persistance de l'index FAISS entre les redémarrages
-# Créer un dépôt privé de type "dataset" sur huggingface.co
 HF_TOKEN = os.getenv("HF_TOKEN", "")
-HF_REPO_ID = os.getenv("HF_REPO_ID", "")  # ex: "monpseudo/chatbot-rag-index"
+HF_REPO_ID = os.getenv("HF_REPO_ID", "")
 
 
 def is_r2_enabled() -> bool:
-    """R2 actif uniquement si toutes les variables sont renseignées."""
     return bool(R2_ACCOUNT_ID and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME)
 
 
 def is_hf_enabled() -> bool:
-    """HuggingFace Hub actif uniquement si token et repo sont renseignés."""
     return bool(HF_TOKEN and HF_REPO_ID)
 
 
@@ -253,130 +275,90 @@ def is_hf_enabled() -> bool:
 
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("PORT", 8000))
-API_TITLE = "Chatbot RAG — Assistant Documentaire"
-API_VERSION = "1.0.0"
+API_TITLE = "DocAssist — Assistant Documentaire RAG"
+API_VERSION = "2.0.0"
 API_DESCRIPTION = (
-    "API REST d'un assistant conversationnel basé sur RAG. "
-    "Répond aux questions sur des documents PDF internes "
-    "en citant ses sources."
+    "Assistant conversationnel RAG. Crée tes workspaces, importe tes documents, "
+    "et pose tes questions. Le système trouve, synthétise et cite ses sources."
 )
 
 # ============================================================
-# PROMPT SYSTÈME
+# PROMPT SYSTÈME — Générique, sans biais de domaine
 # ============================================================
 
-SYSTEM_PROMPT = """Tu es DocAssist, un assistant documentaire expert. \
-Tu exploites la documentation interne (technique, RH, juridique) pour aider \
-les collaborateurs à trouver, comprendre et synthétiser des informations précises.
+SYSTEM_PROMPT = """Tu es DocAssist, un assistant documentaire fondé sur les documents \
+fournis par l'utilisateur. Ta mission : répondre avec précision en t'appuyant \
+exclusivement sur les extraits remis dans le contexte.
 
 ## Règles fondamentales
 
-1. **Sources exclusives** — Réponds uniquement à partir des extraits fournis dans le contexte. \
-Ne jamais inventer, supposer ou compléter avec des connaissances non présentes dans les extraits.
+1. **Sources exclusives** — Réponds uniquement à partir des extraits fournis. \
+N'invente jamais, ne suppose pas, ne complète pas avec des connaissances externes. \
+Si l'information n'est pas dans les extraits, dis-le explicitement.
 2. **Exhaustivité** — Si plusieurs extraits apportent des éléments complémentaires, \
 synthétise-les tous. Ne laisse pas d'information pertinente de côté.
-3. **Honnêteté** — Si l'information est absente, partielle ou ambiguë dans les extraits, \
-dis-le explicitement : *« Les documents disponibles ne précisent pas… »* \
-Ne dis PAS que l'information est absente si tu peux la déduire des extraits fournis.
-4. **Synthèse comparative** — Si la question compare deux concepts (ex. : « différence entre CDI et CDD ») \
-et que les extraits définissent chaque concept séparément (sans paragraphe de comparaison explicite), \
-construis toi-même la comparaison à partir des définitions et caractéristiques disponibles. \
-Commence par résumer chaque concept, puis présente les différences clés dans un tableau ou une liste contrastive.
-5. **Pas de référence aux sources** — Ne cite pas les numéros d'extraits (ex. [1], [2], \
-Extrait 3…) — elles sont affichées séparément dans l'interface.
-6. **Langue** — Réponds impérativement dans la même langue que la question.
+3. **Honnêteté** — Si l'information est partielle ou ambiguë, signale-le \
+(« Les documents disponibles précisent X mais ne mentionnent pas Y »). \
+Ne dis pas qu'une information est absente si elle est en fait déductible des extraits.
+4. **Synthèse comparative** — Si la question demande une comparaison (ex. X vs Y) \
+et que les extraits définissent chaque élément séparément, construis la comparaison \
+toi-même à partir des éléments disponibles, sous forme de tableau ou de liste contrastive.
+5. **Pas de référence aux numéros d'extraits** — Ne cite pas « [1] », « Extrait 3 », etc. \
+Les sources sont affichées séparément dans l'interface.
+6. **Langue** — Réponds dans la même langue que la question. Exception : si le document \
+source est en anglais et la question en français, réponds en français en conservant \
+les termes techniques anglais tels quels (ex : "le bean", "l'autoconfiguration", "le endpoint").
+7. **Reformulation fidèle** — Cite textuellement les passages clés (définitions, valeurs, \
+articles, identifiants, formules). Reformule uniquement quand cela clarifie sans dénaturer.
 
 ## Format de réponse
 
-Choisis le format adapté à la complexité de la réponse :
+Adapte le format à la question :
 
 | Situation | Format |
 |-----------|--------|
 | Procédure / étapes ordonnées | Liste numérotée `1. 2. 3.` |
-| Points clés / énumération | Liste à puces `- item` |
+| Énumération non ordonnée | Liste à puces `- item` |
 | Comparaison de 3+ éléments | Tableau Markdown |
-| Grille salariale / classification / barème | Tableau Markdown avec toutes les lignes disponibles |
-| Valeur importante / terme clé | **gras** |
-| Code source (JS, PHP, Java, SQL…) | Bloc de code avec la langue précisée ` ```js `, ` ```php `, ` ```java ` |
-| Réponse > 3 points | Phrase de synthèse en tête, puis développement |
+| Données tabulaires (grilles, barèmes, classifications) | Tableau Markdown complet |
+| Valeur ou terme clé | **gras** |
+| Code source (Java, PHP, JavaScript, YAML, XML, SQL…) | Bloc de code avec l'identifiant exact du langage : ` ```java `, ` ```php `, ` ```javascript `, ` ```yaml `, ` ```xml `, ` ```sql `… |
+| Réponse > 3 points | Phrase de synthèse en tête, puis détail |
 | Réponse ≤ 2 lignes | Réponse directe, sans structure superflue |
 
-## Directives par type de document
+## Comportement selon le type de document
 
-### 📄 Documents juridiques (Code civil, Code du Travail, Code Pénal, Constitution, DDHC)
-- Cite **toujours le numéro d'article** concerné en gras : **Article 6**, **Article L1232-1**
-- Indique la **source légale** entre parenthèses si plusieurs codes sont présents : *(Code civil)*, *(Code du travail)*
-- Pour une question sur un article précis, reproduis **l'intégralité du texte** disponible dans les extraits, sans le tronquer
-- Si un article renvoie à un autre article, mentionne-le
-- Pour les questions constitutionnelles, distingue les pouvoirs concernés (exécutif, législatif, judiciaire)
-- **Lookup inverse (texte → article)** : si l'utilisateur fournit un extrait de texte et demande \
-à quel article il correspond, identifie le numéro d'article qui précède cet extrait dans les chunks \
-disponibles, et indique sa source (ex. : *Code civil*, *Code du travail*). \
-Si plusieurs articles contiennent ce texte, cite-les tous.
+**Documents juridiques** (codes, lois, conventions collectives, constitutions) :
+- Reproduis les numéros d'articles exactement tels qu'ils apparaissent dans les extraits \
+(ex : « Article L1234-5 », « Article 111-1 », « Article 1er »).
+- Pour les dispositions légales importantes, cite la formulation exacte entre guillemets \
+plutôt que de paraphraser — la précision du texte a valeur juridique.
+- Si plusieurs articles se complètent ou se contredisent, signale-le explicitement.
 
-### 👥 Convention collective (RH)
-- Reproduis les **grilles salariales et classifications** sous forme de tableau Markdown complet avec toutes les colonnes (coefficient, niveau, échelon, salaire minimum)
-- Pour les **durées** (préavis, période d'essai, congés), précise la catégorie professionnelle concernée (cadre, non-cadre, technicien…)
-- Si une clause renvoie à la loi (ex. Code du Travail), mentionne-le en complément
-- Pour les **primes et avantages**, précise les conditions d'éligibilité et le mode de calcul
+**Documentation technique** (frameworks, langages de programmation, APIs) :
+- Encadre systématiquement tout extrait de code dans un bloc avec le bon identifiant \
+de langage (java, php, javascript, yaml, xml, bash…).
+- Si les extraits mentionnent une version spécifique du logiciel ou de la bibliothèque, \
+indique-la dans ta réponse (ex : "selon la documentation Spring Boot 3.2.x…").
+- Distingue la syntaxe ancienne de la syntaxe moderne si les extraits les présentent toutes deux.
 
-### 👤 Fiches de personnel et CV
+**Profil / CV / fiche personnelle** :
+- Présente les informations dans l'ordre et la structure du document source.
+- Reproduis les intitulés de postes, diplômes et compétences tels qu'ils sont écrits.
+- Ne synthétise pas ou n'interprète pas les données personnelles — cite-les telles quelles.
 
-- **Lookup par identifiant** (téméphone, email) : identifie la personne dont le profil \
-contient cet identifiant exact et indique son **nom complet en gras** avant toute autre information
-- **Lookup par profil** : si l'utilisateur fournit une description de profil, identifie \
-l'employé/candidat dont les caractéristiques correspondent
-- **Lookup par compétence** : si on demande « qui maîtrise X ? », liste tous les \
-membres dont la fiche mentionne X, avec leur nom complet
-- **Compétences techniques** : reproduis la liste complète organisée par catégorie \
-(Langages, Bases de données, Outils & Méthodes, IA & Data Science…) telle qu'elle \
-apparaît dans le document
-- **Expériences professionnelles** : nom de l'entreprise en **gras**, poste, période, \
-missions principales sous forme de liste à puces
-- **Formation** : diplôme en **gras**, établissement, année
-- **Coordonnées** : téléphone, email, adresse, LinkedIn → reproduis-les tels quels \
-depuis le document, sans les modifier
-- **Règle clé** : commence **toujours** par nommer clairement la personne concernée \
-avant de donner l'information demandée
+## Bonnes pratiques
 
-### 💻 Documentation technique (JavaScript, PHP, Spring Boot)
-- **Inclus toujours des exemples de code** tirés des extraits dans des blocs ` ```js `, ` ```php ` ou ` ```java `
-- Pour les fonctions/méthodes, donne la **syntaxe complète** (paramètres, valeur de retour)
-- Pour les annotations Spring Boot, explique leur rôle et montre un exemple d'usage
-- Si une notion fait appel à un prérequis (ex. : async/await nécessite de comprendre les Promises), mentionne-le
-
-## Cas particuliers à anticiper
-
-### Questions sur les sanctions / peines
-Quand la question demande "que risque-t-on ?", "quelles sanctions ?", "quelle peine ?" :
-- Cite **l'article exact** qui définit la peine, en gras
-- Donne le **montant de l'amende** et/ou la **durée d'emprisonnement** précisément
-- Distingue crime (cour d'assises), délit (tribunal correctionnel), contravention (tribunal de police)
-- Si des circonstances aggravantes existent dans les extraits, mentionne-les
-
-### Questions impliquant plusieurs codes de loi
-Si la réponse mobilise plusieurs sources légales (ex. Code civil + Code du travail) :
-- Organise par **code source** : commence par le plus pertinent pour la question
-- Signale clairement *(Code civil — Article X)*, *(Code du travail — Article Y)*
-- Ne mélange pas les régimes légaux sans les distinguer
-
-### Questions de procédure
-Quand la question demande "comment faire ?", "quelle démarche ?", "quelles étapes ?" :
-- Donne une **liste numérotée** des étapes dans l'ordre chronologique
-- Précise les **délais** (ex. : "dans les 15 jours", "sous 2 mois") s'ils apparaissent dans les extraits
-- Mentionne l'**autorité compétente** (tribunal, employeur, administration) et les **documents nécessaires**
-
-### Questions vagues / générales
-Si la question est très générale ("parle-moi du mariage") :
-- Structure la réponse en sous-thèmes : définition → conditions → effets → dissolution
-- Indique les articles clés couvrant chaque aspect
-- Propose une question de suivi si la réponse couvre plusieurs facettes
-
-## Exigences qualité
-
-- **Précis et actionnable** : préfère *« Exécutez la commande X »* à *« X peut être exécuté »*
-- **Structuré** : 3 points clairs valent mieux qu'un paragraphe dense
-- **Complet** : si une procédure comporte des prérequis ou des mises en garde, mentionne-les
-- **Synthétique** : commence par l'essentiel, détaille ensuite
-- **Fidèle** : ne paraphrase pas les articles de loi — cite-les textuellement si l'extrait est disponible
+- **Identifiants** (numéros d'article, références, codes, dates, montants, coordonnées) : \
+reproduis-les tels quels, sans les modifier.
+- **Citations** : si l'utilisateur demande le texte exact d'une section, reproduis-le \
+intégralement à partir des extraits.
+- **Lookup inverse** : si l'utilisateur fournit un extrait et demande à quoi il \
+correspond (article, fiche, document), identifie la source qui contient ce texte \
+et indique son intitulé/numéro.
+- **Réponse vide** : si aucun extrait ne contient l'information demandée, dis-le \
+clairement et propose une reformulation utile.
+- **Précis et actionnable** : préfère « Exécutez X » à « X peut être exécuté ».
+- **Structuré** : 3 points clairs valent mieux qu'un paragraphe dense.
+- **Synthétique** : commence par l'essentiel, détaille ensuite.
 """

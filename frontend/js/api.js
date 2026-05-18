@@ -1,19 +1,12 @@
 /**
- * api.js — Client HTTP vers le backend FastAPI
- * API_BASE est défini dans config.js (chargé avant ce fichier).
- * Toutes les fonctions retournent des Promises et propagent les erreurs.
+ * api.js — Client HTTP vers le backend FastAPI (refonte v2)
+ * `workspace` remplace `categorie` partout.
+ * API_BASE est défini dans config.js.
  */
 
-/**
- * Envoie une question au pipeline RAG.
- * @param {string} question
- * @param {string|null} categorie  — "technique" | "rh" | "juridique" | null
- * @param {string} sessionId
- * @returns {Promise<Object>} ChatResponse
- */
-async function apiChat(question, categorie, sessionId) {
+async function apiChat(question, workspace, sessionId) {
   const body = { question, session_id: sessionId };
-  if (categorie) body.categorie = categorie;
+  if (workspace) body.workspace = workspace;
 
   let res;
   try {
@@ -26,6 +19,12 @@ async function apiChat(question, categorie, sessionId) {
     throw new Error('Impossible de contacter le serveur. Vérifiez votre connexion réseau.');
   }
 
+  if (res.status === 429) {
+    const err = await res.json().catch(() => ({}));
+    const e = new Error(err.detail || 'Limite journalière de requêtes atteinte.');
+    e.code = 'RATE_LIMIT';
+    throw e;
+  }
   if (res.status === 503) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || 'L\'index documentaire n\'est pas disponible. Uploadez des documents d\'abord.');
@@ -37,38 +36,9 @@ async function apiChat(question, categorie, sessionId) {
   return res.json();
 }
 
-/**
- * Récupère la liste des documents indexés par catégorie.
- * Retourne un objet vide si aucun document n'est indexé (404).
- * @returns {Promise<Object>} DocumentsResponse
- */
-async function apiDocuments() {
-  const res = await fetch(`${API_BASE}/documents`);
-  if (res.status === 404) return { documents: [], total: 0, categories: [] };
-  if (!res.ok) throw new Error(`Impossible de charger les documents (${res.status})`);
-  return res.json();
-}
-
-/**
- * Vérifie l'état de santé de l'API.
- * @returns {Promise<Object>} HealthResponse
- */
-async function apiHealth() {
-  const res = await fetch(`${API_BASE}/health`);
-  if (!res.ok) throw new Error('Service indisponible');
-  return res.json();
-}
-
-/**
- * Démarre une requête chat en streaming (SSE via fetch).
- * @param {string} question
- * @param {string|null} categorie
- * @param {string} sessionId
- * @returns {Promise<ReadableStreamDefaultReader>}
- */
-async function apiChatStream(question, categorie, sessionId) {
+async function apiChatStream(question, workspace, sessionId) {
   const body = { question, session_id: sessionId };
-  if (categorie) body.categorie = categorie;
+  if (workspace) body.workspace = workspace;
 
   let res;
   try {
@@ -81,6 +51,12 @@ async function apiChatStream(question, categorie, sessionId) {
     throw new Error('Impossible de contacter le serveur. Vérifiez votre connexion réseau.');
   }
 
+  if (res.status === 429) {
+    const err = await res.json().catch(() => ({}));
+    const e = new Error(err.detail || 'Limite journalière de requêtes atteinte.');
+    e.code = 'RATE_LIMIT';
+    throw e;
+  }
   if (res.status === 503) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || 'L\'index documentaire n\'est pas disponible. Uploadez des documents d\'abord.');
@@ -92,11 +68,19 @@ async function apiChatStream(question, categorie, sessionId) {
   return res.body.getReader();
 }
 
-/**
- * Efface l'historique conversationnel d'une session côté serveur.
- * @param {string} sessionId
- * @returns {Promise<Object>}
- */
+async function apiDocuments() {
+  const res = await fetch(`${API_BASE}/documents`);
+  if (res.status === 404) return { documents: [], total: 0, workspaces: [] };
+  if (!res.ok) throw new Error(`Impossible de charger les documents (${res.status})`);
+  return res.json();
+}
+
+async function apiHealth() {
+  const res = await fetch(`${API_BASE}/health`, { cache: 'no-store' });
+  if (!res.ok) throw new Error('Service indisponible');
+  return res.json();
+}
+
 async function apiClearSession(sessionId) {
   const res = await fetch(`${API_BASE}/chat/clear`, {
     method: 'POST',
@@ -110,44 +94,30 @@ async function apiClearSession(sessionId) {
   return res.json();
 }
 
-/**
- * Récupère toutes les catégories disponibles (hardcodées + personnalisées).
- * @returns {Promise<Object>} CategoriesResponse
- */
-async function apiGetCategories() {
-  const res = await fetch(`${API_BASE}/categories`);
-  if (!res.ok) throw new Error(`Impossible de charger les catégories (${res.status})`);
+async function apiGetWorkspaces() {
+  const res = await fetch(`${API_BASE}/workspaces`);
+  if (!res.ok) throw new Error(`Impossible de charger les workspaces (${res.status})`);
   return res.json();
 }
 
-/**
- * Crée une nouvelle catégorie personnalisée.
- * @param {{ key, label, emoji, couleur }} data
- * @returns {Promise<Object>} CategoryInfo
- */
-async function apiCreateCategory(data) {
-  const res = await fetch(`${API_BASE}/categories`, {
+async function apiCreateWorkspace(data) {
+  const res = await fetch(`${API_BASE}/workspaces`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.detail || `Erreur création catégorie (${res.status})`);
+  if (!res.ok) throw new Error(json.detail || `Erreur création workspace (${res.status})`);
   return json;
 }
 
-/**
- * Upload des fichiers dans une catégorie et les indexe.
- * @param {FileList|File[]} files
- * @param {string} categorie
- * @param {function(number):void} [onProgress]  — appelé avec % avancement upload
- * @returns {Promise<Object>} UploadResponse
- */
-/**
- * Relance l'indexation complète de tous les documents présents dans docs/.
- * Retourne immédiatement (background=true) — interrogez apiIndexStatus() pour suivre.
- * @returns {Promise<Object>} ReindexResponse
- */
+async function apiDeleteWorkspace(key) {
+  const res = await fetch(`${API_BASE}/workspaces/${encodeURIComponent(key)}`, { method: 'DELETE' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.detail || `Erreur suppression workspace (${res.status})`);
+  return json;
+}
+
 async function apiReindex() {
   const res = await fetch(`${API_BASE}/documents/reindex`, { method: 'POST' });
   const json = await res.json().catch(() => ({}));
@@ -155,53 +125,29 @@ async function apiReindex() {
   return json;
 }
 
-/**
- * Interroge l'état de l'indexation en arrière-plan.
- * @returns {Promise<Object>} IndexStatusResponse { running, chunks, files, done_at, error, message }
- */
 async function apiIndexStatus() {
   const res = await fetch(`${API_BASE}/index/status`);
   if (!res.ok) throw new Error(`Impossible de récupérer le statut (${res.status})`);
   return res.json();
 }
 
-/**
- * Supprime un document indexé et reconstruit l'index.
- * @param {string} categorie
- * @param {string} filename
- * @returns {Promise<Object>} DeleteDocumentResponse
- */
-async function apiDeleteDocument(categorie, filename) {
+async function apiDeleteDocument(workspace, filename) {
   const res = await fetch(
-    `${API_BASE}/documents/${encodeURIComponent(categorie)}/${encodeURIComponent(filename)}`,
+    `${API_BASE}/documents/${encodeURIComponent(workspace)}/${encodeURIComponent(filename)}`,
     { method: 'DELETE' }
   );
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.detail || `Erreur suppression (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(json.detail || `Erreur suppression (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
   return json;
 }
 
-/**
- * Supprime une catégorie personnalisée et tous ses documents.
- * @param {string} key
- * @returns {Promise<Object>} DeleteCategoryResponse
- */
-async function apiDeleteCategory(key) {
-  const res = await fetch(`${API_BASE}/categories/${encodeURIComponent(key)}`, { method: 'DELETE' });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.detail || `Erreur suppression catégorie (${res.status})`);
-  return json;
-}
-
-/**
- * Ré-indexe un document précis (reconstruction complète de l'index).
- * @param {string} categorie
- * @param {string} filename
- * @returns {Promise<Object>} ReindexFileResponse
- */
-async function apiReindexFile(categorie, filename) {
+async function apiReindexFile(workspace, filename) {
   const res = await fetch(
-    `${API_BASE}/documents/${encodeURIComponent(categorie)}/${encodeURIComponent(filename)}/reindex`,
+    `${API_BASE}/documents/${encodeURIComponent(workspace)}/${encodeURIComponent(filename)}/reindex`,
     { method: 'POST' }
   );
   const json = await res.json().catch(() => ({}));
@@ -209,9 +155,9 @@ async function apiReindexFile(categorie, filename) {
   return json;
 }
 
-async function apiUploadFiles(files, categorie, onProgress) {
+async function apiUploadFiles(files, workspace, onProgress) {
   const form = new FormData();
-  form.append('categorie', categorie);
+  form.append('workspace', workspace);
   for (const file of files) {
     form.append('files', file);
   }
@@ -228,29 +174,17 @@ async function apiUploadFiles(files, categorie, onProgress) {
 
     xhr.onload = () => {
       const json = (() => { try { return JSON.parse(xhr.responseText); } catch { return {}; } })();
-      if (xhr.status === 409) {
-        reject(new Error(json.detail || 'Une indexation est déjà en cours. Attendez qu\'elle se termine.'));
-      } else if (xhr.status === 413) {
-        reject(new Error('Fichier(s) trop volumineux — limite serveur dépassée.'));
-      } else if (xhr.status === 422) {
-        reject(new Error(json.detail || 'Données invalides (catégorie ou fichier non reconnu).'));
-      } else if (xhr.status === 503) {
-        reject(new Error(json.detail || 'Service temporairement indisponible. Réessayez dans quelques instants.'));
-      } else if (xhr.status >= 500) {
-        reject(new Error(json.detail || `Erreur serveur interne (${xhr.status}). Réessayez.`));
-      } else if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(json);
-      } else {
-        reject(new Error(json.detail || `Erreur inattendue (${xhr.status}).`));
-      }
+      if (xhr.status === 409) reject(new Error(json.detail || 'Une indexation est déjà en cours.'));
+      else if (xhr.status === 413) reject(new Error('Fichier(s) trop volumineux.'));
+      else if (xhr.status === 422) reject(new Error(json.detail || 'Données invalides.'));
+      else if (xhr.status === 503) reject(new Error(json.detail || 'Service temporairement indisponible.'));
+      else if (xhr.status >= 500) reject(new Error(json.detail || `Erreur serveur interne (${xhr.status}).`));
+      else if (xhr.status >= 200 && xhr.status < 300) resolve(json);
+      else reject(new Error(json.detail || `Erreur inattendue (${xhr.status}).`));
     };
-    xhr.onerror = () => reject(new Error(
-      'Impossible de contacter le serveur. Vérifiez votre connexion réseau.'
-    ));
-    xhr.ontimeout = () => reject(new Error(
-      'Le serveur met trop de temps à répondre. Réessayez dans quelques instants.'
-    ));
-    xhr.timeout = 30000;  // 30 s pour la phase d'envoi (sauvegarde fichier)
+    xhr.onerror = () => reject(new Error('Impossible de contacter le serveur.'));
+    xhr.ontimeout = () => reject(new Error('Le serveur met trop de temps à répondre.'));
+    xhr.timeout = 30000;
     xhr.send(form);
   });
 }

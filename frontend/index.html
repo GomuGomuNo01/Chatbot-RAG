@@ -2,11 +2,9 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <!-- viewport-fit=cover : safe-area-inset-* fonctionne sur iPhone notch/Dynamic Island -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="description" content="Assistant documentaire RAG — Technique, RH, Juridique">
-  <title>Assistant Documentaire</title>
-  <!-- Polices : Satoshi (Fontshare) · JetBrains Mono (Google Fonts) -->
+  <meta name="description" content="DocAssist — Assistant documentaire RAG personnalisable">
+  <title>DocAssist</title>
   <link rel="preconnect" href="https://api.fontshare.com">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,88 +17,93 @@
 
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
+  <!-- ═══════════════════ MODAL LIMITE JOURNALIÈRE ═══════════════════ -->
+  <div class="modal-backdrop" id="rateLimitModal" hidden aria-modal="true" role="alertdialog" aria-labelledby="rateLimitTitle">
+    <div class="modal modal--alert">
+      <div class="modal__alert-icon">⚠️</div>
+      <h2 class="modal__title" id="rateLimitTitle">Limite journalière atteinte</h2>
+      <p class="modal__alert-body" id="rateLimitBody">
+        Vous avez utilisé toutes vos requêtes disponibles pour aujourd'hui.<br>
+        L'accès sera automatiquement rétabli demain.
+      </p>
+      <button class="btn-primary" id="rateLimitCloseBtn">J'ai compris</button>
+    </div>
+  </div>
+
   <!-- ═══════════════════ MODAL UPLOAD ═══════════════════ -->
   <div class="modal-backdrop" id="uploadModal" hidden aria-modal="true" role="dialog" aria-labelledby="modalTitle">
     <div class="modal">
 
-      <!-- Header -->
       <div class="modal__header">
         <h2 class="modal__title" id="modalTitle" data-i18n="upload.title">Ajouter des documents</h2>
         <button class="modal__close" id="modalCloseBtn" aria-label="Fermer">×</button>
       </div>
 
-      <!-- Panneau : choisir catégorie -->
+      <!-- Étape 1 : choisir un workspace -->
       <div class="modal__panel" id="panelCategory">
-        <p class="modal__step-label" data-i18n="upload.step1">1. Choisir une catégorie</p>
-        <div class="cat-radio-group" id="catRadioGroup" role="radiogroup"></div>
-        <button class="btn-new-cat" id="btnNewCat" data-i18n="newcat.option">＋ Nouvelle catégorie</button>
+        <p class="modal__step-label" data-i18n="upload.step1">1. Choisir un workspace</p>
+        <div class="cat-radio-group" id="catRadioGroup" role="radiogroup">
+          <p class="doc-list__empty" data-i18n="ws.none">Aucun workspace pour l'instant — créez-en un.</p>
+        </div>
+        <button class="btn-new-cat" id="btnNewCat" data-i18n="newws.option">＋ Nouveau workspace</button>
       </div>
 
-      <!-- Panneau : créer catégorie -->
+      <!-- Étape 1bis : créer un workspace -->
       <div class="modal__panel" id="panelNewCat" hidden>
-        <p class="modal__step-label" data-i18n="newcat.title">Créer une catégorie</p>
+        <p class="modal__step-label" data-i18n="newws.title">Créer un workspace</p>
         <div class="new-cat-form">
-
-          <!-- Nom + Couleur -->
           <div class="new-cat-form__row">
             <div class="form-group" style="flex:1">
-              <label class="form-label" data-i18n="newcat.label">Nom affiché</label>
+              <label class="form-label" data-i18n="newws.label">Nom affiché</label>
               <input class="form-input" id="newCatLabel" type="text" maxlength="80"
-                placeholder="Ex: Documentation Marketing">
+                placeholder="Ex: Projet Phoenix, Recettes, Veille IA…">
             </div>
             <div class="form-group">
-              <label class="form-label" data-i18n="newcat.color">Couleur</label>
+              <label class="form-label" data-i18n="newws.color">Couleur</label>
               <input class="form-input form-input--color" id="newCatColor" type="color" value="#6B7280">
             </div>
           </div>
 
-          <!-- Identifiant -->
           <div class="form-group">
-            <label class="form-label" data-i18n="newcat.key">Identifiant</label>
+            <label class="form-label" data-i18n="newws.key">Identifiant</label>
             <input class="form-input" id="newCatKey" type="text" maxlength="32"
-              pattern="[a-z0-9_-]+" placeholder="ex: marketing">
-            <span class="form-hint" data-i18n="newcat.key.hint">Minuscules, chiffres, tirets uniquement</span>
+              pattern="[a-z0-9][a-z0-9_-]*" placeholder="ex: marketing">
+            <span class="form-hint" data-i18n="newws.key.hint">Minuscules, chiffres, tirets uniquement</span>
           </div>
 
-          <!-- Emoji picker -->
           <div class="form-group">
-            <label class="form-label" data-i18n="newcat.emoji">Choisir un emoji</label>
-            <div class="emoji-picker" id="emojiPicker" role="listbox" aria-label="Choisir un emoji">
-              <!-- Généré par JS -->
-            </div>
+            <label class="form-label" data-i18n="newws.emoji">Choisir un emoji</label>
+            <div class="emoji-picker" id="emojiPicker" role="listbox" aria-label="Choisir un emoji"></div>
             <input type="hidden" id="newCatEmoji" value="📁">
           </div>
 
           <div class="new-cat-form__actions">
-            <button class="btn btn--ghost" id="btnCancelNewCat" data-i18n="newcat.cancel">Retour</button>
-            <button class="btn btn--primary" id="btnCreateCat" data-i18n="newcat.create">Créer</button>
+            <button class="btn btn--ghost" id="btnCancelNewCat" data-i18n="newws.cancel">Retour</button>
+            <button class="btn btn--primary" id="btnCreateCat" data-i18n="newws.create">Créer</button>
           </div>
         </div>
       </div>
 
-      <!-- Panneau : drop zone -->
+      <!-- Étape 2 : drop zone -->
       <div class="modal__panel" id="panelFiles">
         <p class="modal__step-label" data-i18n="upload.step2">2. Sélectionner les fichiers</p>
         <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Zone de dépôt de fichiers">
-          <!-- SVG dossier — Taste ANTI-EMOJI POLICY -->
           <div class="drop-zone__icon" aria-hidden="true">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-              stroke-linejoin="round">
+              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
               <line x1="12" y1="11" x2="12" y2="17"/>
               <line x1="9" y1="14" x2="15" y2="14"/>
             </svg>
           </div>
           <p class="drop-zone__title" data-i18n="upload.drop.title">Glissez vos fichiers ici</p>
-          <p class="drop-zone__hint" data-i18n="upload.drop.hint">PDF, DOCX, TXT · 50 Mo max</p>
+          <p class="drop-zone__hint" data-i18n="upload.drop.hint">PDF, DOCX, TXT, MD · 50 Mo max</p>
           <button class="btn btn--ghost btn--sm" id="browseBtn" type="button" data-i18n="upload.browse">Parcourir</button>
-          <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt" hidden>
+          <input type="file" id="fileInput" multiple accept=".pdf,.docx,.txt,.md" hidden>
         </div>
         <ul class="file-list" id="fileList"></ul>
       </div>
 
-      <!-- Footer -->
       <div class="modal__footer">
         <div class="upload-feedback" id="uploadFeedback" hidden></div>
         <div class="modal__footer-row">
@@ -112,7 +115,6 @@
         </div>
       </div>
 
-      <!-- Overlay de progression -->
       <div class="upload-overlay" id="uploadOverlay" hidden>
         <div class="upload-overlay__inner">
           <div class="upload-spinner"></div>
@@ -130,7 +132,7 @@
   <div class="app">
 
     <!-- ══════════════════════ SIDEBAR ══════════════════════ -->
-    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Filtres et documents">
+    <aside class="sidebar" id="sidebar" role="navigation" aria-label="Workspaces et documents">
 
       <div class="sidebar-header">
         <div class="brand">
@@ -139,43 +141,22 @@
         </div>
       </div>
 
-      <!-- Filtre par catégorie -->
+      <!-- Filtre par workspace : 100 % généré dynamiquement -->
       <div class="sidebar-section">
-        <h2 class="sidebar-section-title" data-i18n="sidebar.category">Catégorie</h2>
-        <div class="category-list" id="categoryList" role="radiogroup" aria-label="Filtrer par catégorie">
+        <h2 class="sidebar-section-title" data-i18n="sidebar.workspaces">Workspaces</h2>
+        <div class="category-list" id="categoryList" role="radiogroup" aria-label="Filtrer par workspace">
 
           <label class="category-item category-item--active">
             <input type="radio" name="category" value="" checked>
             <span class="category-dot all" aria-hidden="true"></span>
-            <span data-i18n="cat.all">Tout</span>
+            <span data-i18n="ws.all">Tout</span>
             <span class="category-count" id="count-all">0</span>
-          </label>
-
-          <label class="category-item">
-            <input type="radio" name="category" value="technique">
-            <span class="category-dot technique" aria-hidden="true"></span>
-            <span data-i18n="cat.technique">Technique</span>
-            <span class="category-count" id="count-technique">0</span>
-          </label>
-
-          <label class="category-item">
-            <input type="radio" name="category" value="rh">
-            <span class="category-dot rh" aria-hidden="true"></span>
-            <span data-i18n="cat.rh">Ressources Humaines</span>
-            <span class="category-count" id="count-rh">0</span>
-          </label>
-
-          <label class="category-item">
-            <input type="radio" name="category" value="juridique">
-            <span class="category-dot juridique" aria-hidden="true"></span>
-            <span data-i18n="cat.juridique">Juridique</span>
-            <span class="category-count" id="count-juridique">0</span>
           </label>
 
         </div>
       </div>
 
-      <!-- Liste des documents indexés -->
+      <!-- Documents indexés -->
       <div class="sidebar-section">
         <h2 class="sidebar-section-title" data-i18n="sidebar.docs">Documents indexés</h2>
         <div class="document-list" id="documentList" aria-live="polite">
@@ -183,7 +164,6 @@
         </div>
       </div>
 
-      <!-- Bouton upload -->
       <div class="sidebar-upload">
         <button class="upload-trigger-btn" id="openUploadBtn" aria-label="Ajouter des documents">
           <span class="upload-trigger-btn__icon" aria-hidden="true">＋</span>
@@ -196,7 +176,6 @@
     <!-- ══════════════════════ MAIN ══════════════════════ -->
     <main class="main" role="main">
 
-      <!-- Header -->
       <header class="header">
         <button class="menu-btn" id="menuBtn"
           data-i18n-aria="btn.menu" aria-label="Ouvrir le menu" aria-expanded="false">
@@ -204,12 +183,11 @@
         </button>
 
         <div class="header-center">
-          <h1 class="header-title" data-i18n="header.title">Assistant Documentaire</h1>
-          <p class="header-subtitle" data-i18n="header.subtitle">Recherche sémantique · Sources citées</p>
+          <h1 class="header-title" data-i18n="header.title">DocAssist</h1>
+          <p class="header-subtitle" data-i18n="header.subtitle">Recherche hybride · Sources citées</p>
         </div>
 
         <div class="header-actions">
-          <!-- Sélecteur de langue -->
           <div class="lang-switcher" role="group" aria-label="Language">
             <button class="lang-btn lang-btn--active" data-lang="fr" onclick="i18n.setLang('fr'); window._app && window._app._onLangChange()">FR</button>
             <button class="lang-btn" data-lang="en" onclick="i18n.setLang('en'); window._app && window._app._onLangChange()">EN</button>
@@ -218,13 +196,13 @@
           <div class="status-badge status-badge--warn" id="statusBadge" role="status" aria-live="polite">
             <span class="status-dot" aria-hidden="true"></span>
             <span id="statusText" data-i18n="status.connecting">Connexion…</span>
+            <span id="rateChip" class="rate-chip" hidden></span>
           </div>
           <button class="new-chat-btn" id="newChatBtn"
             data-i18n-title="btn.newchat.title"
             data-i18n-aria="btn.newchat.aria"
-            title="Nouvelle conversation (efface l'historique)"
+            title="Nouvelle conversation"
             aria-label="Nouvelle conversation">
-            <!-- Icône crayon SVG — Taste ANTI-EMOJI POLICY -->
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2" stroke-linecap="round"
               stroke-linejoin="round" aria-hidden="true">
@@ -235,37 +213,18 @@
         </div>
       </header>
 
-      <!-- Zone de chat -->
       <div class="chat-container" id="chatContainer" role="log" aria-label="Conversation" aria-live="polite">
 
-        <!-- Écran de bienvenue -->
         <section class="welcome" id="welcomeScreen" aria-label="Écran de bienvenue">
-          <!-- Ornement CSS — div vide, rendu par style.css (barre terracotta) -->
           <div class="welcome-icon" aria-hidden="true"></div>
-          <h2 data-i18n="welcome.title">Bonjour ! Comment puis-je vous aider ?</h2>
-          <p id="welcomeDesc">
-            Posez vos questions sur la documentation <strong>technique</strong>,
-            les ressources <strong>RH</strong> ou les documents <strong>juridiques</strong>.
-            Je citerai toujours mes sources.
+          <h2 data-i18n="welcome.title">Bonjour ! Que puis-je vous aider à explorer ?</h2>
+          <p id="welcomeDesc" data-i18n="welcome.desc">
+            Importez vos documents, organisez-les par workspaces et posez vos questions. Je citerai toujours mes sources.
           </p>
-          <div class="example-questions" aria-label="Questions exemples">
-            <!-- Emojis supprimés — Taste ANTI-EMOJI POLICY [CRITICAL] -->
-            <button class="example-btn" data-i18n-q="welcome.q1_val"
-              data-question="Quelles sont les règles sur les congés payés ?"
-              data-i18n="welcome.q1">Congés payés</button>
-            <button class="example-btn" data-i18n-q="welcome.q2_val"
-              data-question="Comment configurer Spring Boot ?"
-              data-i18n="welcome.q2">Configurer Spring Boot</button>
-            <button class="example-btn" data-i18n-q="welcome.q3_val"
-              data-question="Quelles sont les clauses essentielles d'un contrat CDI ?"
-              data-i18n="welcome.q3">Clauses CDI</button>
-          </div>
         </section>
 
-        <!-- Conteneur des messages -->
         <div id="messages" aria-label="Messages de la conversation"></div>
 
-        <!-- Indicateur de frappe -->
         <div class="typing-indicator" id="typingIndicator" hidden aria-label="L'assistant rédige une réponse">
           <div class="message__avatar message__avatar--bot" aria-hidden="true">·</div>
           <div class="typing-bubble" aria-hidden="true">
@@ -275,12 +234,11 @@
 
       </div>
 
-      <!-- Zone de saisie -->
       <div class="input-area">
 
         <div class="category-badge-active" id="categoryBadge" hidden>
           <span id="categoryBadgeText"></span>
-          <button onclick="clearCategory()" aria-label="Effacer le filtre de catégorie">×</button>
+          <button onclick="clearCategory()" aria-label="Effacer le filtre de workspace">×</button>
         </div>
 
         <form class="input-form" id="inputForm" novalidate>
@@ -291,7 +249,7 @@
             data-i18n-aria="input.aria"
             placeholder="Posez votre question…"
             rows="1"
-            maxlength="1000"
+            maxlength="2000"
             aria-label="Votre question"
             autocomplete="off"
             spellcheck="true"
@@ -307,7 +265,7 @@
         </form>
 
         <div class="input-footer">
-          <span class="char-counter" id="charCounter" aria-live="polite">0/1000</span>
+          <span class="char-counter" id="charCounter" aria-live="polite">0/2000</span>
           <span class="disclaimer" data-i18n="input.disclaimer">L'assistant peut faire des erreurs. Vérifiez toujours les sources.</span>
         </div>
 
