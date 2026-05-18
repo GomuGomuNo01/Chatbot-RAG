@@ -1,0 +1,72 @@
+{
+  "code_civil_france.pdf": {
+    "num_pages": 684,
+    "article_count": 23,
+    "section_count": 8,
+    "has_code": false,
+    "text_sample": "Code civil\nTitre préliminaire : De la publication, des effets et de l'application des\nlois en général\nArticle 1\n \nLes lois et, lorsqu'ils sont publiés au Journal officiel de la République française, les actes administratifs\nentrent en vigueur à la date qu'ils fixent ou, à défaut, le lendemain de leur publication. Toutefois, l'entrée en\nvigueur de celles de leurs dispositions dont l'exécution nécessite des mesures d'application est reportée à la\ndate d'entrée en vigueur de ces mesures.\n \n \nEn cas d'urgence, entrent en vigueur dès leur publication les lois dont le décret de promulgation le prescrit et\nles actes administratifs pour lesquels le Gouvernement l'ordonne par une disposition spéciale.\n \n \nLes dispositions du présent article ne sont pas applicables aux actes individuels.\n \nArticle 2"
+  },
+  "code_du_travail_france.pdf": {
+    "num_pages": 3489,
+    "article_count": 15,
+    "section_count": 8,
+    "has_code": true,
+    "text_sample": "Code du travail\nPartie législative\nChapitre préliminaire : Dialogue social.\nArticle L1\n \nTout projet de réforme envisagé par le Gouvernement qui porte sur les relations individuelles et collectives\ndu travail, l'emploi et la formation professionnelle et qui relève du champ de la négociation nationale et\ninterprofessionnelle fait l'objet d'une concertation préalable avec les organisations syndicales de salariés et\nd'employeurs représentatives au niveau national et interprofessionnel en vue de l'ouverture éventuelle d'une\ntelle négociation.\n \nA cet effet, le Gouvernement leur communique un document d'orientation présentant des éléments de\ndiagnostic, les objectifs poursuivis et les principales options.\n \nLorsqu'elles font connaître leur intention d'engager une telle négociation, les organisa"
+  },
+  "code_penal_france.pdf": {
+    "num_pages": 406,
+    "article_count": 25,
+    "section_count": 9,
+    "has_code": true,
+    "text_sample": "Code pénal\nPartie législative\nLivre Ier : Dispositions générales\nTitre Ier : De la loi pénale\nChapitre Ier : Des principes généraux\nArticle 111-1\n \nLes infractions pénales sont classées, suivant leur gravité, en crimes, délits et contraventions.\n \n \nArticle 111-2\n \nLa loi détermine les crimes et délits et fixe les peines applicables à leurs auteurs.\n \n \nLe règlement détermine les contraventions et fixe, dans les limites et selon les distinctions établies par la loi,\nles peines applicables aux contrevenants.\n \nArticle 111-3\n \nNul ne peut être puni pour un crime ou pour un délit dont les éléments ne sont pas définis par la loi, ou pour\nune contravention dont les éléments ne sont pas définis par le règlement.\n \n \nNul ne peut être puni d'une peine qui n'est pas prévue par la loi, si l'infracti"
+  },
+  "Constitution_du_4_octobre 1958.pdf": {
+    "num_pages": 56,
+    "article_count": 0,
+    "section_count": 0,
+    "has_code": false,
+    "text_sample": ""
+  },
+  "convention_collective.pdf": {
+    "num_pages": 16,
+    "article_count": 0,
+    "section_count": 4,
+    "has_code": false,
+    "text_sample": "Conventions collectives (texte intégral)\nA\nB\nC\nD\nE\nF\nG\nH\nI\nJ\nK\nL\nM\nN\nO\nP\nQ\nR\nS\nT\nU\nV\nW X\nY\nZ\nA\n   Titre\nIDCC\nBrochure JO\nAccouvage\n7009\n3606\nActeurs du développement et de l'ingénierie territoriale d'intérêt général (ADITIG)\n2666\n3348\nActivités hippiques\n7026\n \nAdministrateurs et mandataires judiciaires (personnel)\n2706\n3353\nAéraulique, thermique et frigorifique\n1412\n3023\nAérodromes commerciaux (aéroports) : personnels des exploitants\n \n \nAéroports : région parisienne\n1391\n3234\nAgences de mannequins\n2397\n3318\nAgriculture : accords nationaux\n \n \nAgriculture : centres d'initiatives pour valoriser l'agriculture et le milieu rural\n \n \nAgriculture : production agricole et CUMA\n7024\n \nAgriculture : travaux et services agricoles, ruraux et forestiers\n7025\n \nAide à domicile : accompagnement, soins"
+  },
+  "Cours_Javascript.pdf": {
+    "num_pages": 64,
+    "article_count": 0,
+    "section_count": 0,
+    "has_code": false,
+    "text_sample": "Programmation Web :\nDOM / JavaScript\n08:16:59\n1\n DOM = Document Object Model\n• API (Application Programming Interface) pour la manipulation de \nHTML / XML\n• Définit la structure logique des documents\n• Définit la façon d’y accéder, de la manipuler\nCréer des documents\nParcourir leur structure\nAjouter, effacer, modifier des éléments\nAjouter, effacer, modifier leur contenu\n2\n08:16:59\nProgrammation Web 2012-2013\n Qu’est-ce que le DOM ?\n<table>\n<tbody>\n<tr><td>Shady Grove</td>\n<td>Aeolian</td>\n</tr>\n<tr><td>Over the River, Charlie</td>\n<td>Dorian</td>\n</tr>\n</tbody>\n</table>\n3\n08:16:59\nProgrammation Web 2012-2013\n Qu’est-ce que le DOM ?\n• Représentation arborescente du document\n• Modèle objet (structure + méthodes)\n• Permet la manipulation du document\n• Une implémentation : JavaScript…\n• … "
+  },
+  "Curriculum_vitae_Kouadio_Dibie_Elisee_DEV.pdf": {
+    "num_pages": 1,
+    "article_count": 0,
+    "section_count": 0,
+    "has_code": false,
+    "text_sample": "EXPERIENCES PROFESSIONNELLES\nFORMATION\nÉtudiant en Master 1 Intelligence Artificielle à l’ESIIA, titulaire\nd’une Licence en Réseaux et Génie Logiciel, avec plus de 2 ans\nd’expérience en développement back-end (Java Spring Boot,\nLaravel). Je recherche une alternance pour mettre mes\ncompétences au service de projets en IA, automatisation et\ntraitement\nde\ndonnées,\ntout\nen\ndéveloppant\nmes\nconnaissances\nen\nmachine\nlearning\net\ndéploiement\nde\nmodèles.\nEmail\ncedrickouadio22@gmail.com\nAdresse\nÎle-de-France (mobile sur Paris et sa \nrégion)\nTéléphone\n+33 07 44 27 65 00\nPROFIL\nKOUADIO DIBIE ELISEE JULES CEDRIC\nDéveloppeur Back-End & IA | Alternance \nPython - Java  (Spring Boot)\nMachine Learning & Automatisation\nLANGUAGES\nFrançais : Langue maternelle\nCOMPÉTENCES TECHNIQUES\nAnglais : Niveau B1 ( Intermé"
+  },
+  "Déclaration_du_26_août_1789_des_droits_de_homme_et_du_citoyen.pdf": {
+    "num_pages": 4,
+    "article_count": 0,
+    "section_count": 0,
+    "has_code": false,
+    "text_sample": ""
+  },
+  "Php.pdf": {
+    "num_pages": 1034,
+    "article_count": 0,
+    "section_count": 2,
+    "has_code": true,
+    "text_sample": "Manuel PHP 4.3.0 − Version Française\nhttp://www.nexen.net\n Sommaire\nManuel PHP........................................................................................................................................1\n 1.1 Les auteurs.......................................................................................................................1\n 1.2 L'éditeur............................................................................................................................1\n 1.3 Note légale........................................................................................................................1\n 2 Préface............................................................................................................................................2\n 3 Comment commen"
+  },
+  "spring_boot_reference.pdf": {
+    "num_pages": 974,
+    "article_count": 0,
+    "section_count": 0,
+    "has_code": true,
+    "text_sample": "Spring Boot Reference Documentation\nPhillip Webb, Dave Syer, Josh Long, Stéphane Nicoll, Rob Winch, Andy\nWilkinson, Marcel Overdijk, Christian Dupuis, Sébastien Deleuze, Michael\nSimons, Vedran Pavić, Jay Bryant, Madhura Bhave, Eddú Meléndez, Scott\nFrederick, Moritz Halbritter\nVersion 3.2.7\n Table of Contents\n1. Legal . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  2\n2. Getting Help. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  3\n3. Documentation Overview . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
+  }
+}

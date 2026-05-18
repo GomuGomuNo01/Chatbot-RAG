@@ -1,12 +1,11 @@
 """
-memory.py — Gestion de l'historique conversationnel
+memory.py — Historique conversationnel compressé.
 
-Améliorations v2 :
-- Résumé condensé des échanges anciens (économise du contexte LLM)
-- format_compact() → version courte pour la réécriture de requête
-- format_for_prompt() → version structurée pour la génération de réponse
-- Extraction automatique de topics (entités clés) pour contextualiser le retrieval
-- Troncature intelligente : les réponses longues sont résumées à ~250 chars
+Refonte v2 : extraction de topics agnostique du domaine (acronymes,
+mots-clés longs, identifiants alphanumériques). Plus aucune logique
+juridique/RH. Compression :
+- Les échanges anciens sont résumés en une ligne.
+- Les N plus récents sont gardés intégralement avec réponses tronquées.
 """
 
 import logging
@@ -16,206 +15,93 @@ from config import MEMORY_MAX_EXCHANGES
 
 logger = logging.getLogger(__name__)
 
-# Nb max de caractères par réponse dans le prompt (évite les contextes trop longs)
-# 400 chars — les réponses juridiques citent des articles longs ; 280 tronquait trop tôt
-_MAX_ANSWER_CHARS = 400
-# Nb max d'échanges affichés en détail dans le prompt principal
-_DETAIL_EXCHANGES = 3
+_MAX_ANSWER_CHARS = 150
+_DETAIL_EXCHANGES = 2
 
-# Mots vides pour l'extraction de topics (module-level pour éviter la recompilation)
 _STOP_WORDS: frozenset[str] = frozenset(
     {
-        "les",
-        "des",
-        "que",
-        "qui",
-        "dans",
-        "pour",
-        "avec",
-        "sur",
-        "par",
-        "une",
-        "est",
-        "sont",
-        "était",
-        "être",
-        "avoir",
-        "fait",
-        "peut",
-        "doit",
-        "votre",
-        "notre",
-        "leur",
-        "leurs",
-        "cette",
-        "aussi",
-        "mais",
-        "comme",
-        "plus",
-        "tout",
-        "bien",
-        "même",
-        "donc",
-        "alors",
-        "après",
-        "avant",
-        "entre",
-        "selon",
-        "sans",
+        "les", "des", "que", "qui", "dans", "pour", "avec", "sur", "par",
+        "une", "est", "sont", "était", "être", "avoir", "fait", "peut",
+        "doit", "votre", "notre", "leur", "leurs", "cette", "aussi",
+        "mais", "comme", "plus", "tout", "bien", "même", "donc", "alors",
+        "the", "and", "are", "was", "were", "that", "this", "with",
+        "from", "have", "has", "had", "been", "their", "they", "these",
     }
-)
-
-# Capture les références d'articles légaux dans un échange (ex: L1272-4, Article 6, 111-1)
-_ARTICLE_REF_RE = re.compile(
-    r"\b(?:Article\s+)?([A-Z]\d[\d\-]+|\d{1,4}(?:[–\-]\d+)+|\d{1,4})\b"
-    r"(?=\s+(?:du|de|Code|alinéa|al\.)|\s*$|[,;.])",
-    re.IGNORECASE,
 )
 
 
 class ConversationMemory:
-    """
-    Gère l'historique conversationnel avec formatage adaptatif.
+    """Mémoire conversationnelle compactée."""
 
-    Stratégie :
-    - Les N derniers échanges sont conservés intégralement en mémoire.
-    - Dans le prompt LLM, seuls les _DETAIL_EXCHANGES plus récents sont
-      affichés en détail ; les plus anciens sont condensés.
-    - Les réponses très longues sont tronquées pour économiser des tokens.
-    """
-
-    def __init__(self, max_exchanges: int = MEMORY_MAX_EXCHANGES):
+    def __init__(self, max_exchanges: int = MEMORY_MAX_EXCHANGES) -> None:
         self.max_exchanges = max_exchanges
         self._history: list[tuple[str, str]] = []
-        # Topics extraits de l'historique (noms, acronymes, entités)
         self._topics: list[str] = []
 
-    # ──────────────────────────────────────────────────────────
-    # Ajout / suppression
-    # ──────────────────────────────────────────────────────────
-
     def add_exchange(self, question: str, answer: str) -> None:
-        """Ajoute un échange et met à jour les topics."""
         self._history.append((question, answer))
         if len(self._history) > self.max_exchanges:
             self._history = self._history[-self.max_exchanges :]
         self._update_topics(question, answer)
-        logger.debug(
-            f"Mémoire : {len(self._history)}/{self.max_exchanges} échanges | "
-            f"topics : {self._topics}"
-        )
 
     def clear(self) -> None:
-        """Efface l'historique et les topics."""
         self._history = []
         self._topics = []
         logger.info("Historique conversationnel effacé.")
 
-    # ──────────────────────────────────────────────────────────
-    # Extraction de topics
-    # ──────────────────────────────────────────────────────────
-
     def _update_topics(self, question: str, answer: str) -> None:
-        """
-        Extrait des entités clés depuis le dernier échange :
-        - Acronymes majuscules (CDI, JPA, DDHC…)
-        - Références d'articles légaux (Article 6, L1272-4, 49-3…)
-        - Mots techniques longs (≥ 8 chars, hors stop-words)
-
-        Ces topics enrichissent la réécriture de requête pour les questions
-        anaphoriques ("et dans cet article ?", "quelle est sa sanction ?").
-        """
+        """Extraction générique : acronymes + identifiants + mots longs."""
         combined = f"{question} {answer}"
 
-        # Acronymes (2-6 lettres MAJ)
-        acronyms = re.findall(r"\b[A-Z]{2,6}\b", combined)
-
-        # Références d'articles légaux : "Article 6", "L1272-4", "49-3", "111-1"
-        article_refs = [
-            f"Article {m.group(1)}" for m in _ARTICLE_REF_RE.finditer(combined) if m.group(1)
-        ]
-
-        # Mots techniques longs (≥ 8 chars, hors stop-words)
+        acronyms = re.findall(r"\b[A-Z]{2,8}\b", combined)
+        # Identifiants alphanumériques avec tirets/chiffres (codes, refs, etc.)
+        ids = re.findall(r"\b[A-Z]?\d[\w\-\.]{1,15}\b", combined)
         long_words = [
             w
             for w in re.findall(r"\b[a-zéèêëàâùûîïôœç]{8,}\b", combined.lower())
             if w not in _STOP_WORDS
         ]
 
-        new_topics = list(dict.fromkeys(acronyms + article_refs + long_words[:4]))[:10]
-        # Fusionner avec les topics existants, garder les 15 plus récents
-        all_topics = new_topics + [t for t in self._topics if t not in new_topics]
-        self._topics = all_topics[:15]
+        new = list(dict.fromkeys(acronyms + ids[:5] + long_words[:5]))[:10]
+        merged = new + [t for t in self._topics if t not in new]
+        self._topics = merged[:15]
 
     def get_topics(self) -> list[str]:
-        """Retourne les entités clés de la conversation."""
         return self._topics.copy()
 
-    # ──────────────────────────────────────────────────────────
-    # Formatage pour la réécriture de requête (compact)
-    # ──────────────────────────────────────────────────────────
-
     def format_compact(self) -> str:
-        """
-        Version très condensée de l'historique pour la réécriture de requête.
-        Affiche uniquement les 2 derniers échanges, réponses tronquées à 120 chars.
-        """
+        """Version condensée pour la réécriture de requête."""
         if not self._history:
             return ""
-
         recent = self._history[-2:]
-        lines = []
+        lines: list[str] = []
         for q, a in recent:
             lines.append(f"Q: {q.strip()}")
-            short_a = a.strip()[:120]
+            short = a.strip()[:120]
             if len(a) > 120:
-                short_a += "…"
-            lines.append(f"R: {short_a}")
+                short += "…"
+            lines.append(f"R: {short}")
         return "\n".join(lines)
 
-    # ──────────────────────────────────────────────────────────
-    # Formatage pour le prompt de génération LLM
-    # ──────────────────────────────────────────────────────────
-
     def format_for_prompt(self) -> str:
-        """
-        Formate l'historique pour l'injection dans le prompt principal.
-
-        Stratégie :
-        - Les échanges anciens (au-delà de _DETAIL_EXCHANGES) sont résumés
-          en une ligne : « [Sujets abordés : X, Y, Z] »
-        - Les _DETAIL_EXCHANGES plus récents sont affichés intégralement,
-          avec les réponses tronquées à _MAX_ANSWER_CHARS.
-        """
+        """Historique structuré pour le prompt principal."""
         if not self._history:
             return ""
-
         lines: list[str] = []
 
-        # ── Résumé des échanges anciens ──────────────────────
         old = self._history[:-_DETAIL_EXCHANGES] if len(self._history) > _DETAIL_EXCHANGES else []
         if old:
-            topics_in_old = []
-            for q, _ in old:
-                topics_in_old.append(q.strip()[:60])
-            summary = " | ".join(topics_in_old)
-            lines.append(f"[Échanges précédents — sujets abordés : {summary}]")
+            summary = " | ".join(q.strip()[:60] for q, _ in old)
+            lines.append(f"[Échanges précédents : {summary}]")
             lines.append("")
 
-        # ── Échanges récents en détail ───────────────────────
-        recent = (
-            self._history[-_DETAIL_EXCHANGES:]
-            if len(self._history) >= _DETAIL_EXCHANGES
-            else self._history
-        )
+        recent = self._history[-_DETAIL_EXCHANGES:] if len(self._history) >= _DETAIL_EXCHANGES else self._history
         if recent:
             lines.append("Historique récent :")
             for q, a in recent:
                 lines.append(f"  Utilisateur : {q.strip()}")
-                # Tronquer les réponses longues
                 a_short = a.strip()
                 if len(a_short) > _MAX_ANSWER_CHARS:
-                    # Couper à la dernière phrase complète dans la limite
                     cut = a_short[:_MAX_ANSWER_CHARS]
                     last_period = max(cut.rfind(". "), cut.rfind(".\n"), cut.rfind(" : "))
                     if last_period > 80:
@@ -223,12 +109,7 @@ class ConversationMemory:
                     a_short = cut + " […]"
                 lines.append(f"  Assistant   : {a_short}")
                 lines.append("")
-
         return "\n".join(lines).rstrip()
-
-    # ──────────────────────────────────────────────────────────
-    # Accesseurs
-    # ──────────────────────────────────────────────────────────
 
     def get_history(self) -> list[tuple[str, str]]:
         return self._history.copy()

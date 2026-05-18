@@ -1,19 +1,26 @@
-/**
+﻿/**
  * chat.js — Interface de chat : bulles, streaming, sources, Markdown
  */
 
-const CATEGORY_BASE = {
-  technique: { color: '#3B82F6', bg: '#EFF6FF', emoji: '⚙️' },
-  rh:        { color: '#10B981', bg: '#ECFDF5', emoji: '👥' },
-  juridique: { color: '#8B5CF6', bg: '#F5F3FF', emoji: '⚖️' },
-};
-
-function getCategoryMeta(cat) {
-  const base  = CATEGORY_BASE[cat] || { color: '#6B7280', bg: '#F9FAFB', emoji: '📄' };
-  const label = typeof i18n !== 'undefined'
-    ? i18n.t(`meta.${cat}.label`)
-    : (cat || cat);
-  return { ...base, label };
+/**
+ * Métadonnées d'affichage d'un workspace (utilisé dans les cartes de sources).
+ * Plus de catégories codées en dur — on lit l'index global window._app._workspaces
+ * peuplé par /api/workspaces. Fallback neutre si non trouvé.
+ */
+function getWorkspaceMeta(ws) {
+  if (!ws) return { color: '#6B7280', bg: '#F9FAFB', emoji: '📄', label: '—' };
+  const app = (typeof window !== 'undefined' && window._app) ? window._app : null;
+  const list = (app && app._workspaces) || [];
+  const found = list.find(w => w.key === ws);
+  if (found) {
+    return {
+      color: found.couleur || '#6B7280',
+      bg: '#F9FAFB',
+      emoji: found.emoji || '📄',
+      label: found.label || ws,
+    };
+  }
+  return { color: '#6B7280', bg: '#F9FAFB', emoji: '📄', label: ws };
 }
 
 class ChatUI {
@@ -107,7 +114,111 @@ class ChatUI {
     this.scrollToBottom();
   }
 
-  // ── Indicateur de frappe ───────────────────────────────────────────────────
+  // ── Indicateur de recherche (étapes animées) ──────────────────────────────
+
+  showSearchSteps() {
+    this._hideWelcome();
+    this._injectSearchStepsCSS();
+
+    const el = this._make('div', 'message message--assistant search-steps-msg');
+    el.id = 'searchStepsIndicator';
+    el.innerHTML = `
+      <div class="message__avatar message__avatar--bot" aria-hidden="true">🤖</div>
+      <div class="search-steps">
+        <div class="search-step search-step--active" data-step="0">
+          <span class="search-step__icon">🔍</span>
+          <span class="search-step__label">Recherche dans vos documents…</span>
+          <span class="search-step__dot"></span>
+        </div>
+        <div class="search-step" data-step="1">
+          <span class="search-step__icon">📖</span>
+          <span class="search-step__label">Analyse des extraits…</span>
+          <span class="search-step__dot"></span>
+        </div>
+        <div class="search-step" data-step="2">
+          <span class="search-step__icon">✍️</span>
+          <span class="search-step__label">Rédaction de la réponse…</span>
+          <span class="search-step__dot"></span>
+        </div>
+      </div>`;
+    this._append(el);
+
+    let current = 0;
+    this._searchStepsTimer = setInterval(() => {
+      const steps = el.querySelectorAll('.search-step');
+      if (current < steps.length - 1) {
+        steps[current].classList.remove('search-step--active');
+        steps[current].classList.add('search-step--done');
+        current++;
+        steps[current].classList.add('search-step--active');
+      }
+    }, 2200);
+  }
+
+  hideSearchSteps() {
+    clearInterval(this._searchStepsTimer);
+    const el = document.getElementById('searchStepsIndicator');
+    if (el) el.remove();
+  }
+
+  _injectSearchStepsCSS() {
+    if (document.getElementById('search-steps-style')) return;
+    const style = document.createElement('style');
+    style.id = 'search-steps-style';
+    style.textContent = `
+      .search-steps-msg { align-items: flex-start; }
+      .search-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 14px 18px;
+        background: var(--surface, #fff);
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 14px;
+        min-width: 220px;
+      }
+      .search-step {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        opacity: 0.35;
+        font-size: 0.88rem;
+        color: var(--text-secondary, #6b7280);
+        transition: opacity 0.35s ease;
+      }
+      .search-step--active {
+        opacity: 1;
+        color: var(--text, #111827);
+        font-weight: 500;
+      }
+      .search-step--done {
+        opacity: 0.55;
+        color: var(--text-secondary, #6b7280);
+        text-decoration: line-through;
+        text-decoration-color: #10b981;
+      }
+      .search-step--done .search-step__dot { background: #10b981; animation: none; }
+      .search-step__dot {
+        width: 7px; height: 7px;
+        border-radius: 50%;
+        background: var(--primary, #6366f1);
+        margin-left: auto;
+        flex-shrink: 0;
+        opacity: 0;
+      }
+      .search-step--active .search-step__dot {
+        opacity: 1;
+        animation: step-pulse 1s ease-in-out infinite;
+      }
+      @keyframes step-pulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.5); opacity: 0.5; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // ── Indicateur de frappe (legacy) ─────────────────────────────────────────
 
   showTyping()  { this.typingEl.hidden = false; this.scrollToBottom(); }
   hideTyping()  { this.typingEl.hidden = true; }
@@ -130,16 +241,18 @@ class ChatUI {
 
   _renderSources(sources) {
     const cards = sources.map((s, i) => {
-      const meta    = getCategoryMeta(s.categorie);
-      const score   = Math.round(s.score * 100);
+      const meta    = getWorkspaceMeta(s.workspace);
+      const scorePct  = s.score > 0 ? Math.round(s.score * 100) : 0;
+      const scoreText = scorePct > 0 ? (scorePct + '%') : '—';
       const nom     = s.fichier.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ');
       const page    = typeof s.page === 'number' ? `p. ${s.page}` : s.page;
       const extrait = this._esc(s.extrait || '');
 
-      // Couleur de la barre de score
-      const barColor = score >= 70 ? '#10B981'
-                     : score >= 40 ? '#F59E0B'
-                     : '#EF4444';
+      // Couleur de la barre — gris si score inconnu
+      const barColor = scorePct >= 70 ? '#10B981'
+                     : scorePct >= 40 ? '#F59E0B'
+                     : scorePct >  0  ? '#EF4444'
+                     :                  '#D1D5DB';
 
       return `
         <div class="source-card" style="--cat-color:${meta.color};--cat-bg:${meta.bg}">
@@ -152,11 +265,11 @@ class ChatUI {
                 <span class="source-card__page">📄 ${page}</span>
               </div>
             </div>
-            <div class="source-card__score-wrap" title="Pertinence : ${score}%">
+            <div class="source-card__score-wrap" title="Pertinence relative : ${scoreText}">
               <div class="source-card__score-track">
-                <div class="source-card__score-fill" style="width:${score}%;background:${barColor}"></div>
+                <div class="source-card__score-fill" style="width:${scorePct}%;background:${barColor}"></div>
               </div>
-              <span class="source-card__score-label">${score}%</span>
+              <span class="source-card__score-label">${scoreText}</span>
             </div>
           </div>
           ${extrait ? `

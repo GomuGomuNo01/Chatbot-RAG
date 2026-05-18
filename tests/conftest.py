@@ -66,4 +66,4 @@ def sample_documents(test_pdf_path):
     from src.loader import extract_text_from_pdf, pages_to_documents
 
     pages = extract_text_from_pdf(test_pdf_path)
-    return pages_to_documents(pages, "technique", test_pdf_path.name)
+    return pages_to_documents(pages, "test", test_pdf_path.name)

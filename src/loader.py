@@ -1,9 +1,17 @@
 """
-Loader : chargement et découpage des documents en chunks
-Formats supportés : PDF (.pdf), Word (.docx), Texte (.txt)
+loader.py — Extraction + chunking sémantique des documents.
+
+Refonte v2 :
+- Métadonnée `workspace` au lieu de `categorie`.
+- Chunking sémantique générique (titres > paragraphes > phrases), sans biais
+  juridique. Le splitter détecte la structure (Markdown, slides, prose) et
+  adapte les frontières de découpe.
+- Plus de logique de nettoyage de format spécifique aux PDFs juridiques.
 """
 
+import html as _html
 import logging
+import re
 from pathlib import Path
 
 import pymupdf as fitz
@@ -12,7 +20,7 @@ from config import (
     CHUNK_OVERLAP,
     CHUNK_SEPARATORS,
     CHUNK_SIZE,
-    get_all_categories,
+    get_workspaces,
 )
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -20,7 +28,43 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+
+# ============================================================
+# NETTOYAGE GÉNÉRIQUE (slides, footers répétés)
+# ============================================================
+
+# Footers/headers récurrents communs (timestamps, années académiques, "page X")
+_NOISE_PATTERNS = [
+    re.compile(r"\b\d{1,2}:\d{2}(:\d{2})?\b"),
+    re.compile(r"\b\d{4}\s*[-–]\s*\d{4}\b"),
+    re.compile(r"\bpage\s+\d+\s*(?:/|sur|of)\s*\d+\b", re.IGNORECASE),
+    re.compile(r"\bp\.\s*\d+\s*(?:/|sur|of)\s*\d+\b", re.IGNORECASE),
+]
+
+
+def _clean_text(text: str) -> str:
+    """Nettoyage léger et générique : footers de pagination, timestamps."""
+    for pat in _NOISE_PATTERNS:
+        text = pat.sub("", text)
+    # Compacte les sauts de lignes multiples
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _is_slide_like(pages_raw: list[str], sample: int = 12) -> bool:
+    """Détecte un PDF de type slides : pages courtes + bruit récurrent."""
+    if not pages_raw:
+        return False
+    sample_pages = pages_raw[: min(sample, len(pages_raw))]
+    avg_len = sum(len(p) for p in sample_pages) / len(sample_pages)
+    if avg_len > 600:
+        return False
+    hits = 0
+    for p in sample_pages:
+        if any(pat.search(p) for pat in _NOISE_PATTERNS):
+            hits += 1
+    return hits >= max(2, len(sample_pages) * 0.3)
 
 
 # ============================================================
@@ -28,178 +72,138 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 # ============================================================
 
 
-def _is_slide_pdf(pages_raw: list[str], sample: int = 10) -> bool:
+def _extract_page_text(page) -> str:
     """
-    Heuristique : détecte les PDFs de type présentation/cours.
-    Critères : pages courtes (< 400 chars en moyenne) ET bruit récurrent
-    (timestamps, footers identiques sur plusieurs pages).
-    """
-    import re
+    Extraction robuste du texte d'une page PDF.
 
-    if not pages_raw:
-        return False
-    sample_pages = pages_raw[: min(sample, len(pages_raw))]
-    avg_len = sum(len(p) for p in sample_pages) / len(sample_pages)
-    if avg_len > 600:
-        return False  # Trop dense pour être des slides
-    # Cherche un footer répété sur ≥ 30% des pages (timestamps, années, entêtes de cours)
-    footer_re = re.compile(r"\b\d{2}:\d{2}:\d{2}\b|\b\d{4}[\-–]\d{4}\b|Programmation Web", re.I)
-    hits = sum(1 for p in sample_pages if footer_re.search(p))
-    return hits >= max(2, len(sample_pages) * 0.3)
+    Certains PDFs (exports PowerPoint, polices custom) encodent les caractères
+    accentués en entités HTML dans le flux XHTML (&#xe9; → é) plutôt qu'en
+    Unicode direct. La méthode "text" retourne alors � (caractère de
+    remplacement). On utilise donc "xhtml" + html.unescape() en priorité.
+    """
+    try:
+        xhtml = page.get_text("xhtml") or ""
+        if xhtml:
+            text = _html.unescape(xhtml)          # &#xe9; → é
+            text = re.sub(r"<[^>]+>", " ", text)  # strip tags
+            text = re.sub(r"[ \t]+", " ", text)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+
+            # Préférer XHTML si moins de caractères de remplacement
+            plain = page.get_text("text") or ""
+            plain_bad = plain.count("�")
+            xhtml_bad = text.count("�")
+            if xhtml_bad <= plain_bad:
+                return text
+    except Exception:
+        pass
+    return (page.get_text("text") or "").strip()
 
 
 def extract_text_from_pdf(pdf_path: Path) -> list[dict]:
-    """
-    Extrait le texte page par page depuis un PDF.
-    Retourne une liste de dicts {text, page_num, file_path}.
-
-    Pour les PDFs de type slides/cours (pages courtes, bruit répété),
-    un nettoyage automatique supprime les timestamps et footers parasites
-    avant indexation.
-    """
-    from src.query_processor import clean_slide_text
-
-    pages = []
+    pages: list[dict] = []
     try:
         size_kb = pdf_path.stat().st_size // 1024
         doc = fitz.open(str(pdf_path))
         total_pages = len(doc)
 
-        # Pré-lecture pour détecter le format slides et les PDFs scannés
-        raw_texts = [doc[i].get_text("text").strip() for i in range(min(15, total_pages))]
+        raw_texts = [_extract_page_text(doc[i]) for i in range(min(15, total_pages))]
         sample_chars = sum(len(t) for t in raw_texts)
-        is_slides = _is_slide_pdf(raw_texts)
-        if is_slides:
-            logger.info(f"  PDF slides détecté : {pdf_path.name} — nettoyage du bruit activé")
+        slide_mode = _is_slide_like(raw_texts)
+        if slide_mode:
+            logger.info(f"  PDF slides détecté : {pdf_path.name} — nettoyage automatique activé")
 
         for page_num in range(total_pages):
-            text = doc[page_num].get_text("text").strip()
-            if is_slides:
-                text = clean_slide_text(text)
+            text = _extract_page_text(doc[page_num])
+            if slide_mode:
+                text = _clean_text(text)
             if len(text) >= 50:
-                pages.append(
-                    {
-                        "text": text,
-                        "page_num": page_num + 1,
-                        "file_path": str(pdf_path),
-                    }
-                )
+                pages.append({"text": text, "page_num": page_num + 1, "file_path": str(pdf_path)})
         doc.close()
+
         if not pages:
-            # Distingue les PDFs scannés (image uniquement) des PDFs protégés/vides
             if sample_chars == 0:
                 logger.warning(
-                    f"  PDF scanné (image uniquement) : {pdf_path.name} "
-                    f"({size_kb} Ko, {total_pages} page(s)) — "
-                    "0 caractère extractible sur les pages testées. "
-                    "Ce document doit être converti en PDF texte avant indexation "
-                    "(ex : Adobe Acrobat OCR, ocrmypdf, ou un outil en ligne)."
+                    f"  PDF scanné (sans couche texte) : {pdf_path.name} "
+                    f"({size_kb} Ko, {total_pages} page(s)). Une étape d'OCR est nécessaire."
                 )
             else:
                 logger.warning(
-                    f"  PDF : {pdf_path.name} ({size_kb} Ko, {total_pages} page(s)) — "
-                    "aucune page avec suffisamment de texte (min 50 chars). "
-                    "Le fichier est peut-être protégé ou contient principalement des images."
+                    f"  PDF : {pdf_path.name} — aucune page exploitable (protégé ? images ?)"
                 )
         else:
             logger.info(f"  PDF : {pdf_path.name} — {len(pages)}/{total_pages} page(s) utile(s)")
+
     except Exception as e:
         size_kb = pdf_path.stat().st_size // 1024 if pdf_path.exists() else "?"
-        logger.error(
-            f"  Erreur lecture PDF {pdf_path.name} ({size_kb} Ko) : {e}",
-            exc_info=True,
-        )
+        logger.error(f"  Erreur lecture PDF {pdf_path.name} ({size_kb} Ko) : {e}", exc_info=True)
     return pages
 
 
 def extract_text_from_docx(docx_path: Path) -> list[dict]:
-    """
-    Extrait le texte depuis un fichier Word (.docx).
-    Le contenu entier est traité comme une seule page.
-    """
-    pages = []
     try:
         from docx import Document as DocxDocument
 
         doc = DocxDocument(str(docx_path))
         paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
         text = "\n\n".join(paras)
-        if len(text) >= 50:
-            pages.append(
-                {
-                    "text": text,
-                    "page_num": 1,
-                    "file_path": str(docx_path),
-                }
-            )
-            logger.info(f"  DOCX : {docx_path.name} — {len(paras)} paragraphe(s)")
-        else:
-            logger.warning(
-                f"  DOCX : {docx_path.name} — aucun texte suffisant ({len(paras)} paragraphe(s)). "
-                "Le fichier est peut-être vide ou ne contient que des images."
-            )
+        if len(text) < 50:
+            logger.warning(f"  DOCX : {docx_path.name} — peu de texte exploitable.")
+            return []
+        logger.info(f"  DOCX : {docx_path.name} — {len(paras)} paragraphe(s)")
+        return [{"text": text, "page_num": 1, "file_path": str(docx_path)}]
     except ImportError:
-        logger.error(
-            f"  Dépendance manquante pour lire {docx_path.name} : "
-            "python-docx n'est pas installé. Exécutez : pip install python-docx"
-        )
+        logger.error("  python-docx absent — `pip install python-docx`.")
     except Exception as e:
-        size_kb = docx_path.stat().st_size // 1024 if docx_path.exists() else "?"
-        logger.error(
-            f"  Erreur lecture DOCX {docx_path.name} ({size_kb} Ko) : {e}",
-            exc_info=True,
-        )
-    return pages
+        logger.error(f"  Erreur lecture DOCX {docx_path.name} : {e}", exc_info=True)
+    return []
 
 
 def extract_text_from_txt(txt_path: Path) -> list[dict]:
-    """
-    Extrait le texte depuis un fichier texte brut (.txt).
-    Découpe en blocs de 3 000 caractères pour simuler des pages.
-    """
-    pages = []
     try:
         raw = txt_path.read_text(encoding="utf-8", errors="ignore").strip()
+        if len(raw) < 50:
+            logger.warning(f"  TXT : {txt_path.name} — trop court.")
+            return []
+        # Découpe par blocs ~3000 chars pour simuler des pages
         block_size = 3000
         blocks = [raw[i : i + block_size] for i in range(0, len(raw), block_size)]
-        for idx, block in enumerate(blocks, 1):
-            if len(block) >= 50:
-                pages.append(
-                    {
-                        "text": block,
-                        "page_num": idx,
-                        "file_path": str(txt_path),
-                    }
-                )
-        if not pages:
-            logger.warning(
-                f"  TXT : {txt_path.name} — fichier vide ou trop court pour être indexé "
-                f"({len(raw)} caractère(s) au total, minimum requis : 50)."
-            )
-        else:
+        pages = [
+            {"text": b, "page_num": idx, "file_path": str(txt_path)}
+            for idx, b in enumerate(blocks, 1)
+            if len(b) >= 50
+        ]
+        if pages:
             logger.info(f"  TXT : {txt_path.name} — {len(pages)} bloc(s)")
+        return pages
     except Exception as e:
-        size_kb = txt_path.stat().st_size // 1024 if txt_path.exists() else "?"
-        logger.error(
-            f"  Erreur lecture TXT {txt_path.name} ({size_kb} Ko) : {e}",
-            exc_info=True,
-        )
-    return pages
+        logger.error(f"  Erreur lecture TXT {txt_path.name} : {e}", exc_info=True)
+        return []
 
 
-# ============================================================
-# DISPATCHER MULTI-FORMAT
-# ============================================================
+def extract_text_from_md(md_path: Path) -> list[dict]:
+    """Markdown : un seul bloc, le splitter récupère les headings."""
+    try:
+        raw = md_path.read_text(encoding="utf-8", errors="ignore").strip()
+        if len(raw) < 50:
+            logger.warning(f"  MD : {md_path.name} — trop court.")
+            return []
+        logger.info(f"  MD : {md_path.name} — {len(raw)} caractère(s)")
+        return [{"text": raw, "page_num": 1, "file_path": str(md_path)}]
+    except Exception as e:
+        logger.error(f"  Erreur lecture MD {md_path.name} : {e}", exc_info=True)
+        return []
+
 
 _EXTRACTORS = {
     ".pdf": extract_text_from_pdf,
     ".docx": extract_text_from_docx,
     ".txt": extract_text_from_txt,
+    ".md": extract_text_from_md,
 }
 
 
 def extract_text(file_path: Path) -> list[dict]:
-    """Sélectionne automatiquement l'extracteur selon l'extension."""
     extractor = _EXTRACTORS.get(file_path.suffix.lower())
     if not extractor:
         raise ValueError(
@@ -210,45 +214,41 @@ def extract_text(file_path: Path) -> list[dict]:
 
 
 # ============================================================
-# DÉCOUPAGE EN CHUNKS LANGCHAIN
+# CHUNKING SÉMANTIQUE
 # ============================================================
+
+
+def _make_splitter() -> RecursiveCharacterTextSplitter:
+    """Splitter sémantique générique : titres > paragraphes > phrases > mots."""
+    return RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=CHUNK_SEPARATORS,
+        length_function=len,
+        keep_separator=True,
+    )
 
 
 def pages_to_documents(
     pages: list[dict],
-    categorie: str,
+    workspace: str,
     nom_fichier: str,
 ) -> list[Document]:
-    """
-    Convertit les pages/blocs extraits en Documents LangChain
-    avec métadonnées complètes.
-
-    Séparateurs ordonnés du plus fort au plus faible :
-    1. Frontières d'articles légaux  → coupe AVANT "Article X" (Code Civil/Travail/Pénal)
-    2. Frontières de chapitres/titres → Chapitre, Titre, Section, Annexe
-    3. Sections Markdown (# ##)       → pour les docs techniques (Spring Boot, README…)
-    4. Doubles sauts de ligne         → paragraphes
-    5. Simple saut de ligne           → listes, items
-    6. Ponctuation forte              → phrase
-    7. Espace / caractère             → découpage de dernier recours
-    """
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=CHUNK_SEPARATORS,
-    )
-    documents = []
+    """Convertit les pages extraites en chunks LangChain enrichis."""
+    splitter = _make_splitter()
+    documents: list[Document] = []
     for page in pages:
         for chunk_idx, chunk in enumerate(splitter.split_text(page["text"])):
-            if len(chunk.strip()) < CHUNK_MIN_LENGTH:  # filtre les micro-chunks parasites
+            cleaned = chunk.strip()
+            if len(cleaned) < CHUNK_MIN_LENGTH:
                 continue
             documents.append(
                 Document(
-                    page_content=chunk,
+                    page_content=cleaned,
                     metadata={
                         "source": nom_fichier,
                         "page": page["page_num"],
-                        "categorie": categorie,
+                        "workspace": workspace,
                         "chunk_index": chunk_idx,
                         "file_path": page["file_path"],
                     },
@@ -257,62 +257,40 @@ def pages_to_documents(
     return documents
 
 
-# ============================================================
-# CHARGEMENT D'UN FICHIER UNIQUE
-# ============================================================
-
-
-def load_file(file_path: Path, categorie: str) -> list[Document]:
-    """
-    Charge et découpe un seul fichier (PDF, DOCX ou TXT).
-    Utilisé par ingest.py --file et par les tests.
-    """
+def load_file(file_path: Path, workspace: str) -> list[Document]:
     pages = extract_text(file_path)
-    docs = pages_to_documents(pages, categorie, file_path.name)
+    docs = pages_to_documents(pages, workspace, file_path.name)
     logger.info(f"  {file_path.name} → {len(docs)} chunk(s)")
     return docs
 
 
-# ============================================================
-# CHARGEMENT D'UNE CATÉGORIE COMPLÈTE
-# ============================================================
+def load_workspace(workspace_key: str) -> list[Document]:
+    """Charge tous les fichiers d'un workspace."""
+    ws = get_workspaces().get(workspace_key)
+    if not ws:
+        raise ValueError(f"Workspace inconnu : {workspace_key}")
 
-
-def load_category(categorie: str) -> list[Document]:
-    """Charge tous les fichiers supportés d'une catégorie (native ou personnalisée)."""
-    config = get_all_categories().get(categorie)
-    if not config:
-        raise ValueError(f"Catégorie inconnue : {categorie}")
-
-    directory = Path(config["dir"])
+    directory = Path(ws["dir"])
     files = [f for ext in SUPPORTED_EXTENSIONS for f in sorted(directory.glob(f"*{ext}"))]
-
     if not files:
-        logger.warning(
-            f"Aucun document dans {directory} (formats : {', '.join(SUPPORTED_EXTENSIONS)})"
-        )
+        logger.warning(f"Aucun document dans {directory}")
         return []
 
-    logger.info(f"Catégorie '{categorie}' : {len(files)} fichier(s)")
-    all_documents = []
-    for file_path in tqdm(files, desc=f"  {categorie}"):
-        all_documents.extend(load_file(file_path, categorie))
-    return all_documents
-
-
-# ============================================================
-# CHARGEMENT GLOBAL — TOUTES CATÉGORIES
-# ============================================================
+    logger.info(f"Workspace '{workspace_key}' : {len(files)} fichier(s)")
+    all_docs: list[Document] = []
+    for file_path in tqdm(files, desc=f"  {workspace_key}"):
+        all_docs.extend(load_file(file_path, workspace_key))
+    return all_docs
 
 
 def load_all_documents() -> list[Document]:
-    """Charge et découpe tous les documents de toutes les catégories (natives + personnalisées)."""
+    """Charge tous les documents de tous les workspaces enregistrés."""
     logger.info("=== CHARGEMENT DES DOCUMENTS ===")
-    all_docs = []
-    all_cats = get_all_categories()
-    for categorie in all_cats:
-        docs = load_category(categorie)
+    all_docs: list[Document] = []
+    workspaces = get_workspaces()
+    for key in workspaces:
+        docs = load_workspace(key)
         all_docs.extend(docs)
-        logger.info(f"  '{categorie}' : {len(docs)} chunks")
-    logger.info(f"Total : {len(all_docs)} chunks depuis {len(all_cats)} catégorie(s)")
+        logger.info(f"  '{key}' : {len(docs)} chunks")
+    logger.info(f"Total : {len(all_docs)} chunks depuis {len(workspaces)} workspace(s)")
     return all_docs

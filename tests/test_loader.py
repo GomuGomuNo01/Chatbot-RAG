@@ -96,9 +96,9 @@ class TestPagesToDocuments:
 
     def test_metadata_complete(self, test_pdf_path):
         pages = extract_text_from_pdf(test_pdf_path)
-        docs = pages_to_documents(pages, "rh", "reglement.pdf")
+        docs = pages_to_documents(pages, "myws", "reglement.pdf")
         for doc in docs:
-            assert doc.metadata["categorie"] == "rh"
+            assert doc.metadata["workspace"] == "myws"
             assert doc.metadata["source"] == "reglement.pdf"
             assert "page" in doc.metadata
             assert "chunk_index" in doc.metadata
@@ -148,9 +148,9 @@ class TestLoadFile:
         assert len(docs) >= 1
         assert all(isinstance(d, Document) for d in docs)
 
-    def test_categorie_assigned(self, test_txt_path):
-        docs = load_file(test_txt_path, "rh")
-        assert all(d.metadata["categorie"] == "rh" for d in docs)
+    def test_workspace_assigned(self, test_txt_path):
+        docs = load_file(test_txt_path, "myws")
+        assert all(d.metadata["workspace"] == "myws" for d in docs)
 
 
 # ──────────────────────────────────────────────────────────────

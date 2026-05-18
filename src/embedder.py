@@ -21,7 +21,11 @@ from langchain_core.embeddings import Embeddings
 logger = logging.getLogger(__name__)
 
 _embeddings_instance = None
-_HF_MODEL_ID = f"sentence-transformers/{EMBEDDING_MODEL}"
+# Pour les modèles e5, le HF model ID est utilisé tel quel (pas sous sentence-transformers/).
+_HF_MODEL_ID = EMBEDDING_MODEL
+# Les modèles intfloat/e5 exigent des préfixes "query: " / "passage: " pour de meilleures
+# performances. Sans ces préfixes, les embeddings sont ~10 % moins précis.
+_IS_E5_MODEL = "e5" in EMBEDDING_MODEL.lower()
 
 
 class _InferenceClientEmbeddings(Embeddings):
@@ -43,8 +47,12 @@ class _InferenceClientEmbeddings(Embeddings):
 
     # ── Embedding d'un seul texte (query + fallback interne) ────────────────
 
+    # Erreurs permanentes (mauvaise tâche, modèle privé, etc.) → pas de retry.
+    _PERMANENT_ERROR_HINTS = ("doesn't support task", "not supported", "unauthorized", "403")
+
     def _embed(self, text: str) -> list[float]:
-        """Embed un texte unique avec 3 tentatives et backoff exponentiel."""
+        """Embed un texte unique avec 3 tentatives et backoff exponentiel.
+        Les erreurs permanentes (tâche non supportée, accès refusé) lèvent immédiatement."""
         import time
 
         last_exc = None
@@ -53,6 +61,10 @@ class _InferenceClientEmbeddings(Embeddings):
                 result = self._client.feature_extraction(text)
                 return self._postprocess_single(result)
             except Exception as exc:
+                msg = str(exc).lower()
+                if any(hint in msg for hint in self._PERMANENT_ERROR_HINTS):
+                    # Inutile de réessayer : erreur de configuration, pas réseau
+                    raise
                 last_exc = exc
                 wait = 2**attempt  # 1 s → 2 s → 4 s
                 logger.warning(
@@ -82,6 +94,9 @@ class _InferenceClientEmbeddings(Embeddings):
                 result = self._client.feature_extraction(texts)
                 break
             except Exception as exc:
+                msg = str(exc).lower()
+                if any(hint in msg for hint in self._PERMANENT_ERROR_HINTS):
+                    raise
                 last_exc = exc
                 wait = 2**attempt
                 logger.warning(
@@ -132,15 +147,18 @@ class _InferenceClientEmbeddings(Embeddings):
         if not texts:
             return []
 
-        n_batches = (len(texts) + self._BATCH_SIZE - 1) // self._BATCH_SIZE
+        # Préfixe "passage: " requis par les modèles e5 pour l'indexation des documents.
+        prefixed = [f"passage: {t}" for t in texts] if _IS_E5_MODEL else texts
+
+        n_batches = (len(prefixed) + self._BATCH_SIZE - 1) // self._BATCH_SIZE
         logger.info(
-            f"  Embedding {len(texts)} chunks en {n_batches} batch(s) de {self._BATCH_SIZE}…"
+            f"  Embedding {len(prefixed)} chunks en {n_batches} batch(s) de {self._BATCH_SIZE}…"
         )
 
         results: list[list[float]] = []
 
-        for i in range(0, len(texts), self._BATCH_SIZE):
-            batch = texts[i : i + self._BATCH_SIZE]
+        for i in range(0, len(prefixed), self._BATCH_SIZE):
+            batch = prefixed[i : i + self._BATCH_SIZE]
             batch_num = i // self._BATCH_SIZE + 1
             try:
                 embeddings = self._embed_batch(batch)
@@ -162,7 +180,8 @@ class _InferenceClientEmbeddings(Embeddings):
 
     def embed_query(self, text: str) -> list[float]:
         """Embed une requête (appel single, toujours rapide)."""
-        return self._embed(text)
+        prefixed = f"query: {text}" if _IS_E5_MODEL else text
+        return self._embed(prefixed)
 
 
 # ============================================================
@@ -170,25 +189,65 @@ class _InferenceClientEmbeddings(Embeddings):
 # ============================================================
 
 
+class _PrefixedLocalEmbeddings(Embeddings):
+    """
+    Wrapper autour de HuggingFaceEmbeddings qui ajoute les préfixes e5
+    ("query: " pour les requêtes, "passage: " pour les documents).
+    Transparent si _IS_E5_MODEL est False.
+    """
+
+    def __init__(self, base: Embeddings) -> None:
+        self._base = base
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        prefixed = [f"passage: {t}" for t in texts] if _IS_E5_MODEL else texts
+        return self._base.embed_documents(prefixed)
+
+    def embed_query(self, text: str) -> list[float]:
+        prefixed = f"query: {text}" if _IS_E5_MODEL else text
+        return self._base.embed_query(prefixed)
+
+
+def _is_model_cached(model_name: str) -> bool:
+    """
+    Vérifie si le modèle est déjà dans le cache HuggingFace local.
+    Quand c'est le cas, on peut passer local_files_only=True pour éviter
+    une vingtaine de requêtes HTTP de vérification au démarrage (~6 s).
+    """
+    import os
+    cache_dir = os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface", "hub",
+        f"models--{model_name.replace('/', '--')}",
+    )
+    return os.path.isdir(cache_dir)
+
+
 def _make_local_embeddings() -> Embeddings:
     """
     Charge le modèle sentence-transformers en local (CPU).
 
-    Compatibilité sentence-transformers >= 3.x :
-    - show_progress_bar retiré des encode_kwargs (géré par verbose= sur le modèle)
-    - batch_size conservé pour l'efficacité
+    Si le modèle est déjà en cache local, local_files_only=True supprime
+    les vérifications réseau HuggingFace au démarrage (~6 s économisées).
     """
     from langchain_huggingface import HuggingFaceEmbeddings
 
-    logger.info(f"Embeddings locaux : {EMBEDDING_MODEL} (CPU, batch_size=32)")
-    return HuggingFaceEmbeddings(
+    cached = _is_model_cached(EMBEDDING_MODEL)
+    model_kwargs: dict = {"device": "cpu"}
+    if cached:
+        model_kwargs["local_files_only"] = True
+        logger.info(f"Embeddings locaux : {EMBEDDING_MODEL} (CPU, cache local, hors-ligne)")
+    else:
+        logger.info(f"Embeddings locaux : {EMBEDDING_MODEL} (CPU, téléchargement…)")
+
+    base = HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL,
-        model_kwargs={"device": "cpu"},
+        model_kwargs=model_kwargs,
         encode_kwargs={
             "normalize_embeddings": True,
-            "batch_size": 32,  # compatible toutes versions
+            "batch_size": 32,
         },
     )
+    return _PrefixedLocalEmbeddings(base)
 
 
 def get_embeddings() -> Embeddings:
@@ -205,27 +264,33 @@ def get_embeddings() -> Embeddings:
 
     if _embeddings_instance is None:
         hf_token = os.getenv("HF_TOKEN", "")
+        cached_locally = _is_model_cached(EMBEDDING_MODEL)
 
-        if hf_token:
+        if hf_token and not cached_locally:
+            # InferenceClient uniquement quand le modèle n'est pas en cache local.
+            # Raison : intfloat/multilingual-e5-base est tagué "sentence-similarity"
+            # sur HF Hub (pas "feature-extraction"), donc l'InferenceClient échoue
+            # toujours avec ce modèle. Si le modèle est déjà en cache, on va
+            # directement en local — plus rapide et sans requêtes HTTP inutiles.
             logger.info(
                 f"Embeddings via HuggingFace InferenceClient : {_HF_MODEL_ID} "
                 f"(batch={_InferenceClientEmbeddings._BATCH_SIZE}, "
                 f"workers_fallback={_InferenceClientEmbeddings._MAX_WORKERS})"
             )
-            # Valider le token avec un appel de test minimal
             try:
                 candidate = _InferenceClientEmbeddings(token=hf_token, model=_HF_MODEL_ID)
-                candidate._embed("test")  # appel de validation (~100ms)
+                candidate._embed("test")
                 _embeddings_instance = candidate
                 logger.info("  InferenceClient validé : OK")
             except Exception as e:
-                # Token expiré / invalide / quota dépassé → fallback local
                 logger.warning(
                     f"  InferenceClient indisponible ({type(e).__name__}: {e!s:.120}) "
                     "— fallback modele local sentence-transformers"
                 )
                 _embeddings_instance = _make_local_embeddings()
         else:
+            if cached_locally and hf_token:
+                logger.info(f"Embeddings locaux (modèle en cache — InferenceClient ignoré) : {EMBEDDING_MODEL}")
             _embeddings_instance = _make_local_embeddings()
 
         logger.info("  Embeddings initialises : OK")

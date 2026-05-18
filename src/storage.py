@@ -1,12 +1,8 @@
 """
-storage.py — Client Cloudflare R2 (compatible S3)
+storage.py — Client Cloudflare R2 (compatible S3).
 
-Stocke les fichiers sources (PDF, DOCX, TXT) dans R2 de façon permanente.
-Clé de stockage : docs/{categorie}/{nom_fichier}
-
-Mode dégradé : si R2 n'est pas configuré (variables absentes),
-toutes les fonctions retournent des valeurs neutres sans lever d'exception.
-Le système continue de fonctionner en mode filesystem local.
+Refonte v2 : les fichiers sont stockés sous `docs/{workspace}/{filename}` dans R2.
+Le terme `categorie` est remplacé par `workspace` dans toute l'API.
 """
 
 import logging
@@ -27,7 +23,6 @@ _R2_PREFIX = "docs"
 
 @lru_cache(maxsize=1)
 def _get_client():
-    """Singleton boto3 vers Cloudflare R2."""
     import boto3
 
     return boto3.client(
@@ -39,26 +34,17 @@ def _get_client():
     )
 
 
-def _object_key(categorie: str, filename: str) -> str:
-    return f"{_R2_PREFIX}/{categorie}/{filename}"
+def _object_key(workspace: str, filename: str) -> str:
+    return f"{_R2_PREFIX}/{workspace}/{filename}"
 
 
-# ──────────────────────────────────────────────────────────────
-# API publique
-# ──────────────────────────────────────────────────────────────
-
-
-def file_exists_r2(categorie: str, filename: str) -> bool:
-    """Vérifie si un fichier est présent dans R2."""
+def file_exists_r2(workspace: str, filename: str) -> bool:
     if not is_r2_enabled():
         return False
     try:
         from botocore.exceptions import ClientError
 
-        _get_client().head_object(
-            Bucket=R2_BUCKET_NAME,
-            Key=_object_key(categorie, filename),
-        )
+        _get_client().head_object(Bucket=R2_BUCKET_NAME, Key=_object_key(workspace, filename))
         return True
     except Exception as e:
         from botocore.exceptions import ClientError
@@ -69,76 +55,66 @@ def file_exists_r2(categorie: str, filename: str) -> bool:
         return False
 
 
-def upload_file_r2(content: bytes, categorie: str, filename: str) -> None:
-    """Upload un fichier dans R2. Silencieux si R2 non configuré."""
+def upload_file_r2(content: bytes, workspace: str, filename: str) -> None:
     if not is_r2_enabled():
         return
-    key = _object_key(categorie, filename)
+    key = _object_key(workspace, filename)
     _get_client().put_object(Bucket=R2_BUCKET_NAME, Key=key, Body=content)
     logger.info(f"R2 ← upload : {key}")
 
 
-def download_file_r2(categorie: str, filename: str) -> bytes:
-    """Télécharge un fichier depuis R2."""
-    key = _object_key(categorie, filename)
+def download_file_r2(workspace: str, filename: str) -> bytes:
+    key = _object_key(workspace, filename)
     response = _get_client().get_object(Bucket=R2_BUCKET_NAME, Key=key)
     return response["Body"].read()
 
 
-def list_files_r2(categorie: str | None = None) -> list[dict]:
+def list_files_r2(workspace: str | None = None) -> list[dict]:
     """
     Liste les fichiers stockés dans R2.
-
-    Retourne une liste de dicts ``{categorie, filename}`` pour chaque objet
-    sous la clé ``docs/{categorie}/{filename}``.
-    Retourne [] si R2 n'est pas configuré.
+    Retourne [{'workspace': str, 'filename': str}, …].
     """
     if not is_r2_enabled():
         return []
     try:
-        prefix = f"{_R2_PREFIX}/{categorie}/" if categorie else f"{_R2_PREFIX}/"
+        prefix = f"{_R2_PREFIX}/{workspace}/" if workspace else f"{_R2_PREFIX}/"
         paginator = _get_client().get_paginator("list_objects_v2")
         results: list[dict] = []
         for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=prefix):
             for obj in page.get("Contents", []):
                 parts = obj["Key"].split("/")
-                if len(parts) == 3:  # docs / {cat} / {filename}
-                    results.append({"categorie": parts[1], "filename": parts[2]})
-        logger.debug(f"R2 list ({prefix}) → {len(results)} fichier(s)")
+                if len(parts) == 3:  # docs / {ws} / {filename}
+                    results.append({"workspace": parts[1], "filename": parts[2]})
         return results
     except Exception as e:
         logger.warning(f"R2 list_objects erreur : {e}")
         return []
 
 
-def delete_file_r2(categorie: str, filename: str) -> None:
-    """Supprime un fichier de R2. Silencieux si R2 non configuré ou fichier absent."""
+def delete_file_r2(workspace: str, filename: str) -> None:
     if not is_r2_enabled():
         return
-    key = _object_key(categorie, filename)
+    key = _object_key(workspace, filename)
     try:
         _get_client().delete_object(Bucket=R2_BUCKET_NAME, Key=key)
         logger.info(f"R2 ✗ supprimé : {key}")
     except Exception as e:
-        logger.warning(f"R2 delete_object {key} erreur : {e}")
+        logger.warning(f"R2 delete {key} erreur : {e}")
 
 
-def delete_prefix_r2(categorie: str) -> int:
-    """
-    Supprime tous les fichiers d'une catégorie dans R2.
-    Retourne le nombre d'objets supprimés.
-    """
+def delete_prefix_r2(workspace: str) -> int:
+    """Supprime tous les fichiers d'un workspace dans R2."""
     if not is_r2_enabled():
         return 0
     deleted = 0
-    for item in list_files_r2(categorie=categorie):
-        delete_file_r2(item["categorie"], item["filename"])
+    for item in list_files_r2(workspace=workspace):
+        delete_file_r2(item["workspace"], item["filename"])
         deleted += 1
     return deleted
 
 
 def upload_metadata_r2(file_path, name: str) -> None:
-    """Upload un fichier de configuration (ex. custom_categories.json) sous config/{name} dans R2."""
+    """Upload un fichier de config (ex. workspaces.json) sous config/{name} dans R2."""
     if not is_r2_enabled():
         return
     from pathlib import Path as _Path
@@ -150,10 +126,7 @@ def upload_metadata_r2(file_path, name: str) -> None:
 
 
 def download_metadata_r2(name: str, dest_path) -> bool:
-    """
-    Télécharge un fichier de config depuis R2 config/{name} vers dest_path.
-    Retourne True si téléchargé, False si absent ou R2 non configuré.
-    """
+    """Download config/{name} depuis R2 → dest_path local."""
     if not is_r2_enabled():
         return False
     from pathlib import Path as _Path
@@ -178,35 +151,23 @@ def download_metadata_r2(name: str, dest_path) -> bool:
 
 
 def sync_r2_to_local(docs_dir) -> int:
-    """
-    Télécharge depuis R2 tous les fichiers absents du dossier docs/ local.
-    Utile avant une ré-indexation complète sur Render (filesystem éphémère).
-
-    Args:
-        docs_dir : Path vers le répertoire docs/ racine
-
-    Returns:
-        Nombre de fichiers téléchargés.
-    """
+    """Télécharge depuis R2 tous les fichiers absents du dossier docs/ local."""
     if not is_r2_enabled():
         return 0
-
     from pathlib import Path
 
     docs_dir = Path(docs_dir)
     downloaded = 0
-
     for item in list_files_r2():
-        cat = item["categorie"]
+        ws = item["workspace"]
         filename = item["filename"]
-        dest = docs_dir / cat / filename
+        dest = docs_dir / ws / filename
         if not dest.exists():
             dest.parent.mkdir(parents=True, exist_ok=True)
             try:
-                dest.write_bytes(download_file_r2(cat, filename))
+                dest.write_bytes(download_file_r2(ws, filename))
                 downloaded += 1
-                logger.info(f"R2 → local : {cat}/{filename}")
+                logger.info(f"R2 → local : {ws}/{filename}")
             except Exception as e:
-                logger.warning(f"R2 download {cat}/{filename} erreur : {e}")
-
+                logger.warning(f"R2 download {ws}/{filename} erreur : {e}")
     return downloaded

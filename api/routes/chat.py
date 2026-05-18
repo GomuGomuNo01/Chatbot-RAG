@@ -1,5 +1,7 @@
 """
-Route POST /api/chat — Endpoint principal du chatbot
+Route /api/chat — endpoint principal du chatbot (refonte v2).
+
+Le paramètre `categorie` devient `workspace`. Plus aucune catégorie native.
 """
 
 import json
@@ -13,70 +15,75 @@ from api.schemas import ChatRequest, ChatResponse, ClearMemoryRequest, ErrorResp
 from src.chain import get_rag_chain
 from src.indexer import index_exists
 from src.memory import ConversationMemory
+from src.rate_limiter import check_limit, get_limit, get_today_count, increment, status as rate_status
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Stockage des sessions en mémoire (dict session_id → ConversationMemory)
+# Sessions en mémoire (session_id → ConversationMemory)
 _sessions: dict[str, ConversationMemory] = {}
 
 
 def get_session(session_id: str) -> ConversationMemory:
-    """Retourne ou crée une session de mémoire conversationnelle."""
     if session_id not in _sessions:
         _sessions[session_id] = ConversationMemory()
-        logger.info(f"Nouvelle session créée : {session_id}")
+        logger.info(f"Nouvelle session : {session_id}")
     return _sessions[session_id]
 
 
 def _check_index() -> None:
-    """Lève HTTPException 503 si l'index FAISS est absent."""
     if not index_exists():
         raise HTTPException(
             status_code=503,
             detail=(
-                "L'index FAISS n'est pas disponible. "
+                "L'index documentaire n'est pas disponible. "
                 "Uploadez des documents via l'interface ou lancez : python ingest.py"
             ),
         )
 
 
-def _check_categorie(categorie: str | None) -> None:
-    """Lève HTTPException 422 si la catégorie est inconnue."""
-    if not categorie:
-        return
-    from config import get_all_categories
+def _check_rate_limit(from_cache: bool = False) -> None:
+    allowed, count, limit = check_limit()
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Limite journalière atteinte ({count}/{limit} requêtes). "
+                "Revenez demain ou augmentez DAILY_REQUEST_LIMIT dans votre .env"
+            ),
+        )
 
-    cats = get_all_categories()
-    if categorie not in cats:
+
+def _check_workspace(workspace: str | None) -> None:
+    if not workspace:
+        return
+    from config import get_workspaces
+
+    workspaces = get_workspaces()
+    if workspace not in workspaces:
         raise HTTPException(
             status_code=422,
             detail=(
-                f"Catégorie invalide : « {categorie} ». "
-                f"Catégories disponibles : {', '.join(cats.keys())}"
+                f"Workspace invalide : « {workspace} ». "
+                f"Workspaces disponibles : {', '.join(workspaces.keys()) or 'aucun'}"
             ),
         )
 
 
 def _internal_error(e: Exception, context: str) -> HTTPException:
-    """
-    Crée une HTTPException 500 sûre :
-    - Logue la stack complète + un identifiant de corrélation côté serveur
-    - N'expose PAS les détails techniques au client
-    """
     ref = str(uuid.uuid4())[:8].upper()
     logger.error(f"[{ref}] {context} : {e}", exc_info=True)
     return HTTPException(
         status_code=500,
         detail=(
             f"Une erreur interne s'est produite (réf. {ref}). "
-            "Réessayez dans quelques instants ou contactez le support si le problème persiste."
+            "Réessayez dans quelques instants."
         ),
     )
 
 
 # ============================================================
-# POST /api/chat  (synchrone)
+# POST /api/chat
 # ============================================================
 
 
@@ -84,18 +91,16 @@ def _internal_error(e: Exception, context: str) -> HTTPException:
     "/chat",
     response_model=ChatResponse,
     summary="Poser une question au chatbot",
-    description=(
-        "Envoie une question et reçoit une réponse générée par RAG avec les sources citées."
-    ),
     responses={
-        503: {"model": ErrorResponse, "description": "Index non disponible"},
-        422: {"model": ErrorResponse, "description": "Requête invalide"},
-        500: {"model": ErrorResponse, "description": "Erreur interne"},
+        503: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
     },
 )
 def chat(request: ChatRequest) -> ChatResponse:
     _check_index()
-    _check_categorie(request.categorie)
+    _check_workspace(request.workspace)
+    _check_rate_limit()
 
     try:
         session_id = request.session_id or "default"
@@ -104,8 +109,10 @@ def chat(request: ChatRequest) -> ChatResponse:
         result = rag.ask(
             question=request.question,
             memory=memory,
-            categorie=request.categorie,
+            workspace=request.workspace,
         )
+        if not result.get("from_cache"):
+            increment()
         sources = [SourceResponse(**src) for src in result["sources"]]
         return ChatResponse(
             answer=result["answer"],
@@ -113,27 +120,28 @@ def chat(request: ChatRequest) -> ChatResponse:
             question=result["question"],
             session_id=session_id,
             nb_sources=len(sources),
+            from_cache=bool(result.get("from_cache")),
         )
 
     except HTTPException:
-        raise  # re-propager sans modifier
+        raise
     except Exception as e:
-        raise _internal_error(e, "Erreur pipeline RAG (chat)")
+        raise _internal_error(e, "Pipeline RAG (chat)")
 
 
 # ============================================================
-# POST /api/chat/stream  (SSE)
+# POST /api/chat/stream
 # ============================================================
 
 
 @router.post(
     "/chat/stream",
     summary="Réponse en streaming (SSE)",
-    description="Envoie les tokens au fur et à mesure via Server-Sent Events.",
 )
 async def chat_stream(request: ChatRequest):
     _check_index()
-    _check_categorie(request.categorie)
+    _check_workspace(request.workspace)
+    _check_rate_limit()
 
     session_id = request.session_id or "default"
     memory = get_session(session_id)
@@ -141,14 +149,26 @@ async def chat_stream(request: ChatRequest):
 
     async def generate():
         ref = str(uuid.uuid4())[:8].upper()
+        incremented = False
         try:
-            async for event in rag.ask_stream(request.question, memory, request.categorie):
+            async for event in rag.ask_stream(request.question, memory, request.workspace):
+                if not incremented and not event.get("from_cache"):
+                    increment()
+                    incremented = True
+                # Injecter le compteur de requêtes dans l'événement final (done=True)
+                # pour que le client mette à jour le badge sans requête supplémentaire.
+                if event.get("done"):
+                    lim   = get_limit()
+                    used  = get_today_count()
+                    event["rate_limit"]     = lim
+                    event["rate_used"]      = used
+                    event["rate_remaining"] = max(0, lim - used) if lim > 0 else None
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
-            logger.error(f"[{ref}] Erreur pipeline RAG (stream) : {e}", exc_info=True)
+            logger.error(f"[{ref}] Stream RAG : {e}", exc_info=True)
             error_payload = {
                 "error": (
-                    f"Une erreur s'est produite lors de la génération de la réponse (réf. {ref}). "
+                    f"Erreur lors de la génération de la réponse (réf. {ref}). "
                     "Réessayez dans quelques instants."
                 ),
                 "done": True,
@@ -171,24 +191,16 @@ async def chat_stream(request: ChatRequest):
 # ============================================================
 
 
-@router.post(
-    "/chat/clear",
-    summary="Effacer l'historique d'une session",
-    description="Réinitialise la mémoire conversationnelle d'une session.",
-)
+@router.post("/chat/clear", summary="Efface l'historique d'une session")
 def clear_memory(request: ClearMemoryRequest) -> dict:
     session_id = request.session_id
     try:
         if session_id in _sessions:
             _sessions[session_id].clear()
-            logger.info(f"Session effacée : {session_id}")
-            return {"message": f"Session '{session_id}' effacée.", "session_id": session_id}
-        return {
-            "message": f"Session '{session_id}' introuvable ou déjà vide.",
-            "session_id": session_id,
-        }
+            return {"message": f"Session « {session_id} » effacée.", "session_id": session_id}
+        return {"message": f"Session « {session_id} » introuvable ou déjà vide.", "session_id": session_id}
     except Exception as e:
-        raise _internal_error(e, f"Erreur lors de l'effacement de la session {session_id}")
+        raise _internal_error(e, f"Effacement session {session_id}")
 
 
 # ============================================================
@@ -196,10 +208,7 @@ def clear_memory(request: ClearMemoryRequest) -> dict:
 # ============================================================
 
 
-@router.get(
-    "/chat/sessions",
-    summary="Liste des sessions actives",
-)
+@router.get("/chat/sessions", summary="Liste des sessions actives")
 def get_sessions() -> dict:
     return {
         "sessions": [
