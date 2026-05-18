@@ -23,7 +23,7 @@ pydantic==2.13.4
 pydantic-settings==2.14.1
 
 # Stockage externe — REQUIS pour la persistance R2 sur Render
-boto3==1.43.6
+boto3==1.43.9
 
 # Utilitaires
 python-dotenv==1.2.2
