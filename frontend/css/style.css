@@ -1453,6 +1453,77 @@ a    { color: var(--clr-primary); }
 }
 
 /* ================================================================
+   MODALE PROGRESSION INDEXATION
+   ================================================================ */
+.modal--reindex { max-width: 440px; }
+
+.reindex-modal-body {
+  padding: 28px 24px 20px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px; text-align: center;
+}
+
+/* Spinner agrandi pour le modal reindex */
+.reindex-spinner {
+  width: 40px; height: 40px; border-width: 3px;
+}
+
+/* Wrap autour du spinner : devient icône après fin */
+.reindex-spinner-wrap { display: flex; align-items: center; justify-content: center; }
+.reindex-spinner-wrap--done .reindex-spinner,
+.reindex-spinner-wrap--error .reindex-spinner { display: none; }
+.reindex-spinner-wrap--done::after  { content: '✅'; font-size: 2.2rem; }
+.reindex-spinner-wrap--error::after { content: '❌'; font-size: 2.2rem; }
+
+.reindex-status-line {
+  font-size: 0.9375rem; font-weight: 600; color: var(--clr-text); margin: 0;
+}
+
+/* Liste des étapes */
+.reindex-steps {
+  width: 100%; text-align: left;
+  display: flex; flex-direction: column; gap: 5px;
+  max-height: 180px; overflow-y: auto;
+}
+.reindex-steps::-webkit-scrollbar       { width: 4px; }
+.reindex-steps::-webkit-scrollbar-thumb { background: var(--clr-border); border-radius: 2px; }
+
+.reindex-step {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: var(--r);
+  font-size: 0.8125rem; color: var(--clr-text-muted);
+  background: var(--clr-bg);
+  transition: background var(--t), color var(--t);
+}
+.reindex-step--active { color: var(--clr-text); background: var(--clr-primary-muted); font-weight: 600; }
+.reindex-step--done   { color: var(--clr-success); }
+.reindex-step__icon   { font-size: 0.9rem; flex-shrink: 0; }
+
+/* Résumé final */
+.reindex-stats {
+  width: 100%; padding: 10px 14px; border-radius: var(--r);
+  font-size: 0.875rem; font-weight: 500;
+}
+.reindex-stats--ok    { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+.reindex-stats--error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+/* Footer du modal reindex */
+.modal__footer--reindex {
+  padding: 14px 24px 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.reindex-warn-msg {
+  font-size: 0.8125rem; color: var(--clr-warn); font-weight: 500; margin: 0;
+}
+
+/* ── Flash nouveaux documents après upload ── */
+@keyframes docFlash {
+  0%   { background: rgba(194,65,12,.14); }
+  100% { background: transparent; }
+}
+.doc-item--new { animation: docFlash 1.8s var(--ease) forwards; }
+
+/* ================================================================
    RÉDUCTION DES ANIMATIONS — WCAG 2.1 (prefers-reduced-motion)
    ================================================================ */
 @media (prefers-reduced-motion: reduce) {
