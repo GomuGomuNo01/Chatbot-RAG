@@ -37,14 +37,18 @@ class _FastEmbedEmbeddings(Embeddings):
     def __init__(self, model_name: str) -> None:
         from fastembed import TextEmbedding
 
-        self._model = TextEmbedding(model_name=model_name)
-        logger.info(f"fastembed initialisé : {model_name}")
+        # threads=1 : limite le parallélisme interne de l'ONNX Runtime.
+        # Réduit la consommation mémoire (moins de buffers d'activation simultanés)
+        # au détriment d'une vitesse d'inférence légèrement plus lente.
+        self._model = TextEmbedding(model_name=model_name, threads=1)
+        logger.info(f"fastembed initialisé : {model_name} (threads=1, batch=16)")
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
         prefixed = [f"passage: {t}" for t in texts] if _IS_E5_MODEL else texts
-        return [list(map(float, v)) for v in self._model.embed(prefixed, batch_size=32)]
+        # batch_size=16 : réduit la mémoire de travail ONNX par rapport à 32
+        return [list(map(float, v)) for v in self._model.embed(prefixed, batch_size=16)]
 
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"query: {text}" if _IS_E5_MODEL else text
