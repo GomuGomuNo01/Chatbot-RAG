@@ -56,7 +56,7 @@ jobs:
             -q
         env:
           # Variables factices pour que config.py ne lève pas d'erreur
-          GROQ_API_KEY: "gsk_test_dummy"
+          ANTHROPIC_API_KEY: "sk-ant-test-dummy"
           HF_TOKEN: ""
           R2_ACCOUNT_ID: ""
           R2_ACCESS_KEY_ID: ""

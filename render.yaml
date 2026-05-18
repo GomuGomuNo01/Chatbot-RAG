@@ -24,9 +24,11 @@ services:
       - key: PYTHON_VERSION
         value: "3.11"
 
-      # LLM Groq — OBLIGATOIRE
-      - key: GROQ_API_KEY
+      # LLM Anthropic — OBLIGATOIRE
+      - key: ANTHROPIC_API_KEY
         sync: false             # Renseigner dans : Dashboard > Environment
+      - key: ANTHROPIC_MODEL
+        value: "claude-haiku-4-5-20251001"
 
       # HuggingFace Hub — persistance de l'index FAISS entre redémarrages
       # Créer un dépôt privé de type "dataset" sur huggingface.co puis renseigner :

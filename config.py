@@ -44,7 +44,7 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 ANTHROPIC_TEMPERATURE = 0.1
 ANTHROPIC_MAX_TOKENS = 1024
 
-EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
+EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
 # Reranker — modèle cross-encoder via HuggingFace InferenceClient (0 RAM locale)
 RERANKER_MODEL = "BAAI/bge-reranker-base"
@@ -88,6 +88,7 @@ def get_chunk_config_fingerprint() -> str:
             "chunk_overlap": CHUNK_OVERLAP,
             "separators": CHUNK_SEPARATORS,
             "min_length": CHUNK_MIN_LENGTH,
+            "embedding_model": EMBEDDING_MODEL,
         },
         sort_keys=True,
     )
