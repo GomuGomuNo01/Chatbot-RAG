@@ -28,4 +28,4 @@ boto3==1.43.6
 # Utilitaires
 python-dotenv==1.2.2
 tqdm==4.67.3
-huggingface_hub>=1.14.0
+huggingface_hub>=1.15.0
