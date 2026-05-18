@@ -874,14 +874,20 @@ async def delete_document(
         except Exception as e:
             logger.warning(f"R2 delete {filename} ignoré : {e}")
 
-    all_files = _list_remaining_files()
-    background_tasks.add_task(_run_rebuild_after_delete, all_files)
+    # Pas de reindex automatique — trop lourd pour Render free (512 MB).
+    # L'index FAISS conserve les anciens vecteurs du document supprimé ;
+    # ils deviennent inactifs (fichier absent) et disparaîtront au prochain
+    # reindex manuel via POST /api/documents/reindex.
+    _invalidate_caches()
 
     return DeleteDocumentResponse(
         nom=filename,
         workspace=workspace,
-        message=f"Document « {filename} » supprimé. Reconstruction de l'index en cours.",
-        background=True,
+        message=(
+            f"Document « {filename} » supprimé. "
+            "Lancez une ré-indexation manuelle pour mettre à jour l'index."
+        ),
+        background=False,
     )
 
 
