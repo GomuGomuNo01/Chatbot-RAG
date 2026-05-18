@@ -779,22 +779,49 @@ class App {
 
   _waitForIndexation(timeoutMs = 480000, onProgress = null) {
     return new Promise((resolve, reject) => {
-      const start = Date.now();
+      const isFr     = i18n.lang !== 'en';
+      const deadline = Date.now() + timeoutMs;
+      let seenRunning = false; // true dès qu'on voit running=true au moins une fois
+
       const poll = setInterval(async () => {
-        if (Date.now() - start > timeoutMs) {
+        // Délai dépassé → rejet explicite (évite le faux succès silencieux)
+        if (Date.now() > deadline) {
           clearInterval(poll);
-          resolve({ chunks: 0, files: 0 });
+          reject(new Error(
+            isFr
+              ? 'Délai dépassé (8 min). L\'indexation est peut-être encore en cours en arrière-plan.'
+              : 'Timeout (8 min). Indexation may still be running in the background.'
+          ));
           return;
         }
         try {
           const status = await apiIndexStatus();
           if (onProgress) onProgress(status);
+
+          if (status.running) seenRunning = true;
+
           if (!status.running) {
+            // Fenêtre de grâce : 6 s après le début pour laisser le temps au
+            // thread d'arrière-plan de passer en running=true (race condition rare).
+            const elapsed = Date.now() - (deadline - timeoutMs);
+            if (!seenRunning && elapsed < 6000) return;
+
             clearInterval(poll);
-            if (status.error) reject(new Error(status.error));
-            else resolve(status);
+            if (status.error) {
+              reject(new Error(status.error));
+            } else if (!status.done_at) {
+              // done_at = null + running=false + pas d'erreur = état initial du serveur
+              // → le process a redémarré (OOM, déploiement…) PENDANT l'indexation.
+              reject(new Error(
+                isFr
+                  ? 'L\'indexation a été interrompue (redémarrage du serveur ?). Relancez-la manuellement.'
+                  : 'Indexation was interrupted (server restart?). Please relaunch it manually.'
+              ));
+            } else {
+              resolve(status);
+            }
           }
-        } catch { /* erreur réseau transitoire */ }
+        } catch { /* erreur réseau transitoire — on continue */ }
       }, 3000);
     });
   }
@@ -1087,19 +1114,32 @@ class App {
   }
 
   async _reindexDocument(workspace, filename, btnEl) {
-    const originalText = btnEl ? btnEl.textContent : '';
-    if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳'; }
+    const isFr = i18n.lang !== 'en';
 
+    // Confirmation avant de relancer (l'opération reconstruit tout l'index)
+    const confirmed = await this._confirm(
+      isFr ? 'Ré-indexer le document' : 'Re-index document',
+      isFr
+        ? `Ré-indexer <strong>${this._esc(filename)}</strong> ?<br><small style="opacity:.8">L'index complet sera reconstruit à partir de tous les documents du workspace.</small>`
+        : `Re-index <strong>${this._esc(filename)}</strong>?<br><small style="opacity:.8">The full index will be rebuilt from all workspace documents.</small>`,
+      isFr ? 'Ré-indexer' : 'Re-index'
+    );
+    if (!confirmed) return;
+
+    // Modal bloquant (même flux que la réindexation manuelle)
+    this._openReindexProgressModal();
     try {
-      const result = await apiReindexFile(workspace, filename);
-      this._showToast(
-        i18n.t('reindex.file.success', { name: filename, chunks: result.chunks }), 'ok'
+      await apiReindexFile(workspace, filename);
+      this._addReindexStep(
+        isFr ? 'Indexation lancée en arrière-plan…' : 'Indexation started in background…',
+        'active'
       );
+      const status = await this._waitForIndexation(480000, s => this._updateReindexModalStatus(s));
+      this._finishReindexModal(status);
+      await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
       await this._checkHealth();
     } catch (err) {
-      this._showToast(`${i18n.t('reindex.file.error')} ${err.message}`, 'error');
-    } finally {
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = originalText; }
+      this._finishReindexModal(null, err.message);
     }
   }
 
