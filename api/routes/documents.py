@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from config import (
+    BASE_DIR,
     DOCS_DIR,
     WORKSPACES_FILE,
     delete_workspace,
@@ -68,8 +69,30 @@ _indexation_status: dict = {
 }
 _status_lock = threading.Lock()
 
+# Fichier verrou : écrit au démarrage d'une indexation, effacé à la fin.
+# S'il est présent au startup, le process a crashé pendant une indexation.
+_LOCK_FILE = BASE_DIR / "data" / "indexing.lock"
+
+
+def _write_lock() -> None:
+    """Crée le fichier verrou d'indexation."""
+    try:
+        _LOCK_FILE.write_text("running", encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"[lock] Écriture ignorée : {e}")
+
+
+def _clear_lock() -> None:
+    """Supprime le fichier verrou d'indexation."""
+    try:
+        if _LOCK_FILE.exists():
+            _LOCK_FILE.unlink()
+    except Exception as e:
+        logger.warning(f"[lock] Suppression ignorée : {e}")
+
 
 def _set_running() -> None:
+    _write_lock()
     with _status_lock:
         _indexation_status.update(
             {
@@ -84,6 +107,7 @@ def _set_running() -> None:
 
 
 def _set_done(chunks: int, files: int = 0, warnings: list | None = None) -> None:
+    _clear_lock()
     with _status_lock:
         _indexation_status.update(
             {
@@ -98,6 +122,7 @@ def _set_done(chunks: int, files: int = 0, warnings: list | None = None) -> None
 
 
 def _set_error(err: str) -> None:
+    _clear_lock()
     with _status_lock:
         _indexation_status.update(
             {
