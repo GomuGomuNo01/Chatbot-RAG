@@ -23,11 +23,11 @@ short_description: Assistant documentaire RAG — posez vos questions sur vos PD
 [![Claude Haiku](https://img.shields.io/badge/Claude%20Haiku-CC785C?logo=anthropic&logoColor=white&style=flat-square)](https://console.anthropic.com)
 [![FAISS](https://img.shields.io/badge/FAISS%20%2B%20BM25-0078D4?logo=meta&logoColor=white&style=flat-square)](https://github.com/facebookresearch/faiss)
 [![CI](https://github.com/GomuGomuNo01/Chatbot-RAG/actions/workflows/ci.yml/badge.svg?style=flat-square)](https://github.com/GomuGomuNo01/Chatbot-RAG/actions/workflows/ci.yml)
-[![HF Spaces](https://img.shields.io/badge/Live%20Demo-HuggingFace-FFD21E?logo=huggingface&logoColor=black&style=flat-square)](https://huggingface.co/spaces/GomuGomuNo01/chatbot-rag)
+[![HF Spaces](https://img.shields.io/badge/Live%20Demo-HuggingFace-FFD21E?logo=huggingface&logoColor=black&style=flat-square)](https://gomugomuNo01-chatbot-rag.hf.space)
 
 <br>
 
-**[🚀 Démo en ligne](https://huggingface.co/spaces/GomuGomuNo01/chatbot-rag)** &nbsp;·&nbsp; **[📖 API Swagger](https://gomugomuNo01-chatbot-rag.hf.space/docs)**
+**[🚀 Démo en ligne](https://gomugomuNo01-chatbot-rag.hf.space)** &nbsp;·&nbsp; **[📖 API Swagger](https://gomugomuNo01-chatbot-rag.hf.space/docs)**
 
 <br>
 
