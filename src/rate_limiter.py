@@ -39,6 +39,7 @@ def _pull_from_r2() -> bool:
         return False
     try:
         from src.storage import download_metadata_r2
+
         return download_metadata_r2(_R2_KEY, _LIMITS_FILE)
     except Exception as e:
         logger.debug(f"[rate_limit] R2 pull ignoré : {e}")
@@ -53,6 +54,7 @@ def _push_to_r2_daemon(data: dict) -> None:
     def _do() -> None:
         try:
             from src.storage import upload_metadata_r2
+
             upload_metadata_r2(_LIMITS_FILE, _R2_KEY)
         except Exception as e:
             logger.debug(f"[rate_limit] R2 push ignoré : {e}")
@@ -128,6 +130,7 @@ def increment() -> int:
         data[today] = data.get(today, 0) + 1
         # Nettoyer les entrées de plus de 7 jours
         from datetime import timedelta
+
         cutoff = str(date.today() - timedelta(days=7))
         data = {k: v for k, v in data.items() if k >= cutoff}
         _save(data)
