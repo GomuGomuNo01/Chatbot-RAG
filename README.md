@@ -1,14 +1,3 @@
----
-title: DocAssist
-emoji: 📚
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-app_port: 7860
-pinned: false
-short_description: Assistant documentaire RAG — posez vos questions sur vos PDF
----
-
 <div align="center">
 
 # DocAssist — Assistant IA sur documents internes
