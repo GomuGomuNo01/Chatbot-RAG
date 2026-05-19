@@ -68,6 +68,13 @@ async def lifespan(app: FastAPI):
                     logger.info(f"[startup] R2 → local : {downloaded} fichier(s) restauré(s)")
             except Exception as e:
                 logger.warning(f"[startup] R2 sync ignorée : {e}", exc_info=True)
+            # Restauration du compteur journalier depuis R2
+            try:
+                from src.rate_limiter import restore_from_r2 as _restore_rate_limit
+
+                _restore_rate_limit()
+            except Exception as e:
+                logger.warning(f"[startup] Rate limiter R2 restore ignorée : {e}")
         else:
             logger.info("[startup] R2 non configuré (mode local).")
 
