@@ -1,7 +1,7 @@
 """
 main.py — Application FastAPI principale (refonte v2).
 
-Lancer : uvicorn api.main:app --reload --port 8000
+Lancer : uvicorn api.main:app --reload --port 7860
 """
 
 import logging
@@ -146,24 +146,21 @@ async def lifespan(app: FastAPI):
                     break
 
             if has_docs:
-                # ⚠️ Ne pas lancer de ré-indexation automatique au démarrage :
-                # sur Render free (512 Mo), cela provoquerait un OOM immédiat,
-                # suivi d'un redémarrage → re-OOM → boucle infinie.
-                # L'utilisateur doit déclencher la ré-indexation manuellement
-                # depuis l'interface (bouton « Relancer l'indexation »).
-                logger.warning(
-                    "[startup] Index absent mais des documents sont présents. "
-                    "Relancez l'indexation manuellement depuis l'interface."
+                logger.info(
+                    "[startup] Index absent mais documents présents — ré-indexation automatique…"
                 )
                 try:
-                    from api.routes.documents import _set_error as _set_idx_error
+                    import threading
 
-                    _set_idx_error(
-                        "Index absent après redémarrage du service. "
-                        "Cliquez sur « Relancer l'indexation » dans l'interface pour reconstruire l'index."
-                    )
-                except Exception:
-                    pass
+                    from api.routes.documents import _run_reindex_all_background
+
+                    threading.Thread(
+                        target=_run_reindex_all_background,
+                        daemon=True,
+                        name="startup-reindex",
+                    ).start()
+                except Exception as e:
+                    logger.warning(f"[startup] Reindex auto ignoré : {e}", exc_info=True)
             else:
                 logger.info("[startup] Index absent et aucun document — uploadez via l'interface.")
 
@@ -171,7 +168,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"[startup] Erreur critique : {e}", exc_info=True)
 
     logger.info("=" * 55)
-    logger.info(f"  API prête — http://0.0.0.0:8000  (v{API_VERSION})")
+    logger.info(f"  API prête — http://0.0.0.0:7860  (v{API_VERSION})")
     logger.info("=" * 55)
 
     yield
