@@ -8,7 +8,7 @@ langchain-huggingface==1.2.2
 sentence-transformers==5.4.1
 
 # Vector store
-faiss-cpu==1.13.2
+faiss-cpu==1.14.2
 
 # Parsing de documents
 PyMuPDF==1.27.2.3
