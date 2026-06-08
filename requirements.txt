@@ -27,7 +27,7 @@ huggingface_hub>=1.14.0
 
 # Utilitaires
 python-dotenv==1.2.2
-tqdm==4.67.3
+tqdm==4.68.1
 nltk>=3.8
 
 # Tests
