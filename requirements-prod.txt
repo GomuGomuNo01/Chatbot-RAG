@@ -2,8 +2,8 @@
 # En production, les embeddings passent par l'API HuggingFace (HF_TOKEN requis).
 
 # LLM & RAG
-langchain==1.3.2
-langchain-anthropic>=1.4.4
+langchain==1.3.9
+langchain-anthropic>=1.4.6
 langchain-community==0.4.2
 langchain-core
 langchain-text-splitters
