@@ -23,7 +23,7 @@ pydantic==2.13.4
 pydantic-settings==2.14.1
 
 # Stockage externe — REQUIS pour la persistance R2 sur Render
-boto3==1.43.19
+boto3==1.43.24
 
 # Embeddings ONNX — sans PyTorch, compatible Render free (512 MB)
 fastembed>=0.8.0
