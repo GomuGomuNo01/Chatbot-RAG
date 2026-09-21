@@ -6,14 +6,14 @@ colorTo: indigo
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: Assistant documentaire RAG — posez vos questions sur vos PDF
+short_description: Assistant documentaire RAG, posez vos questions sur vos PDF
 ---
 
 <div align="center">
 
 # DocAssist
 
-### Assistant IA sur documents — posez une question, obtenez une réponse sourcée
+### L'assistant qui lit vos documents à votre place et répond avec les sources à l'appui
 
 <br>
 
@@ -27,7 +27,7 @@ short_description: Assistant documentaire RAG — posez vos questions sur vos PD
 
 <br>
 
-**[🚀 Démo en ligne](https://gomugomuNo01-chatbot-rag.hf.space)** &nbsp;·&nbsp; **[📖 API Swagger](https://gomugomuNo01-chatbot-rag.hf.space/docs)**
+**[🚀 Essayer la démo en ligne](https://gomugomuNo01-chatbot-rag.hf.space)** &nbsp;·&nbsp; **[📖 Documentation de l'API](https://gomugomuNo01-chatbot-rag.hf.space/docs)**
 
 <br>
 
@@ -35,57 +35,68 @@ short_description: Assistant documentaire RAG — posez vos questions sur vos PD
 
 ---
 
-## Le problème
+## En bref
 
-Dans une organisation, l'information est éparpillée dans des dizaines de fichiers : contrats, guides techniques, règlements, fiches de poste, conventions collectives. Retrouver une réponse précise prend du temps — et souvent, on ne sait même pas dans quel fichier chercher.
+**DocAssist transforme vos documents en assistant capable d'y répondre à votre place.**
 
-**DocAssist résout ça en quelques secondes.** Importez vos documents, posez votre question : l'assistant répond avec précision et indique exactement dans quel fichier, à quelle page, il a trouvé l'information.
+Vous déposez vos fichiers (contrats, guides, procédures, fiches de poste...), vous posez une question en français ou en anglais, et l'assistant vous répond en citant précisément le document, la page et le passage d'où vient l'information. Si la réponse ne se trouve nulle part dans vos documents, il le dit clairement au lieu d'inventer une réponse approximative.
 
-> **L'IA refuse d'inventer** : si la réponse n'est pas dans vos documents, elle le dit explicitement plutôt que de halluciner.
+C'est l'équivalent d'un collègue qui aurait lu tous vos documents et qui saurait toujours vous dire où il a trouvé l'information.
 
 ---
 
-## Fonctionnalités
+## Pourquoi ce projet
+
+Dans la plupart des organisations, l'information est éclatée entre des dizaines de fichiers : contrats, guides techniques, règlements internes, fiches de poste, conventions collectives. Retrouver une réponse précise prend du temps, et souvent on ne sait même pas dans quel document chercher.
+
+DocAssist règle ce problème en quelques secondes : il retrouve le bon passage dans le bon document et formule une réponse claire, sourcée et vérifiable.
+
+---
+
+## Ce que peut faire DocAssist
 
 | | |
 |:---:|:---|
-| 🎯 | **Réponses sourcées** — chaque réponse cite le fichier, la page et l'extrait exact utilisé |
-| 📂 | **Multi-formats** — PDF (jusqu'à 500 pages), Word (.docx), texte brut (.txt), Markdown (.md) |
-| 🗂️ | **Workspaces libres** — créez autant de thèmes que vous voulez (RH, juridique, technique…) sans schéma imposé |
-| 🔍 | **Recherche hybride** — combine recherche sémantique (FAISS) et lexicale (BM25) pour ne rien rater |
-| 🏆 | **Reranking cross-encoder** — classe les résultats par pertinence réelle avant de les envoyer au LLM |
-| 🧠 | **Mémoire conversationnelle** — l'assistant se souvient du contexte des échanges précédents |
-| ⚡ | **Cache sémantique** — les questions similaires retournent une réponse instantanée, sans consommer de tokens |
-| 💰 | **Budget maîtrisé** — limite journalière configurable ; les réponses cachées ne comptent pas |
-| 🔄 | **Indexation incrémentale** — seuls les fichiers modifiés sont réindexés (manifeste MD5) |
-| ☁️ | **100% persistant** — documents sur Cloudflare R2, index FAISS sur HuggingFace Hub |
+| 🎯 | **Réponses sourcées** : chaque réponse indique le fichier, la page et l'extrait exact utilisé |
+| 📂 | **Plusieurs formats acceptés** : PDF (jusqu'à 500 pages), Word (.docx), texte brut (.txt), Markdown (.md) |
+| 🗂️ | **Espaces de travail séparés** : créez autant de thématiques que nécessaire (RH, juridique, technique...), chacune avec ses propres documents |
+| 🔍 | **Recherche à deux niveaux** : l'assistant combine une recherche par sens et une recherche par mots-clés pour ne rien manquer |
+| 🏆 | **Classement intelligent des résultats** : les passages les plus pertinents remontent en priorité avant d'être envoyés à l'IA |
+| 🧠 | **Mémoire de la conversation** : l'assistant se souvient des échanges précédents dans la même discussion |
+| ⚡ | **Réponses instantanées pour les questions déjà posées** : une question similaire à une précédente obtient une réponse immédiate, sans nouveau calcul |
+| 💰 | **Budget maîtrisé** : une limite quotidienne de requêtes évite les mauvaises surprises de coût |
+| 🔄 | **Mise à jour intelligente** : seuls les fichiers modifiés sont retraités lors d'un nouvel import |
+| ☁️ | **Rien ne se perd** : documents et index de recherche sont sauvegardés en ligne, même après un redémarrage |
 
 ---
 
 ## Comment ça fonctionne
 
-### Vue d'ensemble (non-technique)
+### En langage simple
 
-1. **Vous importez vos documents** via l'interface. Chaque fichier est découpé en passages (~900 caractères), vectorisé et indexé automatiquement.
-2. **Vous posez une question** en langage naturel, en français ou en anglais.
-3. **DocAssist retrouve les passages les plus pertinents** parmi tous vos documents, en combinant deux moteurs de recherche complémentaires.
-4. **Claude formule une réponse** basée uniquement sur ces passages, avec les sources en bas de page.
+1. **Vous importez vos documents** depuis l'interface. Chaque fichier est automatiquement découpé en petits passages, puis analysé et indexé.
+2. **Vous posez une question**, en français ou en anglais, comme vous le feriez à un collègue.
+3. **DocAssist retrouve les passages les plus pertinents** parmi tous vos documents, en croisant deux méthodes de recherche complémentaires.
+4. **L'intelligence artificielle rédige une réponse** en s'appuyant uniquement sur ces passages, et affiche ses sources en bas de réponse.
 
-### Pipeline technique
+### Le détail technique, pour les curieux
+
+<details>
+<summary><strong>Voir le schéma du pipeline</strong></summary>
 
 ```
 Votre question
       │
       ▼
 ┌───────────────────────┐
-│   Cache sémantique    │──── HIT ──► réponse instantanée  (0 token LLM)
+│   Cache sémantique    │──── Question déjà vue ──► réponse instantanée
 └──────────┬────────────┘
-           │ MISS
+           │ Question nouvelle
            ▼
 ┌──────────────────────────────────────────────────────────┐
 │  Enrichissement de la requête                            │
 │  · Expansion d'acronymes  (PHP → "PHP Hypertext...")     │
-│  · Détection d'articles juridiques  (L1234-5…)           │
+│  · Détection d'articles juridiques  (L1234-5...)         │
 │  · Réécriture contextuelle  (jusqu'à 3 reformulations)   │
 └──────────┬───────────────────────────────────────────────┘
            ▼
@@ -93,48 +104,54 @@ Votre question
 │  Recherche hybride                                       │
 │  ┌──────────────────┐   ┌──────────────────────────────┐ │
 │  │  FAISS           │   │  BM25 Okapi custom           │ │
-│  │  (sémantique)    │   │  stemming Snowball + bigrams │ │
+│  │  (recherche par  │   │  (recherche par mots-clés,   │ │
+│  │   sens)          │   │   stemming FR/EN, bigrammes) │ │
 │  └────────┬─────────┘   └──────────────┬───────────────┘ │
-│           └──────── RRF pondérée ───────┘                 │
-│           poids dynamique selon le type de requête :      │
-│           acronymes/termes exacts → BM25 prioritaire      │
-│           questions conceptuelles  → FAISS prioritaire    │
+│           └──────── Fusion pondérée ────┘                 │
+│           Le poids s'adapte au type de question :         │
+│           acronymes / termes exacts → mots-clés priorisés │
+│           questions conceptuelles    → sens priorisé      │
 └──────────┬───────────────────────────────────────────────┘
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│  Reranking  (BGE cross-encoder)                          │
-│  classe les 20 candidats par pertinence réelle           │
+│  Reranking  (modèle de classement BGE)                   │
+│  reclasse les 20 meilleurs candidats par pertinence      │
 └──────────┬───────────────────────────────────────────────┘
-           │  Top 6 passages
+           │  Les 6 passages les plus pertinents
            ▼
 ┌──────────────────────────────────────────────────────────┐
-│  Claude Haiku                                            │
-│  répond à partir des extraits uniquement                 │
+│  Claude Haiku (IA)                                        │
+│  rédige la réponse à partir des extraits uniquement       │
 └──────────┬───────────────────────────────────────────────┘
            ▼
-    Réponse  +  sources (fichier · page · score)
+    Réponse rédigée  +  sources (fichier, page, score)
 ```
 
-### Architecture cloud
+</details>
+
+<details>
+<summary><strong>Voir l'architecture cloud</strong></summary>
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  HuggingFace Spaces  (Docker · CPU Basic · 16 GB RAM)       │
-│                                                             │
-│  FastAPI  ──►  /            (frontend HTML/CSS/JS)          │
-│            ──►  /api        (REST API)                      │
-│                                                             │
-│  Au démarrage :                                             │
-│    Cloudflare R2   ──►  restaure les documents localement   │
-│    HuggingFace Hub ──►  restaure l'index FAISS              │
-│                                                             │
-│  À l'upload :                                               │
-│    Fichier  ──►  R2  (persistance)                          │
-│    FAISS + BM25 reconstruits  ──►  HF Hub (persistance)     │
+│  HuggingFace Spaces  (hébergement Docker, 16 Go de RAM)      │
+│                                                               │
+│  FastAPI  ──►  /            (interface web)                  │
+│            ──►  /api        (API REST)                       │
+│                                                               │
+│  Au démarrage :                                               │
+│    Cloudflare R2   ──►  restaure les documents                │
+│    HuggingFace Hub ──►  restaure l'index de recherche          │
+│                                                               │
+│  À chaque import de document :                                │
+│    Fichier  ──►  Cloudflare R2  (sauvegarde)                  │
+│    Index reconstruit  ──►  HuggingFace Hub  (sauvegarde)       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-> FastAPI sert à la fois le frontend et l'API REST sur le **même domaine** (`/` et `/api`), ce qui élimine tout problème de CORS quelle que soit la plateforme.
+FastAPI sert à la fois l'interface web et l'API, sur la même adresse, ce qui simplifie le déploiement sur n'importe quelle plateforme.
+
+</details>
 
 ---
 
@@ -142,29 +159,29 @@ Votre question
 
 ### Intelligence artificielle
 
-| Composant | Choix | Justification |
+| Composant | Choix | Pourquoi |
 |---|---|---|
-| **LLM** | Claude Haiku (Anthropic) | Excellente compréhension du français, suivi d'instructions rigoureux, coût ~$0.006/question |
-| **Embeddings** | `BAAI/bge-small-en-v1.5` (fastembed/ONNX) | ~37 MB, inférence CPU optimisée, pas de PyTorch ni de GPU |
-| **Recherche sémantique** | FAISS (cosine similarity) | Standard industriel, recherche vectorielle en µs, filtrage par workspace |
-| **Recherche lexicale** | BM25 Okapi custom | Stemming Snowball FR/EN + bigrammes — complémente FAISS sur les termes exacts et les acronymes |
-| **Fusion** | RRF pondérée dynamiquement | Le poids BM25/FAISS s'adapte au type de requête détecté |
-| **Reranking** | BGE-reranker-base (HF Inference) | Cross-encoder : re-classe les candidats par pertinence réelle |
-| **Orchestration** | LangChain | Chaînage LLM + retrieval |
+| **Modèle de langage** | Claude Haiku (Anthropic) | Excellente compréhension du français, suit les instructions avec rigueur, coût très faible (environ 0,006 $ par question) |
+| **Embeddings** | `BAAI/bge-small-en-v1.5` (fastembed/ONNX) | Léger (37 Mo), rapide sur processeur classique, aucun GPU nécessaire |
+| **Recherche par sens** | FAISS (similarité cosinus) | Standard de l'industrie pour la recherche vectorielle, résultat en microsecondes |
+| **Recherche par mots-clés** | BM25 Okapi (implémentation maison) | Stemming français/anglais et bigrammes, complète FAISS sur les termes exacts et les acronymes |
+| **Fusion des résultats** | Pondération dynamique | Le poids entre les deux moteurs s'ajuste selon le type de question détecté |
+| **Reranking** | BGE-reranker-base (API HuggingFace) | Reclasse les candidats par pertinence réelle avant envoi à l'IA |
+| **Orchestration** | LangChain | Enchaîne la recherche et la génération de réponse |
 
 ### Infrastructure
 
-| Composant | Choix | Justification |
+| Composant | Choix | Pourquoi |
 |---|---|---|
-| **Backend** | FastAPI + Pydantic v2 | API REST moderne, Swagger auto-généré, async natif |
-| **Parsing** | PyMuPDF + python-docx | PDF (XHTML pour les accents) + Word natif |
-| **Cache** | JSON sémantique (cosine + lexical) | 0 token LLM pour les questions similaires, TTL 7 jours |
-| **Stockage fichiers** | Cloudflare R2 | S3-compatible, gratuit jusqu'à 10 Go |
-| **Persistance index** | HuggingFace Hub (Dataset) | Survie aux redémarrages — pull au boot, push après indexation |
-| **Frontend** | HTML5 / CSS3 / JS vanilla | Zéro dépendance, bilingue FR/EN |
-| **Tests** | pytest (100% hors-ligne) | LLM et FAISS mockés, aucune clé API requise |
-| **CI/CD** | GitHub Actions | Tests sur Python 3.11 et 3.12 à chaque push |
-| **Déploiement** | HuggingFace Spaces (Docker) | 16 GB RAM gratuit, build automatique depuis Git |
+| **Backend** | FastAPI + Pydantic v2 | API REST moderne, documentation générée automatiquement |
+| **Extraction de texte** | PyMuPDF + python-docx | PDF (avec gestion correcte des accents) et Word natif |
+| **Cache** | Fichier JSON (similarité + mots-clés) | Réponses instantanées pour les questions similaires, conservées 7 jours |
+| **Stockage des fichiers** | Cloudflare R2 | Compatible S3, gratuit jusqu'à 10 Go |
+| **Sauvegarde de l'index** | HuggingFace Hub | Survit aux redémarrages du serveur |
+| **Interface** | HTML5 / CSS3 / JS natif | Aucune dépendance, disponible en français et en anglais |
+| **Tests** | pytest, 100 % hors ligne | Fonctionne sans clé API, rien n'est envoyé en ligne pendant les tests |
+| **Intégration continue** | GitHub Actions | Tests automatiques sur Python 3.11 et 3.12 à chaque mise à jour du code |
+| **Hébergement** | HuggingFace Spaces (Docker) | 16 Go de RAM gratuits, mise en production automatique |
 
 ---
 
@@ -173,52 +190,52 @@ Votre question
 ```
 chatbot-rag/
 │
-├── src/                       ← Pipeline IA
-│   ├── loader.py              ← Extraction + chunking (PDF/DOCX/TXT/MD · max 500 pages)
-│   ├── embedder.py            ← fastembed/ONNX · batch=64 · threads auto
-│   ├── indexer.py             ← Construction FAISS + BM25 jumelés · manifeste MD5
-│   ├── bm25_store.py          ← BM25 Okapi custom (Snowball · bigrammes · K1=1.8)
-│   ├── retriever.py           ← Recherche hybride · RRF dynamique · boost BM25 acronymes
-│   ├── reranker.py            ← Cross-encoder BGE via HuggingFace Inference API
-│   ├── chain.py               ← question → passages → réponse Claude
-│   ├── cache.py               ← Cache sémantique (cosine + lexical · TTL 7j)
-│   ├── memory.py              ← Historique conversationnel (4 échanges)
-│   ├── rate_limiter.py        ← Compteur journalier de requêtes LLM
-│   ├── query_processor.py     ← Enrichissement : acronymes · articles · réécriture
-│   ├── hf_store.py            ← Push/pull index FAISS ↔ HuggingFace Hub
-│   ├── storage.py             ← Upload/download fichiers ↔ Cloudflare R2
-│   └── utils.py               ← Helpers partagés
+├── src/                       ← Cœur du pipeline IA
+│   ├── loader.py              ← Extraction et découpage des documents (PDF/DOCX/TXT/MD, max 500 pages)
+│   ├── embedder.py            ← Vectorisation des textes
+│   ├── indexer.py             ← Construction des index de recherche
+│   ├── bm25_store.py          ← Moteur de recherche par mots-clés
+│   ├── retriever.py           ← Recherche hybride (sens + mots-clés)
+│   ├── reranker.py            ← Reclassement des résultats par pertinence
+│   ├── chain.py               ← Question → passages pertinents → réponse
+│   ├── cache.py               ← Cache des réponses déjà données
+│   ├── memory.py              ← Historique de la conversation
+│   ├── rate_limiter.py        ← Compteur de requêtes journalières
+│   ├── query_processor.py     ← Amélioration automatique de la question posée
+│   ├── hf_store.py            ← Sauvegarde/restauration de l'index en ligne
+│   ├── storage.py             ← Sauvegarde/restauration des fichiers en ligne
+│   └── utils.py               ← Fonctions partagées
 │
 ├── api/                       ← API REST
-│   ├── main.py                ← Lifespan (restauration R2 + HF Hub au boot)
-│   ├── schemas.py             ← Modèles Pydantic
+│   ├── main.py                ← Démarrage de l'application et restauration des données
+│   ├── schemas.py             ← Formats de données échangées
 │   └── routes/
-│       ├── chat.py            ← POST /api/chat
-│       ├── documents.py       ← Workspaces · upload · reindex · suppression
-│       └── health.py          ← GET /api/health
+│       ├── chat.py            ← Point d'entrée pour poser une question
+│       ├── documents.py       ← Gestion des espaces de travail et des documents
+│       └── health.py          ← Vérification de l'état du service
 │
-├── frontend/                  ← Interface web (vanilla, bilingue FR/EN)
+├── frontend/                  ← Interface web (français/anglais)
 │   ├── index.html
 │   ├── css/style.css
 │   └── js/
-│       ├── config.js          ← API_BASE = '/api'
-│       ├── api.js · chat.js · app.js · i18n.js
+│       ├── config.js
+│       └── api.js · chat.js · app.js · i18n.js
 │
-├── tests/                     ← Tests unitaires hors-ligne
+├── tests/                     ← Tests automatisés (hors ligne)
 │   ├── conftest.py · test_loader.py · test_retriever.py · test_chain.py
 │
-├── data/                      ← Généré à l'exécution (non versionné)
-│   ├── faiss_index/           ← Persisté sur HuggingFace Hub
-│   └── workspaces.json        ← Persisté sur Cloudflare R2
+├── data/                      ← Données générées à l'usage (non versionnées)
+│   ├── faiss_index/           ← Sauvegardé sur HuggingFace Hub
+│   └── workspaces.json        ← Sauvegardé sur Cloudflare R2
 │
 ├── docs/                      ← Vos documents (non versionnés)
 │   └── <workspace>/
 │
-├── config.py                  ← Tous les paramètres centralisés
-├── Dockerfile                 ← Multi-stage · port 7860 · fastembed pré-téléchargé
-├── .env.example               ← Template de configuration
-├── requirements.txt           ← Dev
-└── requirements-prod.txt      ← Production (image Docker allégée)
+├── config.py                  ← Tous les réglages du projet, centralisés
+├── Dockerfile                 ← Configuration de déploiement
+├── .env.example                ← Modèle de configuration
+├── requirements.txt            ← Dépendances de développement
+└── requirements-prod.txt       ← Dépendances de production (image allégée)
 ```
 
 ---
@@ -227,28 +244,28 @@ chatbot-rag/
 
 ### En local
 
-**Prérequis :** Python 3.11+ · [Clé API Anthropic](https://console.anthropic.com)
+**Prérequis :** Python 3.11 ou plus récent, et une [clé API Anthropic](https://console.anthropic.com).
 
 ```bash
 # Cloner et installer
 git clone https://github.com/GomuGomuNo01/Chatbot-RAG.git
 cd Chatbot-RAG
-python -m venv .venv && source .venv/bin/activate  # Windows : .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate  # Sous Windows : .venv\Scripts\activate
 pip install -r requirements.txt
 
 # Configurer
 cp .env.example .env
 # Éditer .env : renseigner ANTHROPIC_API_KEY (obligatoire)
-#               renseigner HF_TOKEN pour activer le reranker (recommandé)
+#               renseigner HF_TOKEN pour activer le reranking (recommandé)
 
 # Lancer
 uvicorn api.main:app --port 7860 --reload
-# → http://localhost:7860
+# → disponible sur http://localhost:7860
 ```
 
-Sans `R2_*` ni `HF_REPO_ID`, tout fonctionne en **mode local pur** : les documents restent dans `docs/<workspace>/` et l'index dans `data/faiss_index/`.
+Sans les variables `R2_*` ni `HF_REPO_ID`, l'application fonctionne entièrement en local : les documents restent dans `docs/<workspace>/` et l'index dans `data/faiss_index/`.
 
-> **Windows** : ajoutez `HF_HUB_DISABLE_SYMLINKS_WARNING=1` dans `.env` pour supprimer l'avertissement HuggingFace sur les symlinks.
+> **Sous Windows** : ajoutez `HF_HUB_DISABLE_SYMLINKS_WARNING=1` dans `.env` pour supprimer un avertissement inoffensif de HuggingFace.
 
 ### Sur HuggingFace Spaces
 
@@ -258,19 +275,19 @@ Sans `R2_*` ni `HF_REPO_ID`, tout fonctionne en **mode local pur** : les documen
 **1. Créer le Space**
 
 Sur [huggingface.co/new-space](https://huggingface.co/new-space) :
-- SDK → **Docker** · Template → **Blank** · Hardware → **CPU Basic (free)**
+- SDK : **Docker** · Modèle : **Blank** · Matériel : **CPU Basic (gratuit)**
 
-**2. Créer le dépôt pour l'index FAISS**
+**2. Créer le dépôt pour l'index de recherche**
 
 Sur [huggingface.co/new](https://huggingface.co/new) :
-- Type → **Dataset** · Nom → `chatbot-rag-index` · Visibility → **Private**
+- Type : **Dataset** · Nom : `chatbot-rag-index` · Visibilité : **Privée**
 
 **3. Pousser le code**
 
 ```bash
 git remote add hf https://huggingface.co/spaces/VOTRE_USERNAME/chatbot-rag
 
-# Créer une branche sans historique (évite les fichiers binaires anciens > 10 MB)
+# Créer une branche sans historique (évite les fichiers binaires anciens de plus de 10 Mo)
 git checkout --orphan hf-deploy
 git add -A
 git commit -m "deploy"
@@ -278,14 +295,14 @@ git push hf hf-deploy:main --force
 git checkout main && git branch -D hf-deploy
 ```
 
-**4. Configurer les secrets** (Space Settings → Variables and secrets)
+**4. Configurer les secrets** (dans Space Settings → Variables and secrets)
 
 | Variable | Type | Valeur |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | 🔒 Secret | Votre clé Anthropic |
-| `HF_TOKEN` | 🔒 Secret | Token HuggingFace (write) |
+| `HF_TOKEN` | 🔒 Secret | Token HuggingFace (droits d'écriture) |
 | `HF_REPO_ID` | Variable | `username/chatbot-rag-index` |
-| `R2_ACCOUNT_ID` | 🔒 Secret | Compte Cloudflare R2 |
+| `R2_ACCOUNT_ID` | 🔒 Secret | Identifiant du compte Cloudflare R2 |
 | `R2_ACCESS_KEY_ID` | 🔒 Secret | Clé d'accès R2 |
 | `R2_SECRET_ACCESS_KEY` | 🔒 Secret | Clé secrète R2 |
 | `R2_BUCKET_NAME` | Variable | Nom du bucket |
@@ -293,7 +310,7 @@ git checkout main && git branch -D hf-deploy
 | `DAILY_REQUEST_LIMIT` | Variable | `20` (0 = illimité) |
 | `RERANKER_ENABLED` | Variable | `true` |
 
-Le build Docker démarre automatiquement après la configuration (~5–10 min la première fois).
+Le déploiement démarre automatiquement une fois les variables configurées (environ 5 à 10 minutes la première fois).
 
 </details>
 
@@ -301,40 +318,40 @@ Le build Docker démarre automatiquement après la configuration (~5–10 min la
 
 ## Configuration avancée
 
-Paramètres disponibles dans [`config.py`](config.py) et via variables d'environnement :
+Ces réglages sont disponibles dans [`config.py`](config.py) et peuvent aussi être définis par variables d'environnement :
 
-| Paramètre | Défaut | Rôle |
+| Paramètre | Valeur par défaut | Rôle |
 |---|---|---|
-| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Modèle LLM utilisé |
-| `DAILY_REQUEST_LIMIT` | `10` | Requêtes LLM max/jour (0 = illimité) |
-| `CHUNK_SIZE` | `900` | Taille des passages en caractères |
-| `CHUNK_OVERLAP` | `220` | Chevauchement entre passages consécutifs |
-| `MAX_PDF_PAGES` | `500` | Limite de pages par PDF (troncature avec notification) |
-| `TOP_K_RESULTS` | `6` | Passages transmis au LLM |
-| `TOP_K_RETRIEVAL` | `20` | Pool initial par moteur de recherche (avant fusion) |
-| `HYBRID_BM25_WEIGHT` | `0.45` | Poids BM25 dans la fusion hybride |
-| `RERANKER_ENABLED` | `false` | Active le reranking BGE cross-encoder |
-| `MEMORY_MAX_EXCHANGES` | `4` | Échanges gardés en mémoire de session |
-| `RESPONSE_CACHE_TTL_SECONDS` | `604800` | Durée du cache de réponses (7 jours) |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Modèle d'IA utilisé pour répondre |
+| `DAILY_REQUEST_LIMIT` | `10` | Nombre maximal de questions traitées par jour (0 = illimité) |
+| `CHUNK_SIZE` | `900` | Taille des passages découpés, en caractères |
+| `CHUNK_OVERLAP` | `220` | Chevauchement entre deux passages consécutifs |
+| `MAX_PDF_PAGES` | `500` | Nombre maximal de pages traitées par PDF |
+| `TOP_K_RESULTS` | `6` | Nombre de passages transmis à l'IA pour rédiger la réponse |
+| `TOP_K_RETRIEVAL` | `20` | Nombre de candidats examinés par moteur de recherche avant fusion |
+| `HYBRID_BM25_WEIGHT` | `0.45` | Poids accordé à la recherche par mots-clés dans la fusion |
+| `RERANKER_ENABLED` | `false` | Active le reclassement des résultats par pertinence |
+| `MEMORY_MAX_EXCHANGES` | `4` | Nombre d'échanges gardés en mémoire dans une conversation |
+| `RESPONSE_CACHE_TTL_SECONDS` | `604800` | Durée de conservation du cache de réponses (7 jours) |
 
 **Changer de modèle Claude :**
 ```bash
-ANTHROPIC_MODEL=claude-haiku-4-5-20251001   # rapide · ~$0.006/question
-ANTHROPIC_MODEL=claude-sonnet-4-5           # plus précis · ~$0.05/question
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001   # rapide, environ 0,006 $ par question
+ANTHROPIC_MODEL=claude-sonnet-4-5           # plus précis, environ 0,05 $ par question
 ```
 
-> ⚠️ Si vous modifiez `EMBEDDING_MODEL`, supprimez `data/faiss_index/` avant de relancer l'indexation — les vecteurs sont incompatibles entre modèles.
+> ⚠️ Si vous changez `EMBEDDING_MODEL`, supprimez le dossier `data/faiss_index/` avant de réindexer vos documents : les index générés par des modèles différents ne sont pas compatibles entre eux.
 
 ---
 
 ## Tests
 
 ```bash
-pytest                                        # suite complète
-pytest --cov=src --cov-report=term-missing    # avec couverture de code
+pytest                                        # Suite de tests complète
+pytest --cov=src --cov-report=term-missing    # Avec le taux de couverture du code
 ```
 
-Les tests tournent **entièrement hors-ligne** — LLM et FAISS sont mockés, aucune clé API requise.
+Les tests s'exécutent entièrement hors ligne : le modèle d'IA et le moteur de recherche sont simulés, aucune clé API n'est nécessaire.
 
 ---
 
