@@ -19,7 +19,7 @@ python-docx==1.2.0
 fastapi==0.136.3
 uvicorn==0.53.0
 python-multipart==0.0.30
-pydantic==2.13.4
+pydantic==2.13.5
 pydantic-settings==2.14.1
 
 # Stockage externe — REQUIS pour la persistance R2 sur Render
