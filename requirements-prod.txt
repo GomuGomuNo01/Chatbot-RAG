@@ -29,5 +29,5 @@ boto3==1.43.102
 fastembed>=0.8.1
 
 # Utilitaires
-python-dotenv==1.2.2
+python-dotenv==1.2.4
 tqdm==4.68.1
