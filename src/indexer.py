@@ -6,7 +6,6 @@ est aussi reconstruit pour rester en synchronisation. La métadonnée des
 chunks utilise désormais la clé `workspace` (au lieu de `categorie`).
 """
 
-import gc
 import hashlib
 import json
 import logging
@@ -107,22 +106,10 @@ def create_index(documents: list[Document]) -> FAISS:
         raise ValueError("Impossible de créer un index : aucun document fourni.")
 
     logger.info(f"Création de l'index FAISS ({len(documents)} chunks)…")
-    gc.collect()  # libère la mémoire Python avant le chargement du modèle
 
     try:
         embeddings = get_embeddings()
-        gc.collect()
-
-        # Construction par lots de 64 pour limiter la mémoire de travail
-        # (évite de tenir tous les embeddings en RAM simultanément).
-        BATCH = 64
-        vectorstore = FAISS.from_documents(documents=documents[:BATCH], embedding=embeddings)
-        for i in range(BATCH, len(documents), BATCH):
-            batch = documents[i : i + BATCH]
-            vectorstore.add_documents(batch)
-            gc.collect()
-            logger.debug(f"[create_index] lot {i // BATCH + 1} / {-(-len(documents) // BATCH)}")
-
+        vectorstore = FAISS.from_documents(documents=documents, embedding=embeddings)
     except Exception as e:
         raise RuntimeError(f"Échec embeddings/FAISS ({len(documents)} chunks) : {e}") from e
 
@@ -134,7 +121,6 @@ def create_index(documents: list[Document]) -> FAISS:
         raise RuntimeError(f"Sauvegarde FAISS impossible dans {INDEX_PATH} : {e}") from e
 
     save_chunk_config()
-    gc.collect()
 
     # Index BM25 jumeau
     try:
@@ -142,7 +128,6 @@ def create_index(documents: list[Document]) -> FAISS:
     except Exception as e:
         logger.warning(f"Construction BM25 ignorée (non bloquant) : {e}", exc_info=True)
 
-    gc.collect()
     return vectorstore
 
 

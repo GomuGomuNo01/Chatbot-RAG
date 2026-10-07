@@ -31,14 +31,10 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 
-# Plafond de pages PDF traité par fichier (plan Render free = 512 Mo).
-# Au-delà, les pages suivantes sont ignorées et un warning est propagé.
-# Budget mémoire approximatif :
-#   Python + FastAPI + dépendances : ~180 Mo
-#   fastembed ONNX (bge-small float32) : ~130 Mo
-#   Marge pour documents + FAISS      : ~200 Mo
-# → 150 pages ≈ 150-300 chunks ≈ usage mémoire acceptable.
-MAX_PDF_PAGES = 150
+# Plafond de pages PDF traité par fichier.
+# Au-delà, les pages suivantes sont ignorées et un avertissement est propagé à l'utilisateur.
+# 500 pages ≈ 500-1000 chunks ≈ quelques centaines de Mo — bien en dessous des 16 GB disponibles.
+MAX_PDF_PAGES = 500
 
 # Notices de troncature collectées pendant le traitement — thread-safe.
 # Vidé par get_and_clear_truncation_notices() après chaque session d'indexation.
@@ -131,7 +127,7 @@ def extract_text_from_pdf(pdf_path: Path) -> list[dict]:
         doc = fitz.open(str(pdf_path))
         total_pages = len(doc)
 
-        # Plafonnement : évite les OOM sur plans à mémoire limitée (ex. Render free 512 Mo).
+        # Plafonnement : les PDFs très volumineux sont tronqués avec notification à l'utilisateur.
         truncated = total_pages > MAX_PDF_PAGES
         pages_to_process = min(total_pages, MAX_PDF_PAGES)
         if truncated:

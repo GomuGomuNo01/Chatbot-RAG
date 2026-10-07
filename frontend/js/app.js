@@ -777,7 +777,7 @@ class App {
     }
   }
 
-  _waitForIndexation(timeoutMs = 480000, onProgress = null) {
+  _waitForIndexation(timeoutMs = 1200000, onProgress = null) {
     return new Promise((resolve, reject) => {
       const isFr     = i18n.lang !== 'en';
       const deadline = Date.now() + timeoutMs;
@@ -789,8 +789,8 @@ class App {
           clearInterval(poll);
           reject(new Error(
             isFr
-              ? 'Délai dépassé (8 min). L\'indexation est peut-être encore en cours en arrière-plan.'
-              : 'Timeout (8 min). Indexation may still be running in the background.'
+              ? 'Délai dépassé (20 min). L\'indexation est peut-être encore en cours en arrière-plan. Vérifiez /api/index/status.'
+              : 'Timeout (20 min). Indexation may still be running in the background. Check /api/index/status.'
           ));
           return;
         }
@@ -1020,7 +1020,7 @@ class App {
           i18n.lang !== 'en' ? 'Indexation lancée en arrière-plan…' : 'Indexation started in background…',
           'active'
         );
-        const status = await this._waitForIndexation(480000, s => this._updateReindexModalStatus(s));
+        const status = await this._waitForIndexation(1200000, s => this._updateReindexModalStatus(s));
         this._finishReindexModal(status);
       } else {
         this._finishReindexModal({ chunks: result.total_chunks, files: result.total_files });
@@ -1134,7 +1134,7 @@ class App {
         isFr ? 'Indexation lancée en arrière-plan…' : 'Indexation started in background…',
         'active'
       );
-      const status = await this._waitForIndexation(480000, s => this._updateReindexModalStatus(s));
+      const status = await this._waitForIndexation(1200000, s => this._updateReindexModalStatus(s));
       this._finishReindexModal(status);
       await Promise.all([this._loadDocuments(), this._loadWorkspaces()]);
       await this._checkHealth();

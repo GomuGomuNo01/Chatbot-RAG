@@ -4,7 +4,6 @@ Embedder : génération des embeddings via fastembed (ONNX, sans PyTorch).
 Deux modes :
   1. Production / Local (défaut) : fastembed.TextEmbedding
        → ONNX runtime, ~37 MB pour BAAI/bge-small-en-v1.5, 0 PyTorch
-       → Idéal pour Render free (512 MB RAM)
   2. Fallback : HuggingFaceEmbeddings (sentence-transformers)
        → déclenché si fastembed n'est pas installé
        → nécessite sentence-transformers + PyTorch (dev local uniquement)
@@ -31,24 +30,21 @@ _IS_E5_MODEL = "e5" in EMBEDDING_MODEL.lower()
 class _FastEmbedEmbeddings(Embeddings):
     """
     Embeddings via fastembed.TextEmbedding (ONNX runtime).
-    Compatible Render free plan (512 MB RAM) — pas de PyTorch.
+    Pas de PyTorch — inférence CPU optimisée via ONNX Runtime.
     """
 
     def __init__(self, model_name: str) -> None:
         from fastembed import TextEmbedding
 
-        # threads=1 : limite le parallélisme interne de l'ONNX Runtime.
-        # Réduit la consommation mémoire (moins de buffers d'activation simultanés)
-        # au détriment d'une vitesse d'inférence légèrement plus lente.
-        self._model = TextEmbedding(model_name=model_name, threads=1)
-        logger.info(f"fastembed initialisé : {model_name} (threads=1, batch=16)")
+        # threads non spécifié : ONNX Runtime utilise tous les cœurs disponibles.
+        self._model = TextEmbedding(model_name=model_name)
+        logger.info(f"fastembed initialisé : {model_name} (batch=64)")
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
         prefixed = [f"passage: {t}" for t in texts] if _IS_E5_MODEL else texts
-        # batch_size=16 : réduit la mémoire de travail ONNX par rapport à 32
-        return [list(map(float, v)) for v in self._model.embed(prefixed, batch_size=16)]
+        return [list(map(float, v)) for v in self._model.embed(prefixed, batch_size=64)]
 
     def embed_query(self, text: str) -> list[float]:
         prefixed = f"query: {text}" if _IS_E5_MODEL else text

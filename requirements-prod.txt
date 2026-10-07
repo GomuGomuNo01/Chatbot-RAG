@@ -2,32 +2,32 @@
 # En production, les embeddings passent par l'API HuggingFace (HF_TOKEN requis).
 
 # LLM & RAG
-langchain==1.2.18
-langchain-anthropic>=0.3.0
-langchain-community==0.4.1
+langchain==1.4.3
+langchain-anthropic>=1.7.5
+langchain-community==0.4.2
 langchain-core
 langchain-text-splitters
 
 # Vector store
-faiss-cpu==1.13.2
+faiss-cpu==1.14.2
 
 # Parsing de documents
 PyMuPDF==1.27.2.3
 python-docx==1.2.0
 
 # Backend
-fastapi==0.136.1
-uvicorn==0.46.0
-python-multipart==0.0.28
-pydantic==2.13.4
-pydantic-settings==2.14.1
+fastapi==0.141.1
+uvicorn==0.54.0
+python-multipart==0.0.30
+pydantic==2.13.5
+pydantic-settings==2.15.0
 
 # Stockage externe — REQUIS pour la persistance R2 sur Render
-boto3==1.43.6
+boto3==1.43.107
 
 # Embeddings ONNX — sans PyTorch, compatible Render free (512 MB)
-fastembed>=0.4.0
+fastembed>=0.8.1
 
 # Utilitaires
-python-dotenv==1.2.2
-tqdm==4.67.3
+python-dotenv==1.2.4
+tqdm==4.68.1
