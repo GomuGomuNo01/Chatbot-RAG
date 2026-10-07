@@ -2,7 +2,7 @@
 hf_store.py — Synchronisation de l'index FAISS avec HuggingFace Hub
 
 L'index FAISS est sauvegardé dans un dépôt de type "dataset" privé sur HF Hub.
-Cela garantit sa persistance entre les redémarrages de l'instance Render.
+Cela garantit sa persistance entre les redémarrages du Space.
 
 Fichiers synchronisés :
   faiss_index/index.faiss   — vecteurs FAISS

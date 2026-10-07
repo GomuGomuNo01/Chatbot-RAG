@@ -14,6 +14,9 @@ __pycache__/
 data/
 docs/
 
+# Vidéo de présentation du README, inutile dans l'image
+assets/
+
 # Index FAISS local — reconstruit au démarrage depuis HF Hub
 # (si committé dans git, supprimer les lignes ci-dessus)
 # data/faiss_index/

@@ -17,9 +17,11 @@ __pycache__/
 *.pyd
 .pytest_cache/
 
-# Index FAISS — généré automatiquement, non versionné
-# Reconstruit au démarrage depuis les documents R2 (ou pull depuis HF Hub)
+# Données générées — non versionnées (reconstruit à l'exécution)
 data/faiss_index/
+data/bm25_index.pkl
+data/response_cache.json
+data/daily_limits.json
 
 # PDFs (trop lourds pour Git)
 docs/
