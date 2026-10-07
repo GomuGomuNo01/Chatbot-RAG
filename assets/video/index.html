@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DocAssist : présentation vidéo</title>
+  <meta name="description" content="DocAssist en 40 secondes : l'assistant qui lit vos documents et répond, sources à l'appui.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='16' fill='%23C2410C'/><text x='50' y='70' font-family='system-ui' font-size='60' font-weight='800' text-anchor='middle' fill='white'>D</text></svg>">
+  <style>
+    :root {
+      --bg: #12100A;
+      --surface: #1C1810;
+      --line: #3A3224;
+      --text: #F5F0E8;
+      --muted: #A89880;
+      --accent: #EA580C;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 50% 30%, rgba(234, 88, 12, 0.16), transparent 60%), var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px;
+    }
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+    .logo {
+      width: 44px; height: 44px; border-radius: 9px; background: #C2410C;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 24px; color: #fff;
+    }
+    h1 { font-size: clamp(1.6rem, 4vw, 2.2rem); margin: 0; letter-spacing: -0.5px; }
+    p.lead { color: var(--muted); margin: 0 0 28px; text-align: center; }
+    .player {
+      width: 100%; max-width: 1100px;
+      border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+      background: #000; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+    }
+    video { display: block; width: 100%; height: auto; }
+    nav { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 28px; }
+    nav a {
+      color: var(--text); text-decoration: none; padding: 12px 22px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--surface); font-weight: 600;
+    }
+    nav a.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    nav a:hover, nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo" aria-hidden="true">D</div>
+    <h1>DocAssist en 40 secondes</h1>
+  </header>
+  <p class="lead">L'assistant qui lit vos documents à votre place et vous répond, sources à l'appui.</p>
+
+  <div class="player">
+    <video controls playsinline preload="metadata" poster="presentation-poster.jpg">
+      <source src="DocAssist_presentation.mp4" type="video/mp4">
+      Votre navigateur ne lit pas cette vidéo : <a href="DocAssist_presentation.mp4">la télécharger</a>.
+    </video>
+  </div>
+
+  <nav>
+    <a class="primary" href="https://gomugomuno01-chatbot-rag.hf.space">Essayer la démo en ligne</a>
+    <a href="https://github.com/GomuGomuNo01/Chatbot-RAG">Voir le code sur GitHub</a>
+  </nav>
+</body>
+</html>

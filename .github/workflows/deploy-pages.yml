@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
+      - "assets/video/**"
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:   # déclenchement manuel possible
 
@@ -31,10 +32,16 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v6
 
-      - name: Upload frontend/ as Pages artifact
+      - name: Assemble site (frontend + presentation page)
+        run: |
+          mkdir -p _site/presentation
+          cp -r frontend/. _site/
+          cp assets/video/index.html assets/video/DocAssist_presentation.mp4 assets/video/presentation-poster.jpg _site/presentation/
+
+      - name: Upload site as Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: frontend/
+          path: _site/
 
       - name: Deploy to GitHub Pages
         id: deployment
