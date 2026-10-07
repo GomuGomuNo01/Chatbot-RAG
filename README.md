@@ -27,16 +27,16 @@ réel de **10 PDF (6 728 pages)** et vérifié par **53 tests automatisés**.
 
 [![Essayer la démo en ligne](https://img.shields.io/badge/Essayer%20la%20d%C3%A9mo-en%20ligne%2C%20sans%20installation-C2410C?style=for-the-badge)](https://gomugomuno01-chatbot-rag.hf.space)
 [![Explorer l’API](https://img.shields.io/badge/Explorer%20l%E2%80%99API-documentation%20Swagger-1C1109?style=for-the-badge)](https://gomugomuno01-chatbot-rag.hf.space/docs)
-[![Voir la présentation](https://img.shields.io/badge/Voir%20la%20pr%C3%A9sentation-vid%C3%A9o%20de%2040%20s-7C3AED?style=for-the-badge)](assets/video/DocAssist_presentation.mp4)
+[![Voir la présentation](https://img.shields.io/badge/Voir%20la%20pr%C3%A9sentation-vid%C3%A9o%20de%2040%20s-7C3AED?style=for-the-badge)](https://gomugomuno01.github.io/Chatbot-RAG/presentation/)
 
 *Présentation : l’application et son fonctionnement en 40 secondes de motion design, sur une
 musique originale. Démo : l’application complète, hébergée gratuitement sur HuggingFace Spaces ;
 si elle était en veille, elle peut mettre quelques instants à démarrer. API : toutes les routes
 documentées et testables depuis le navigateur.*
 
-[![Présentation vidéo de DocAssist, 40 secondes](assets/video/presentation-poster.jpg)](assets/video/DocAssist_presentation.mp4)
+[![Présentation vidéo de DocAssist, 40 secondes](assets/video/presentation-poster.jpg)](https://gomugomuno01.github.io/Chatbot-RAG/presentation/)
 
-*La présentation vidéo (40 s, 1080p, avec le son) : cliquer sur l’image pour la regarder. Elle
+*La présentation vidéo (40 s, 1080p, avec le son) : cliquer sur l’image pour la regarder dans la page « Présentation » publiée sur GitHub Pages. Elle
 montre le problème, puis les quatre étapes d’une question (import, question, recherche, réponse
 sourcée), le refus d’inventer et les avantages. Elle a été animée image par image avec Remotion ;
 sa musique et ses bruitages ont été synthétisés pour elle, calés sur chaque changement de scène,
@@ -325,7 +325,7 @@ API n’est nécessaire.
 ## 9. Découvrir le produit
 
 ▶ **[Essayer la démo en ligne](https://gomugomuno01-chatbot-rag.hf.space)**,
-🎬 **[voir la présentation vidéo](assets/video/DocAssist_presentation.mp4)** (40 s), ou
+🎬 **[voir la présentation vidéo](https://gomugomuno01.github.io/Chatbot-RAG/presentation/)** (40 s), ou
 📖 **[explorer l’API](https://gomugomuno01-chatbot-rag.hf.space/docs)**.
 
 | Zone de l’interface | Ce qu’on y fait |
@@ -449,7 +449,7 @@ Chatbot-RAG/
 │   ├── schemas.py            Formats des requêtes et des réponses
 │   └── routes/               chat.py, documents.py, health.py
 ├── frontend/                 Interface web bilingue (HTML, CSS, JavaScript)
-├── assets/video/             Présentation vidéo (MP4) et son image d’aperçu
+├── assets/video/             Présentation vidéo (MP4), son aperçu et sa page web (GitHub Pages)
 ├── tests/                    Tests hors ligne (pytest)
 ├── ingest.py                 Indexation en ligne de commande
 ├── reset.py                  Remise à zéro complète (local, R2, HuggingFace Hub)
