@@ -21,6 +21,11 @@ updates:
         patterns:
           - "pytest*"
           - "httpx"
+    ignore:
+      # langchain-huggingface (1.2.3 incluse) exige huggingface-hub < 2.0.0 :
+      # retirer cette règle quand une version compatible avec la 2.x sortira.
+      - dependency-name: "huggingface_hub"
+        versions: [">=2.0.0"]
 
   # ── Actions GitHub ─────────────────────────────────────────
   - package-ecosystem: github-actions
