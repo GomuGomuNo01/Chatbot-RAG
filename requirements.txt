@@ -23,7 +23,7 @@ pydantic-settings==2.15.0
 
 # Stockage externe
 boto3==1.43.107
-huggingface_hub>=1.14.0
+huggingface_hub>=2.2.0
 
 # Utilitaires
 python-dotenv==1.2.4
