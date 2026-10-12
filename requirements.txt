@@ -1,8 +1,8 @@
 # LLM & RAG
-langchain==1.4.3
+langchain==1.4.4
 langchain-anthropic>=1.7.5
 langchain-community==0.4.2
-langchain-huggingface==1.2.2
+langchain-huggingface==1.2.3
 
 # Embeddings locaux
 sentence-transformers==6.0.1
