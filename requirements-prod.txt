@@ -9,7 +9,7 @@ langchain-core
 langchain-text-splitters
 
 # Vector store
-faiss-cpu==1.14.2
+faiss-cpu==1.15.1
 
 # Parsing de documents
 PyMuPDF==1.27.2.3
