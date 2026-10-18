@@ -232,7 +232,17 @@ app.include_router(health.router, prefix="/api", tags=["Santé"])
 app.include_router(documents.router, prefix="/api", tags=["Documents & Workspaces"])
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
 
+
+class RevalidatedStaticFiles(StaticFiles):
+    """Sans Cache-Control, les navigateurs gardaient des semaines un index.html périmé après un déploiement."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Frontend statique
 frontend_dir = Path(__file__).parent.parent / "frontend"
 if frontend_dir.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="static")
+    app.mount("/", RevalidatedStaticFiles(directory=str(frontend_dir), html=True), name="static")
