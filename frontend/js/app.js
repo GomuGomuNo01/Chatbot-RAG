@@ -513,6 +513,9 @@ class App {
 
     this._showPanelCategory();
     await this._renderWorkspaceRadios();
+    const keys = this._workspaces.map(ws => ws.key);
+    if (keys.includes(this.selectedWorkspace)) this._selectUploadWorkspace(this.selectedWorkspace);
+    else if (keys.length === 1) this._selectUploadWorkspace(keys[0]);
     document.getElementById('uploadModal').hidden = false;
     document.body.classList.add('modal-open');
   }
@@ -598,9 +601,18 @@ class App {
     group.querySelectorAll('input[name="uploadCat"]').forEach(radio => {
       radio.addEventListener('change', e => {
         this._uploadWorkspace = e.target.value;
+        document.getElementById('uploadFeedback').hidden = true;
         this._refreshSubmitBtn();
       });
     });
+  }
+
+  _selectUploadWorkspace(key) {
+    const radio = [...document.querySelectorAll('input[name="uploadCat"]')].find(r => r.value === key);
+    if (!radio) return;
+    radio.checked = true;
+    this._uploadWorkspace = key;
+    this._refreshSubmitBtn();
   }
 
   async _handleCreateWorkspace() {
@@ -624,6 +636,7 @@ class App {
       this._showFeedback(i18n.t('newws.success', { label }), 'ok');
       this._showPanelCategory();
       await this._renderWorkspaceRadios();
+      this._selectUploadWorkspace(key);
       this._renderWorkspaceSidebar();
     } catch (err) {
       this._showFeedback(`⚠️ ${err.message}`, 'warn');
@@ -675,13 +688,17 @@ class App {
     });
   }
 
+  // Le bouton reste cliquable sans workspace : le clic explique quoi faire au lieu de ne rien faire.
   _refreshSubmitBtn() {
-    document.getElementById('submitUploadBtn').disabled =
-      this._uploadFiles.length === 0 || !this._uploadWorkspace;
+    document.getElementById('submitUploadBtn').disabled = this._uploadFiles.length === 0;
   }
 
   async _handleUpload() {
-    if (!this._uploadWorkspace) { this._showFeedback(i18n.t('upload.err.nows'), 'warn'); return; }
+    if (!this._uploadWorkspace) {
+      this._showFeedback(`⚠️ ${i18n.t('upload.err.nows')}`, 'warn');
+      document.getElementById('panelCategory').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
     if (!this._uploadFiles.length) { this._showFeedback(i18n.t('upload.err.nofiles'), 'warn'); return; }
 
     const overlay   = document.getElementById('uploadOverlay');
