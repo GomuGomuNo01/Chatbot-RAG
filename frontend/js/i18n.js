@@ -61,7 +61,7 @@ const TRANSLATIONS = {
     'upload.partial':     '⚠️ {ok} indexé(s), {err} erreur(s).',
     'upload.bg.error':    'Erreur lors de l\'indexation :',
     'upload.err.nofiles': 'Sélectionnez au moins un fichier.',
-    'upload.err.nows':    'Choisissez un workspace.',
+    'upload.err.nows':    'Choisissez d’abord un workspace à l’étape 1, puis relancez l’indexation.',
     'upload.file.toobig': '⚠️ « {name} » ({size}) dépasse la limite de 50 Mo.',
 
     /* ── Nouveau workspace ── */
@@ -156,7 +156,7 @@ const TRANSLATIONS = {
     'upload.partial':     '⚠️ {ok} indexed, {err} error(s).',
     'upload.bg.error':    'Indexation error:',
     'upload.err.nofiles': 'Please select at least one file.',
-    'upload.err.nows':    'Please choose a workspace.',
+    'upload.err.nows':    'Choose a workspace in step 1 first, then start indexing again.',
     'upload.file.toobig': '⚠️ « {name} » ({size}) exceeds the 50 MB limit.',
 
     /* ── New workspace ── */
