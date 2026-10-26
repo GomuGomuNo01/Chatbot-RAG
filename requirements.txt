@@ -1,5 +1,5 @@
 # LLM & RAG
-langchain==1.4.6
+langchain==1.4.7
 langchain-anthropic>=1.7.6
 langchain-community==0.4.2
 langchain-huggingface==1.2.3
