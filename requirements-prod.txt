@@ -3,7 +3,7 @@
 
 # LLM & RAG
 langchain==1.4.7
-langchain-anthropic>=1.7.6
+langchain-anthropic>=1.7.7
 langchain-community==0.4.2
 langchain-core
 langchain-text-splitters
