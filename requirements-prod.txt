@@ -26,7 +26,7 @@ pydantic-settings==2.16.2
 boto3==1.43.114
 
 # Embeddings ONNX — sans PyTorch, compatible Render free (512 MB)
-fastembed>=0.9.0
+fastembed>=0.9.1
 
 # Utilitaires
 python-dotenv==1.2.4
